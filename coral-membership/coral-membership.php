@@ -6,6 +6,23 @@
  * Author: Coral Reef Research Hub
  */
 
+///////////////////////////////////////////////
+// Minimal checkout page URL (app-only view) //
+///////////////////////////////////////////////
+function coral_app_checkout_base_url() {
+  // Try to find a page with slug "app-checkout"
+  if (function_exists('get_page_by_path')) {
+    $p = get_page_by_path('app-checkout');
+    if ($p) {
+      $url = get_permalink($p);
+      if ($url) return $url;
+    }
+  }
+
+  return home_url('/app-checkout/');
+}
+
+
 // ---------------------------------------------
 // Helper: fetch benefits ONLY from WP (ACF/Option)
 // ---------------------------------------------
@@ -123,7 +140,6 @@ add_action('rest_api_init', function () {
   register_rest_route('coral/v1', '/levels', [
     'methods'  => 'GET',
     'callback' => function () {
-      // Targeting Paid Memberships Pro
       if (!function_exists('pmpro_getAllLevels')) {
         return new WP_REST_Response(['levels' => []], 200);
       }
@@ -131,24 +147,29 @@ add_action('rest_api_init', function () {
       $levels = pmpro_getAllLevels(true, true);
       $out = [];
 
+      // Resolve the minimal checkout page once
+      $minimal_base = coral_app_checkout_base_url(); // e.g. https://site.com/app-checkout/
+
       foreach ($levels as $lvl) {
-        // Prefer recurring amount for the big price; else initial payment
+        // Price to show big (prefer recurring)
         $amount_for_badge = ($lvl->billing_amount > 0) ? $lvl->billing_amount : $lvl->initial_payment;
         $price = '$' . number_format((float)$amount_for_badge, 2);
 
-        // Note: cadence if recurring, else Free / One-time
-        $note = '';
+        // Note text
         if ($lvl->billing_amount > 0 && !empty($lvl->cycle_number) && !empty($lvl->cycle_period)) {
-          $note = sprintf(
-            '$%s per %s.',
-            number_format((float)$lvl->billing_amount, 2),
-            ucfirst($lvl->cycle_period)
-          );
+          $note = sprintf('$%s per %s.', number_format((float)$lvl->billing_amount, 2), ucfirst($lvl->cycle_period));
         } elseif ((float)$lvl->initial_payment === 0.0) {
           $note = 'Free';
-        } elseif ($lvl->initial_payment > 0) {
+        } else {
           $note = sprintf('One-time $%s.', number_format((float)$lvl->initial_payment, 2));
         }
+
+        // Build checkout URL, preferring the minimal page
+        $checkout_url = add_query_arg(
+          'level',
+          (int) $lvl->id,
+          $minimal_base ?: pmpro_url('checkout')
+        );
 
         $out[] = [
           'id'               => (int) $lvl->id,
@@ -157,9 +178,9 @@ add_action('rest_api_init', function () {
           'note'             => $note,
           'description'      => wp_strip_all_tags($lvl->description),
           'benefits'         => coral_membership_get_benefits($lvl->id),
-          'checkout_url'     => add_query_arg('level', $lvl->id, pmpro_url('checkout')),
+          'checkout_url'     => $checkout_url,
 
-          // Raw fields in case you want logic in the app
+          // Raw fields if needed client-side
           'recurring_amount' => (float) $lvl->billing_amount,
           'initial_payment'  => (float) $lvl->initial_payment,
           'cycle_period'     => $lvl->cycle_period,
@@ -169,6 +190,6 @@ add_action('rest_api_init', function () {
 
       return new WP_REST_Response(['levels' => array_values($out)], 200);
     },
-    'permission_callback' => '__return_true', // public
+    'permission_callback' => '__return_true',
   ]);
 });
