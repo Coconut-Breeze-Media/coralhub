@@ -14,18 +14,32 @@ export class ApiError extends Error {
   }
 }
 
+// ---------- helpers ----------
+function stripHtml(raw: string): string {
+  return raw?.replace?.(/<[^>]+>/g, '').trim?.() ?? '';
+}
+
 async function assertOk(res: Response) {
-  if (!res.ok) {
+  if (res.ok) return res;
+
+  // Read from a clone so the original response body remains readable
+  const copy = res.clone();
+  let msg = `HTTP ${res.status}`;
+
+  try {
+    const data = await copy.json();
+    const raw = data?.message ?? data?.error ?? JSON.stringify(data);
+    msg = stripHtml(String(raw));
+  } catch {
     try {
-      const data = await res.json();
-      const msg = data?.message || data?.error || JSON.stringify(data);
-      throw new ApiError(msg || `HTTP ${res.status}`, res.status);
+      const text = await copy.text();
+      msg = stripHtml(String(text));
     } catch {
-      const text = await res.text();
-      throw new ApiError(text || `HTTP ${res.status}`, res.status);
+      // ignore; keep default msg
     }
   }
-  return res;
+
+  throw new ApiError(msg, res.status);
 }
 
 function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit, ms = 15000) {
@@ -34,7 +48,7 @@ function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit, ms = 150
   return fetch(input, { ...init, signal: ctrl.signal }).finally(() => clearTimeout(id));
 }
 
-// ---- Types ----
+// ---------- types ----------
 export type JWTPayload = {
   token: string;
   user_email: string;
@@ -46,18 +60,18 @@ export type MembershipResp = { is_member: boolean; user_id?: number; roles?: str
 export type WPPage = { id: number; slug: string; content: { rendered: string } };
 export type WPPost = { id: number; date: string; title: { rendered: string }; excerpt?: { rendered: string }; _embedded?: any };
 
-// ---- Auth ----
+// ---------- auth ----------
 export async function wpLogin(username: string, password: string): Promise<JWTPayload> {
   const res = await fetchWithTimeout(`${API}/jwt-auth/v1/token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username, password }),
   });
-  await assertOk(res);
-  return res.json();
+  await assertOk(res);       // throws ApiError with clean message if not OK
+  return res.json();         // safe: body not consumed by assertOk
 }
 
-// ---- Taxonomies → IDs ----
+// ---------- taxonomies ----------
 export async function getCategoryIdBySlug(slug: string): Promise<number | null> {
   const res = await fetchWithTimeout(`${API}/wp/v2/categories?slug=${encodeURIComponent(slug)}`);
   await assertOk(res);
@@ -72,16 +86,14 @@ export async function getTagIdBySlug(slug: string): Promise<number | null> {
   return arr?.[0]?.id ?? null;
 }
 
-// ---- Posts: fetch posts with the newest at the top. ----
+// ---------- posts ----------
 export async function getPosts(page = 1): Promise<WPPost[]> {
-  const res = await fetchWithTimeout(
-    `${API}/wp/v2/posts?per_page=10&page=${page}&_embed=1`
-  );
+  const res = await fetchWithTimeout(`${API}/wp/v2/posts?per_page=10&page=${page}&_embed=1`);
   await assertOk(res);
   return res.json();
 }
 
-// ---- (Optional) helpers for card UI ----
+// ---------- UI helpers ----------
 export function getFeaturedImageUrl(post: WPPost): string | undefined {
   const media = post?._embedded?.['wp:featuredmedia']?.[0];
   return (
@@ -91,11 +103,12 @@ export function getFeaturedImageUrl(post: WPPost): string | undefined {
   );
 }
 
-export function stripHtml(html: string): string {
-  return html?.replace?.(/<[^>]+>/g, '').trim?.() ?? '';
+export function stripHtmlPublic(html: string): string {
+  // keep export for any callers already using it
+  return stripHtml(html);
 }
 
-// ---- Membership check (protected) ----
+// ---------- membership check (protected) ----------
 export async function getMembershipStatus(token: string): Promise<MembershipResp> {
   const res = await fetchWithTimeout(`${API}/coral/v1/membership`, {
     headers: { Authorization: `Bearer ${token}` },
@@ -104,7 +117,6 @@ export async function getMembershipStatus(token: string): Promise<MembershipResp
   return res.json();
 }
 
-
 // =========================
 // Membership Levels (public)
 // =========================
@@ -112,22 +124,17 @@ export type MembershipLevel = {
   id: number;
   name: string;
   price: string;        // e.g. "$29.99" or "$0"
-  note: string;         // e.g. "per Year." or "per Month." or "Free"
+  note: string;         // e.g. "$29.99 per Year." or "Free"
   description: string;  // short text from WP (stripped)
   benefits: string[];   // optional; empty if none
-  checkout_url: string; // full PMPro checkout URL
+  checkout_url: string; // PMPro checkout URL (our minimal page)
 };
 
-/**
- * Fetch membership levels from WP (/coral/v1/levels).
- * Returns a normalized array ready for rendering.
- */
 export async function getMembershipLevels(): Promise<MembershipLevel[]> {
   const res = await fetchWithTimeout(`${API}/coral/v1/levels`);
   await assertOk(res);
   const data = await res.json();
 
-  // Defensive normalization so the UI can rely on fields existing
   const list = Array.isArray(data?.levels) ? data.levels : [];
   return list.map((l: any) => ({
     id: Number(l?.id ?? 0),
@@ -142,4 +149,23 @@ export async function getMembershipLevels(): Promise<MembershipLevel[]> {
           `${WP}/membership-account/membership-checkout/?level=${Number(l?.id ?? 0)}`
       ),
   }));
+}
+
+// ---------- authedFetch + /users/me ----------
+export async function authedFetch<T = any>(path: string, token: string, init: RequestInit = {}) {
+  const res = await fetchWithTimeout(`${API}${path}`, {
+    ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(init.headers || {}),
+      Authorization: `Bearer ${token}`,
+    },
+  });
+  await assertOk(res);
+  return res.json() as Promise<T>;
+}
+
+export type WPUserMe = { id: number; name: string; email?: string; username?: string; roles?: string[] };
+export function getMe(token: string) {
+  return authedFetch<WPUserMe>('/wp/v2/users/me', token);
 }
