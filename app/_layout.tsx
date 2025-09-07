@@ -23,8 +23,8 @@ export default function RootLayout() {
         <Stack.Screen
           name="sign-in"
           options={{
-            title: ' ',
             headerShown: true,
+            headerTitle: '',
             headerLeft: () => <BackButton />,
           }}
         />
