@@ -209,27 +209,7 @@ export default function MembershipLevelsScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
-      {/* Header */}
-      <View
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          paddingHorizontal: 16,
-          paddingVertical: 10,
-          gap: 8,
-        }}
-      >
-        <TouchableOpacity
-          onPress={() => router.back()}
-          style={{ padding: 6 }}
-          accessibilityRole="button"
-          accessibilityLabel="Go back"
-        >
-          <Ionicons name="chevron-back" size={26} color="#111" />
-        </TouchableOpacity>
-        <Text style={{ fontSize: 20, fontWeight: '800', color: TEXT_DARK }}>Choose a plan</Text>
-      </View>
-
+      
       {/* Body */}
       <View style={{ flex: 1, paddingHorizontal: 16 }}>
         {loading ? (
@@ -251,6 +231,7 @@ export default function MembershipLevelsScreen() {
             keyExtractor={(item) => String(item.id)}
             renderItem={({ item }) => <LevelCard level={item} onSelect={openCheckout} />}
             contentContainerStyle={{
+              paddingTop: 12,
               paddingBottom: 16,
               maxWidth: 520,
               alignSelf: 'center',

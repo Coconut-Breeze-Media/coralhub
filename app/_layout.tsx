@@ -28,6 +28,14 @@ export default function RootLayout() {
             headerLeft: () => <BackButton />,
           }}
         />
+        <Stack.Screen
+          name="(auth)/membership-levels"
+          options={{
+            headerShown: true,
+            headerTitle: 'Choose a Plan',
+            headerLeft: () => <BackButton />,
+          }}
+        />
 
         {/* Add more stack screens here; they’ll inherit the header.
             If you want the back chevron on them too, add headerLeft: BackButton. */}

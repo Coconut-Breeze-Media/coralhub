@@ -28,9 +28,10 @@ add_filter('template_include', function($template){
 /** 3) Remove PMPro “Already have an account? Log in here” on the app-checkout page only */
 add_action('wp', function () {
   if (is_page('app-checkout')) {
-    remove_action('pmpro_checkout_boxes', 'pmpro_checkout_login_boxes');
+    // This specifically removes the small login link under the pricing fields
+    remove_action('pmpro_checkout_after_pricing_fields', 'pmpro_checkout_login_link');
   }
-});
+}, 20); // run after PMPro adds its hooks
 
 /** 4) On activation, create /app-checkout/ and assign our template */
 register_activation_hook(__FILE__, function () {
