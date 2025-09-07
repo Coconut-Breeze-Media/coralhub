@@ -169,3 +169,123 @@ export type WPUserMe = { id: number; name: string; email?: string; username?: st
 export function getMe(token: string) {
   return authedFetch<WPUserMe>('/wp/v2/users/me', token);
 }
+
+
+
+// ---------- BuddyPress Activity API ----------
+
+export type BPUser = {
+  id: number;
+  name: string;
+  avatar_urls?: { thumb?: string; full?: string };
+};
+
+export type BPActivity = {
+  id: number;
+  user_id: number;
+  component: string;
+  type: string;
+  date: string;
+  content?: { rendered?: string } | string;
+};
+
+export type BPMember = {
+  id: number;
+  name?: string;
+  avatar_urls?: { full?: string; thumb?: string };
+};
+
+export type ActivityItem = {
+  id: number;
+  user_id: number;
+  date: string;
+  html: string;
+};
+
+function decodeHtmlEntities(input: string): string {
+  return input
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&#8211;/g, '–')
+    .replace(/&#8217;/g, '’')
+    .replace(/&#8220;/g, '“')
+    .replace(/&#8221;/g, '”')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>');
+}
+
+export async function getActivity(page = 1, perPage = 20): Promise<ActivityItem[]> {
+  const res = await fetchWithTimeout(`${API}/buddypress/v1/activity?per_page=${perPage}&page=${page}`);
+  await assertOk(res);
+  const raw: BPActivity[] = await res.json();
+
+  return raw.map((a) => {
+    const rendered = typeof a.content === 'string' ? a.content : (a.content?.rendered ?? '');
+    return {
+      id: a.id,
+      user_id: a.user_id,
+      date: a.date,
+      html: decodeHtmlEntities(rendered),
+    };
+  });
+}
+
+// Helper to chunk arrays
+function chunk<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
+// Fetch members in chunks (safer than one huge request)
+export async function getMembersByIds(ids: number[]): Promise<Record<number, BPMember>> {
+  if (!ids.length) return {};
+  const uniq = Array.from(new Set(ids));
+  const groups = chunk(uniq, 20); // many BP installs default per_page=20
+
+  const map: Record<number, BPMember> = {};
+  for (const g of groups) {
+    const res = await fetchWithTimeout(
+      `${API}/buddypress/v1/members?include=${g.join(',')}&per_page=${g.length}`
+    );
+    await assertOk(res);
+    const list: BPMember[] = await res.json();
+    for (const m of list) map[m.id] = m;
+  }
+  return map;
+}
+
+// Create a new activity (needs JWT)
+export async function postActivity(status: string, token: string) {
+  return authedFetch('/buddypress/v1/activity', token, {
+    method: 'POST',
+    body: JSON.stringify({
+      content: status,
+      type: 'activity_update', // default “status” post
+    }),
+  });
+}
+
+// Favorite / Unfavorite (BuddyPress core)
+// If /unfavorite 404s on your stack, use the DELETE variation shown below.
+export async function favoriteActivity(id: number, token: string) {
+  return authedFetch(`/buddypress/v1/activity/${id}/favorite`, token, { method: 'POST' });
+}
+export async function unfavoriteActivity(id: number, token: string) {
+  return authedFetch(`/buddypress/v1/activity/${id}/unfavorite`, token, { method: 'POST' });
+  // Alternative some sites use:
+  // return authedFetch(`/buddypress/v1/activity/${id}/favorite`, token, { method: 'DELETE' });
+}
+
+// Replies
+export async function getActivityReplies(id: number, page = 1): Promise<BPActivity[]> {
+  const res = await fetchWithTimeout(`${API}/buddypress/v1/activity/${id}/replies?per_page=20&page=${page}`);
+  await assertOk(res);
+  return res.json();
+}
+export async function postActivityReply(id: number, content: string, token: string) {
+  return authedFetch(`/buddypress/v1/activity/${id}/replies`, token, {
+    method: 'POST',
+    body: JSON.stringify({ content }),
+  });
+}
