@@ -95,12 +95,7 @@ export default function WelcomeScreen() {
 
         {/* Register */}
         <TouchableOpacity
-          onPress={() =>
-            Linking.openURL(
-              process.env.EXPO_PUBLIC_JOIN_URL ??
-                'https://www.thecoralreefresearchhub.com/membership-account/membership-levels/'
-            )
-          }
+          onPress={() => router.push('/(auth)/membership-levels')}
           style={{
             borderWidth: 2,
             borderColor: PRIMARY,

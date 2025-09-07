@@ -103,3 +103,43 @@ export async function getMembershipStatus(token: string): Promise<MembershipResp
   await assertOk(res);
   return res.json();
 }
+
+
+// =========================
+// Membership Levels (public)
+// =========================
+export type MembershipLevel = {
+  id: number;
+  name: string;
+  price: string;        // e.g. "$29.99" or "$0"
+  note: string;         // e.g. "per Year." or "per Month." or "Free"
+  description: string;  // short text from WP (stripped)
+  benefits: string[];   // optional; empty if none
+  checkout_url: string; // full PMPro checkout URL
+};
+
+/**
+ * Fetch membership levels from WP (/coral/v1/levels).
+ * Returns a normalized array ready for rendering.
+ */
+export async function getMembershipLevels(): Promise<MembershipLevel[]> {
+  const res = await fetchWithTimeout(`${API}/coral/v1/levels`);
+  await assertOk(res);
+  const data = await res.json();
+
+  // Defensive normalization so the UI can rely on fields existing
+  const list = Array.isArray(data?.levels) ? data.levels : [];
+  return list.map((l: any) => ({
+    id: Number(l?.id ?? 0),
+    name: String(l?.name ?? ''),
+    price: String(l?.price ?? ''),
+    note: String(l?.note ?? ''),
+    description: String(l?.description ?? ''),
+    benefits: Array.isArray(l?.benefits) ? l.benefits.map((b: any) => String(b)) : [],
+    checkout_url:
+      String(
+        l?.checkout_url ??
+          `${WP}/membership-account/membership-checkout/?level=${Number(l?.id ?? 0)}`
+      ),
+  }));
+}
