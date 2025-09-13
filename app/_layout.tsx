@@ -37,8 +37,15 @@ export default function RootLayout() {
           }}
         />
 
-        {/* Add more stack screens here; they’ll inherit the header.
-            If you want the back chevron on them too, add headerLeft: BackButton. */}
+        {/* Replies thread */}
+        <Stack.Screen
+          name="replies/[id]"
+          options={{
+            headerShown: true,
+            headerTitle: 'Replies',
+            headerLeft: () => <BackButton />,
+          }}
+        />
       </Stack>
     </AuthProvider>
   );

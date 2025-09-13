@@ -200,6 +200,9 @@ export type ActivityItem = {
   user_id: number;
   date: string;
   html: string;
+  favorited?: boolean;
+  favorite_count?: number;
+  comment_count?: number;
 };
 
 function decodeHtmlEntities(input: string): string {
@@ -214,21 +217,87 @@ function decodeHtmlEntities(input: string): string {
     .replace(/&gt;/g, '>');
 }
 
-export async function getActivity(page = 1, perPage = 20): Promise<ActivityItem[]> {
-  const res = await fetchWithTimeout(`${API}/buddypress/v1/activity?per_page=${perPage}&page=${page}`);
+/** Promote lazy-load <img data-src="..."> to real src, and drop invalid images */
+function promoteDataSrcToSrc(html: string): string {
+  // Turn <img ... data-src="URL" ...> into <img ... src="URL" ...>
+  return html.replace(
+    /<img\b([^>]*?)\sdata-src=(['"])(.*?)\2([^>]*)>/gi,
+    (_m, pre, q, url, post) => `<img${pre} src=${q}${url}${q}${post}>`
+  );
+}
+
+function stripInvalidImgSrc(html: string): string {
+  // Remove <img> tags with src missing/empty/about:blank/javascript:# etc.
+  return html
+    // empty src
+    .replace(/<img\b[^>]*\ssrc=(['"])\s*\1[^>]*>/gi, '')
+    // about:blank or about://blank
+    .replace(/<img\b[^>]*\ssrc=(['"])\s*about:[^'"]*\1[^>]*>/gi, '')
+    // javascript: or #
+    .replace(/<img\b[^>]*\ssrc=(['"])\s*(?:javascript:[^'"]*|#)\1[^>]*>/gi, '');
+}
+
+/** One-stop sanitizer for BuddyPress/Youzify HTML before RenderHTML */
+export function sanitizeBuddyHtml(raw: string): string {
+  let html = decodeHtmlEntities(raw || '');
+  html = promoteDataSrcToSrc(html);
+  html = stripInvalidImgSrc(html);
+  return html;
+}
+
+export async function getActivity(
+  page = 1,
+  perPage = 20,
+  includeComments = false   // ← new flag
+): Promise<ActivityItem[]> {
+  const FEED_TYPES = ['activity_status', 'activity_update'].join(',');
+
+  let url =
+    `${API}/buddypress/v1/activity?per_page=${perPage}` +
+    `&page=${page}&type=${FEED_TYPES}&orderby=date_recorded&order=desc`;
+
+  // 👇 add this when you want replies embedded in the activity payload
+  if (includeComments) url += `&display_comments=stream`;
+
+  const res = await fetchWithTimeout(url);
   await assertOk(res);
   const raw: BPActivity[] = await res.json();
 
-  return raw.map((a) => {
-    const rendered = typeof a.content === 'string' ? a.content : (a.content?.rendered ?? '');
-    return {
-      id: a.id,
-      user_id: a.user_id,
-      date: a.date,
-      html: decodeHtmlEntities(rendered),
-    };
-  });
-}
+  const normalizeWhitespace = (s: string) =>
+    s.replace(/\r\n|\r|\n/g, '\n')
+      .replace(/[ \t]+/g, ' ')
+      .replace(/\n{3,}/g, '\n\n')
+        .trim();
+  return raw
+    .map((a: any) => {
+      const rendered = typeof a.content === 'string'
+        ? a.content
+        : (a.content?.rendered ?? '');
+
+      const html = sanitizeBuddyHtml(rendered); // 👈 sanitize here
+
+      const normalizeWhitespace = (s: string) =>
+        s.replace(/\r\n|\r|\n/g, '\n')
+        .replace(/[ \t]+/g, ' ')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+
+      const textForFilter = normalizeWhitespace(
+        html.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ')
+      );
+
+      return {
+        id: a.id,
+        user_id: a.user_id,
+        date: a.date,
+        html: textForFilter ? html : '',
+        favorited: a.favorited,
+        favorite_count: a.favorite_count,
+        comment_count: a.comment_count,
+      };
+    })
+    .filter(item => item.html.trim().length > 0);
+  }
 
 // Helper to chunk arrays
 function chunk<T>(arr: T[], size: number): T[][] {
