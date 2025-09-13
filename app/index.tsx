@@ -33,26 +33,16 @@ export default function WelcomeScreen() {
       >
         {/* Logo */}
         <Image
-          source={require('../assets/icon.png')}
-          style={{ width: 120, height: 120, resizeMode: 'contain' }}
+          // source={require('../assets/icon.png')}
+          source={require('../assets/Logo_Text_transparent.png')}
+          style={{ width: 120, height: 120, resizeMode: 'contain', transform: [{ scale: 2.5 }], }}
         />
 
-        {/* Site title */}
-        <Text
-          style={{
-            fontSize: 16,
-            fontWeight: '600',
-            color: '#0ea5e9',
-            textAlign: 'center',
-          }}
-        >
-          THE{'\n'}CORAL REEF{'\n'}RESEARCH HUB
-        </Text>
 
         {/* Headline */}
         <Text
           style={{
-            fontSize: 28,
+            fontSize: 20,
             fontWeight: '800',
             color: '#000',
             textAlign: 'center',
