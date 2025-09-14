@@ -1,9 +1,13 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import {
-  getActivity, getMembersByIds, postActivity,
-  favoriteActivity, unfavoriteActivity,
-  type ActivityItem, type BPMember,
-} from '../lib/api';
+  getActivity,
+  getMembersByIds,
+  postActivity,
+  favoriteActivity,
+  unfavoriteActivity,
+  type ActivityItem,
+  type BPMember,
+} from '../lib/api'; 
 import { useAuth } from '../lib/auth';
 
 export type HydratedActivity = ActivityItem & { member?: BPMember };

@@ -22,8 +22,8 @@ import {
   getMembersByIds,
   type BPActivity,
   type BPMember,
+  sanitizeBuddyHtml, 
 } from '../../lib/api';
-import { sanitizeBuddyHtml } from '../../lib/api';
 
 const BORDER  = '#e5e7eb';
 const PRIMARY = '#0077b6';

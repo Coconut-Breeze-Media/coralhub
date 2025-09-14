@@ -1,25 +1,29 @@
 // app/_layout.tsx
 import { Stack } from 'expo-router';
+import { useEffect } from 'react';
 import { AuthProvider } from '../lib/auth';
+import { detectBpRoutes } from "../lib/api/buddypress/routes";
 import BackButton from '../components/BackButton';
 
 export default function RootLayout() {
+  useEffect(() => {
+    // warm up + log what the server supports
+    detectBpRoutes()
+      .then((r) => console.log('[routes] detected:', r))
+      .catch((e) => console.warn('[routes] detection failed:', e));
+  }, []);
+
   return (
     <AuthProvider>
       <Stack
         screenOptions={{
           headerTitleAlign: 'center',
           headerShadowVisible: false,
-          headerBackVisible: false, // iOS: hide text next to back chevron
+          headerBackVisible: false,
         }}
       >
-        {/* Welcome: full-bleed, no header */}
         <Stack.Screen name="index" options={{ headerShown: false }} />
-
-        {/* Tabs group: it manages its own headers */}
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-
-        {/* Sign-in: show header with our back chevron */}
         <Stack.Screen
           name="sign-in"
           options={{
@@ -36,8 +40,6 @@ export default function RootLayout() {
             headerLeft: () => <BackButton />,
           }}
         />
-
-        {/* Replies thread */}
         <Stack.Screen
           name="replies/[id]"
           options={{

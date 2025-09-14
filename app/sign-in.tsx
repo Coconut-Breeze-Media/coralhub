@@ -17,7 +17,7 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import { useAuth } from '../lib/auth';   
-import { wpLogin } from '../lib/api';   
+import { wpLogin } from '../lib/api/auth'; 
 
 export const options = { headerShown: false }; // ← hide the default header
 
