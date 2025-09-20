@@ -10,3 +10,4 @@ export * from './membership';
 export * from './buddypress/activity';
 export * from './buddypress/replies';
 export * from './buddypress/sanitize'; 
+export * from './buddypress/likes';
