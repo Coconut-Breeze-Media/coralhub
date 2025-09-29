@@ -193,3 +193,5 @@ add_action('rest_api_init', function () {
     'permission_callback' => '__return_true',
   ]);
 });
+
+require_once __DIR__ . '/coral-tokens.php';

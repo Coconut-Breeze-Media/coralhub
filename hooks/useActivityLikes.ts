@@ -1,17 +1,19 @@
+// hooks/useActivityLikes.ts
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   favoriteActivity,
   unfavoriteActivity,
   getActivityLikers,
+  getActivityLikeCount,
   type BPMember,
   type ActivityItem,
 } from '../lib/api';
 import { useAuth } from '../lib/auth';
 
+const AVATAR_CAP = 12;
+
 export type UseActivityLikesOptions = {
-  /** Optional list of recent likers to seed the UI */
   initialLikers?: BPMember[];
-  /** Current user (for optimistic avatar insert/remove) */
   me?: BPMember | null;
 };
 
@@ -22,6 +24,7 @@ export type UseActivityLikesReturn = {
   error?: string;
   toggle(): Promise<void>;
   refreshLikers(): Promise<void>;
+  refreshCount(): Promise<void>;
   summaryText: string;
 };
 
@@ -36,29 +39,40 @@ export function useActivityLikes(
   const [likers, setLikers] = useState<BPMember[]>(opts.initialLikers ?? []);
   const [error, setError] = useState<string | undefined>(undefined);
 
-  const inFlightToggle = useRef(false);
-  const lastFetchId = useRef(0);
+  // lifecycle / race guards
+  const mountedRef = useRef(true);
+  useEffect(() => () => { mountedRef.current = false; }, []);
 
-  // Keep state in sync with upstream ActivityItem changes (e.g., refresh)
+  // in-flight guards
+  const inFlightToggle = useRef(false);
+  const likersAbortRef = useRef<AbortController | null>(null);
+  const countAbortRef = useRef<AbortController | null>(null);
+
+  // keep in sync with upstream refreshes
   useEffect(() => setLiked(!!item.favorited), [item.favorited]);
   useEffect(() => setCount(item.favorite_count ?? 0), [item.favorite_count]);
 
-  // Reset likers when the activity item changes (prevents mixing arrays across posts)
+  // ✅ FIX: only seed likers when the ACTIVITY changes
+  const lastSeededForId = useRef<number | null>(null);
   useEffect(() => {
-    setLikers(opts.initialLikers ?? []);
-    setError(undefined);
-  }, [item.id]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (lastSeededForId.current !== item.id) {
+      lastSeededForId.current = item.id;
+      setLikers(opts.initialLikers ?? []);
+      setError(undefined);
+    }
+    // NOTE: deliberately NOT depending on opts.initialLikers identity
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item.id]);
 
   const me = opts.me ?? null;
   const meId = me?.id;
 
-  /** Optimistically add/remove “me” to the first slot of likers */
   const applyMeOptimistic = useCallback(
     (nextLiked: boolean) => {
       if (!me) return;
       setLikers(prev => {
         const hasMe = prev.some(p => p.id === meId);
-        if (nextLiked && !hasMe) return [me, ...prev].slice(0, 6);
+        if (nextLiked && !hasMe) return [me, ...prev].slice(0, AVATAR_CAP);
         if (!nextLiked && hasMe) return prev.filter(p => p.id !== meId);
         return prev;
       });
@@ -66,43 +80,45 @@ export function useActivityLikes(
     [me, meId]
   );
 
-  /** Fetch likers from the server, if supported. Safe to call anytime. */
-  const refreshLikers = useCallback(async () => {
-    const fetchId = ++lastFetchId.current;
+  const abortAndSet = (ref: React.MutableRefObject<AbortController | null>) => {
+    ref.current?.abort();
+    const ctrl = new AbortController();
+    ref.current = ctrl;
+    return ctrl;
+  };
+
+  const refreshCount = useCallback(async () => {
+    const ctrl = abortAndSet(countAbortRef);
     try {
-      const list = await getActivityLikers(item.id, token ?? undefined);
-      // Ignore stale results
-      if (fetchId !== lastFetchId.current) return;
-      if (Array.isArray(list)) setLikers(list);
-      // If server returns *actual* list, prefer that count over our local one
-      if (Array.isArray(list) && list.length >= 0) {
-        setCount(c => (list.length > 0 ? list.length : c));
-      }
+      const n = await getActivityLikeCount(item.id, token ?? undefined);
+      if (!mountedRef.current || ctrl.signal.aborted) return;
+      setCount(n);
     } catch {
-      // getActivityLikers is already “no-throw”; nothing to do
+      /* ignore */
     }
   }, [item.id, token]);
 
-  // Initial likers fetch (once per item or token change)
-  useEffect(() => {
-    let cancel = false;
-    (async () => {
-      const fid = ++lastFetchId.current;
-      try {
-        const list = await getActivityLikers(item.id, token ?? undefined);
-        if (cancel || fid !== lastFetchId.current) return;
-        if (Array.isArray(list)) setLikers(list);
-        if (Array.isArray(list) && list.length >= 0) {
-          setCount(c => (list.length > 0 ? list.length : c));
-        }
-      } catch {
-        /* ignore */
-      }
-    })();
-    return () => { cancel = true; };
+  const refreshLikers = useCallback(async () => {
+    const ctrl = abortAndSet(likersAbortRef);
+    try {
+      const list = await getActivityLikers(item.id, token ?? undefined);
+      if (!mountedRef.current || ctrl.signal.aborted) return;
+      if (Array.isArray(list)) setLikers(list);
+    } catch {
+      /* ignore */
+    }
   }, [item.id, token]);
 
-  /** Toggle like/unlike with optimistic UI + rollback on failure */
+  // initial fetch: do both in parallel (on id change)
+  useEffect(() => {
+    refreshLikers();
+    refreshCount();
+    return () => {
+      likersAbortRef.current?.abort();
+      countAbortRef.current?.abort();
+    };
+  }, [refreshLikers, refreshCount]);
+
   const toggle = useCallback(async () => {
     if (inFlightToggle.current) return;
 
@@ -116,23 +132,19 @@ export function useActivityLikes(
 
     const nextLiked = !liked;
 
-    // Optimistic UI
+    // optimistic UI
     setLiked(nextLiked);
     setCount(c => Math.max(0, c + (nextLiked ? 1 : -1)));
     applyMeOptimistic(nextLiked);
 
     try {
-      if (nextLiked) {
-        await favoriteActivity(item.id, token);
-      } else {
-        await unfavoriteActivity(item.id, token);
-      }
+      if (nextLiked) await favoriteActivity(item.id, token);
+      else await unfavoriteActivity(item.id, token);
 
-      // Optional: re-sync likers from server (if supported) to avoid drift
-      // Don’t block the UI; fire and forget
-      refreshLikers().catch(() => {});
+      void refreshLikers();
+      void refreshCount();
     } catch (e) {
-      // Rollback
+      // rollback
       setLiked(!nextLiked);
       setCount(c => Math.max(0, c + (nextLiked ? -1 : 1)));
       applyMeOptimistic(!nextLiked);
@@ -140,16 +152,12 @@ export function useActivityLikes(
     } finally {
       inFlightToggle.current = false;
     }
-  }, [token, liked, item.id, applyMeOptimistic, refreshLikers]);
+  }, [token, liked, item.id, applyMeOptimistic, refreshLikers, refreshCount]);
 
-  /** Human-friendly summary like the website */
   const summaryText = useMemo(() => {
     if (count <= 0) return '';
-    const names = likers.map(l => l.name).filter(Boolean) as string[];
-
-    // Prefer “You” if current user liked
+    const names = (likers || []).map(l => l.name).filter(Boolean) as string[];
     if (me && liked && !names.includes('You')) names.unshift('You');
-
     const uniq = Array.from(new Set(names));
     if (uniq.length === 0) return count === 1 ? 'liked this' : `${count} people liked this`;
     if (uniq.length === 1) return `${uniq[0]} liked this`;
@@ -158,5 +166,5 @@ export function useActivityLikes(
     return `${uniq[0]}, ${uniq[1]}${others ? `, and ${others} others` : ''} liked this`;
   }, [count, likers, liked, me]);
 
-  return { liked, count, likers, error, toggle, refreshLikers, summaryText };
+  return { liked, count, likers, error, toggle, refreshLikers, refreshCount, summaryText };
 }

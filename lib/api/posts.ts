@@ -1,11 +1,32 @@
-import { API } from './env';
+/**
+ * posts.ts
+ * -----------------------------------------------------------------------------
+ * Purpose
+ *  - Fetch WordPress posts with embedded media.
+ *  - Provide helpers to extract featured image URLs.
+ * Behavior
+ *  - GETs are abortable via AbortSignal.
+ * -----------------------------------------------------------------------------
+ */
+
 import { assertOk, fetchWithTimeout } from './http';
+import { buildApiUrl } from './utils';
 import type { WPPost } from './types';
 
-export async function getPosts(page = 1): Promise<WPPost[]> {
-  const res = await fetchWithTimeout(`${API}/wp/v2/posts?per_page=10&page=${page}&_embed=1`);
-  await assertOk(res);
-  return res.json();
+export async function getPosts(
+  page = 1,
+  perPage = 10,
+  signal?: AbortSignal
+): Promise<WPPost[]> {
+  const url = buildApiUrl('/wp/v2/posts', {
+    per_page: perPage,
+    page,
+    _embed: 1,
+  });
+
+  const res = await fetchWithTimeout(url, { signal });
+  await assertOk(res, { url, method: 'GET' });
+  return res.json() as Promise<WPPost[]>;
 }
 
 export function getFeaturedImageUrl(post: WPPost): string | undefined {

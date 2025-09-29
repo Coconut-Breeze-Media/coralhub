@@ -6,8 +6,10 @@ export * from './auth';
 export * from './taxonomies';
 export * from './posts';
 export * from './membership';
+export * from './utils';
 
 export * from './buddypress/activity';
 export * from './buddypress/replies';
 export * from './buddypress/sanitize'; 
 export * from './buddypress/likes';
+export * from './buddypress/routes';

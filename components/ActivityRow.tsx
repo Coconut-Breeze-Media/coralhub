@@ -1,13 +1,8 @@
 // components/ActivityRow.tsx
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useCallback } from 'react';
 import {
-  View,
-  Text,
-  TouchableOpacity,
-  Image,
-  TextInput,
-  ActivityIndicator,
-  Linking,
+  View, Text, TouchableOpacity, Image, TextInput, ActivityIndicator, Linking,
+  Modal, FlatList
 } from 'react-native';
 import RenderHTML from 'react-native-render-html';
 import type { HydratedActivity } from '../hooks/useActivityFeed';
@@ -23,7 +18,7 @@ const MUTED   = '#6b7280';
 const DANGER  = '#dc2626';
 
 /* ──────────────────────────────────
-   Youzify link preview helpers
+   Youzify link preview helpers (unchanged)
 ────────────────────────────────── */
 
 function parseYouzifyPreview(html: string): LinkPreviewData | null {
@@ -67,17 +62,12 @@ function norm(s?: string) {
 function stripYouzifyPreview(html: string): string {
   return html.replace(/<div\s+class=["']youzify-post-attachments["'][\s\S]*?<\/div>/i, '');
 }
-
 function removeStandaloneLink(html: string, url?: string): string {
   if (!url) return html;
   const esc = url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const rx = new RegExp(
-    `<p[^>]*>\\s*<a[^>]*href=["']${esc}["'][^>]*>[^<]*<\\/a>\\s*<\\/p>`,
-    'i'
-  );
+  const rx = new RegExp(`<p[^>]*>\\s*<a[^>]*href=["']${esc}["'][^>]*>[^<]*<\\/a>\\s*<\\/p>`, 'i');
   return html.replace(rx, '');
 }
-
 function removeUrlParas(html: string, url?: string): string {
   if (!url) return html;
   let host = '';
@@ -93,7 +83,6 @@ function removeUrlParas(html: string, url?: string): string {
     return m;
   });
 }
-
 function removeDomainParas(html: string, url?: string, domain?: string): string {
   let host = '';
   try { host = new URL(url || '').hostname || ''; } catch {}
@@ -106,7 +95,6 @@ function removeDomainParas(html: string, url?: string, domain?: string): string 
     return variants.has(text) ? '' : m;
   });
 }
-
 function removeDescriptionParas(html: string, description?: string, title?: string): string {
   const d = norm(description);
   const t = norm(title);
@@ -120,11 +108,9 @@ function removeDescriptionParas(html: string, description?: string, title?: stri
     return m;
   });
 }
-
 function removeEmptyParas(html: string): string {
   return html.replace(/<p[^>]*>\s*(?:&nbsp;|\u00A0|\s)*<\/p>/gi, '');
 }
-
 function keepOnlyFirstParagraph(html: string): string {
   const m = html.match(/<p\b[\s\S]*?<\/p>/i);
   if (m) return m[0];
@@ -133,12 +119,14 @@ function keepOnlyFirstParagraph(html: string): string {
 }
 
 /* ──────────────────────────────────
-   Small UI bits
+   Small UI bits (perf-tweaks)
 ────────────────────────────────── */
 
-function ActivityHeader({
+const ActivityHeader = ({
   avatar, name, dateISO,
-}: { avatar?: string; name: string; dateISO: string }) {
+}: { avatar?: string; name: string; dateISO: string }) => {
+  // format once
+  const dateText = useMemo(() => (dateISO ? new Date(dateISO).toLocaleString() : ''), [dateISO]);
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 6 }}>
       {avatar ? (
@@ -151,24 +139,33 @@ function ActivityHeader({
       )}
       <View style={{ flex: 1 }}>
         <Text style={{ fontWeight: '700' }} numberOfLines={1}>{name}</Text>
-        <Text style={{ color: MUTED, fontSize: 12 }}>{new Date(dateISO).toLocaleString()}</Text>
+        <Text style={{ color: MUTED, fontSize: 12 }}>{dateText}</Text>
       </View>
     </View>
   );
-}
+};
 
 function ActivityBody({
   html, contentWidth, preview,
 }: { html: string; contentWidth: number; preview?: LinkPreviewData | null }) {
-  const body = html.replace(/<br\s*\/?>/gi, '\n');
+  const body = useMemo(() => html.replace(/<br\s*\/?>/gi, '\n'), [html]);
+
+  // 🔒 Memoize these to stop RenderHTML warnings
+  const source = useMemo(() => ({ html: body }), [body]);
+  const tagsStyles = useMemo(() => ({ p: { marginTop: 0, marginBottom: 8 } }), []);
+  const renderersProps = useMemo(
+    () => ({ a: { onPress: (_e: any, href?: string) => href && Linking.openURL(href) } }),
+    []
+  );
+
   return (
     <>
       {!!body.trim() && (
         <RenderHTML
           contentWidth={contentWidth}
-          source={{ html: body }}
-          tagsStyles={{ p: { marginTop: 0, marginBottom: 8 } }}
-          renderersProps={{ a: { onPress: (_e: any, href?: string) => href && Linking.openURL(href) } }}
+          source={source}
+          tagsStyles={tagsStyles}
+          renderersProps={renderersProps}
         />
       )}
       {!!preview && (
@@ -180,7 +177,7 @@ function ActivityBody({
   );
 }
 
-function ActivityActions({
+const ActivityActions = ({
   liked, likeCount, onLikePress, onToggleComments, commentCount, commentsOpen, repliesLen, shareUrl,
 }: {
   liked: boolean;
@@ -191,27 +188,30 @@ function ActivityActions({
   commentsOpen: boolean;
   repliesLen: number;
   shareUrl?: string;
-}) {
+}) => {
+  const onShare = useCallback(() => { if (shareUrl) Linking.openURL(shareUrl); }, [shareUrl]);
   return (
     <View style={{ flexDirection: 'row', justifyContent: 'space-around', marginTop: 12 }}>
-      <TouchableOpacity onPress={onLikePress}>
+      <TouchableOpacity onPress={onLikePress} accessibilityRole="button" accessibilityLabel="Like">
         <Text style={{ color: PRIMARY }}>
           {liked ? '♥ Liked' : '♡ Like'} {likeCount || ''}
         </Text>
       </TouchableOpacity>
-      <TouchableOpacity onPress={onToggleComments}>
+      <TouchableOpacity onPress={onToggleComments} accessibilityRole="button" accessibilityLabel="Comments">
         <Text style={{ color: PRIMARY }}>
           Comment {commentCount || (commentsOpen ? repliesLen || '' : '')}
         </Text>
       </TouchableOpacity>
-      <TouchableOpacity onPress={() => shareUrl && Linking.openURL(shareUrl)}>
+      <TouchableOpacity onPress={onShare} accessibilityRole="button" accessibilityLabel="Share">
         <Text style={{ color: PRIMARY }}>Share</Text>
       </TouchableOpacity>
     </View>
   );
-}
+};
 
-function CommentsSection({
+const tagsStyles = { p: { marginTop: 0, marginBottom: 8 } };
+
+const CommentsSection = React.memo(function CommentsSection({
   open, loading, replies, contentWidth, draft, setDraft, submit, errorMessage, sending,
 }: {
   open: boolean; loading: boolean; replies: any[]; contentWidth: number;
@@ -219,6 +219,20 @@ function CommentsSection({
   errorMessage?: string; sending?: boolean;
 }) {
   if (!open) return null;
+
+  // stable objects to stop RenderHTML re-processing churn
+  const linkRendererProps = React.useMemo(
+    () => ({ a: { onPress: (_e: any, href?: string) => href && Linking.openURL(href) } }),
+    []
+  );
+  const memoTagsStyles = React.useMemo(() => tagsStyles, []);
+
+  // stable source factory (returns a new *value* but stable function identity)
+  const makeSource = React.useCallback((content: any) => {
+    const html = typeof content === 'string' ? content : (content?.rendered ?? '');
+    return { html };
+  }, []);
+
   return (
     <View style={{ marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderColor: BORDER, gap: 10 }}>
       {loading ? (
@@ -231,11 +245,14 @@ function CommentsSection({
             {!!r.content && (
               <RenderHTML
                 contentWidth={contentWidth}
-                source={{ html: typeof r.content === 'string' ? r.content : (r.content?.rendered ?? '') }}
-                renderersProps={{ a: { onPress: (_e: any, href?: string) => href && Linking.openURL(href) } }}
+                source={makeSource(r.content)}
+                tagsStyles={memoTagsStyles}
+                renderersProps={linkRendererProps}
               />
             )}
-            <Text style={{ color: MUTED, fontSize: 12 }}>{new Date(r.date).toLocaleString()}</Text>
+            <Text style={{ color: MUTED, fontSize: 12 }}>
+              {new Date(r.date).toLocaleString()}
+            </Text>
           </View>
         ))
       )}
@@ -267,7 +284,7 @@ function CommentsSection({
       </View>
     </View>
   );
-}
+});
 
 /* ──────────────────────────────────
    Main row
@@ -276,7 +293,6 @@ function CommentsSection({
 export default function ActivityRow({
   item,
   contentWidth,
-  // optional legacy prop: if provided, we’ll call it; otherwise we use the likes hook internally
   onLike,
   onToggleComments,
   commentsOpen,
@@ -287,7 +303,6 @@ export default function ActivityRow({
   onSubmitReply,
   errorMessage,
   sending = false,
-  // optional seed avatars + current user for the likes strip
   initialLikers,
   me,
 }: {
@@ -295,18 +310,14 @@ export default function ActivityRow({
   contentWidth: number;
   onLike?: (id: number, liked: boolean) => void;
   onToggleComments: () => void;
-
   commentsOpen: boolean;
   replies: any[];
   repliesLoading: boolean;
-
   replyValue: string;
   onChangeReply: (v: string) => void;
   onSubmitReply: () => void;
-
   errorMessage?: string;
   sending?: boolean;
-
   initialLikers?: BPMember[];
   me?: BPMember | null;
 }) {
@@ -331,7 +342,7 @@ export default function ActivityRow({
     return { preview: p, htmlBody: finalBody, shareUrl: share };
   }, [item.html]);
 
-  // Likes hook (uses API directly unless onLike prop is provided)
+  // Likes hook
   const likes = useActivityLikes(
     { id: item.id, favorited: !!item.favorited, favorite_count: item.favorite_count ?? 0 },
     { initialLikers: initialLikers ?? [], me: me ?? null }
@@ -339,16 +350,17 @@ export default function ActivityRow({
 
   const commentCount = item.comment_count ?? 0;
 
-  // choose like handler (legacy prop vs hook)
   const onLikePress = onLike
-    ? () => onLike(item.id, !!item.favorited)
+    ? useCallback(() => onLike(item.id, !!item.favorited), [onLike, item.id, item.favorited])
     : likes.toggle;
 
-  // Build avatar sources for strip (limit handled by LikeStrip)
-  const likeAvatars = (likes.likers ?? []).map(l => ({
-    id: l.id,
-    url: l.avatar_urls?.thumb || l.avatar_urls?.full,
-  }));
+  // ▼ Likers modal state
+  const [likersOpen, setLikersOpen] = useState(false);
+  const openLikers = useCallback(() => {
+    setLikersOpen(true);           // open immediately for snappy UX
+    likes.refreshLikers().catch(() => {});
+  }, [likes]);
+  const closeLikers = useCallback(() => setLikersOpen(false), []);
 
   return (
     <View style={{ paddingVertical: 12, borderBottomWidth: 1, borderColor: BORDER }}>
@@ -356,8 +368,12 @@ export default function ActivityRow({
 
       <ActivityBody html={htmlBody} contentWidth={contentWidth} preview={preview} />
 
-      {/* Likes strip like the website */}
-      <LikeStrip likers={likes.likers} summaryText={likes.summaryText} />
+      <LikeStrip
+        likers={likes.likers}
+        count={onLike ? (item.favorite_count ?? 0) : likes.count}
+        summaryText={likes.summaryText}
+        onPressMore={openLikers}
+      />
 
       <ActivityActions
         liked={onLike ? !!item.favorited : likes.liked}
@@ -381,6 +397,42 @@ export default function ActivityRow({
         errorMessage={errorMessage}
         sending={sending}
       />
+
+      {/* Likers modal */}
+      <Modal visible={likersOpen} animationType="slide" onRequestClose={closeLikers}>
+        <View style={{ flex: 1, padding: 16 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <Text style={{ fontSize: 18, fontWeight: '700' }}>
+              {likes.count} {likes.count === 1 ? 'Like' : 'Likes'}
+            </Text>
+            <TouchableOpacity onPress={closeLikers} accessibilityRole="button" accessibilityLabel="Close likers list">
+              <Text style={{ color: PRIMARY, fontWeight: '600' }}>Close</Text>
+            </TouchableOpacity>
+          </View>
+
+          <FlatList
+            data={likes.likers}
+            keyExtractor={(m) => String(m.id)}
+            ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
+            initialNumToRender={16}
+            windowSize={6}
+            removeClippedSubviews
+            renderItem={({ item: m }) => {
+              const uri = m.avatar_urls?.thumb || m.avatar_urls?.full;
+              return (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                  {uri ? (
+                    <Image source={{ uri }} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#eee' }} />
+                  ) : (
+                    <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#eee' }} />
+                  )}
+                  <Text style={{ fontSize: 16 }}>{m.name ?? `User #${m.id}`}</Text>
+                </View>
+              );
+            }}
+          />
+        </View>
+      </Modal>
     </View>
   );
 }
