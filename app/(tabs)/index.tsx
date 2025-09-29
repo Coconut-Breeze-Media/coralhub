@@ -128,7 +128,20 @@ export default function ActivityTab() {
           />
 
         {/* Action buttons: photo/file/video/audio/link */}
-        <ComposerActions onPick={handlePick} />
+        <ComposerActions
+          onPick={handlePick}
+          onQuick={(type) => {
+            // optional: quick actions
+            if (type === 'photo') { /* open camera */ }
+            if (type === 'video') { /* open camera video */ }
+          }}
+          counts={{
+            photo: attachments.filter(a => a.type === 'photo').length,
+            video: attachments.filter(a => a.type === 'video').length,
+            file:  attachments.filter(a => a.type === 'file').length,
+            audio: attachments.filter(a => a.type === 'audio').length,
+          }}
+        />
 
         {/* Attachments preview (chips) */}
         {attachments.length > 0 && (
