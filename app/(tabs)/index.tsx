@@ -9,26 +9,15 @@ import { useActivityFeed } from '../../hooks/useActivityFeed';
 import { useActivityReplies } from '../../hooks/useActivityReplies';
 import ActivityRow from '../../components/ActivityRow';
 
-import FilterBar from '../../components/FilterBar';
+import Card from '../../components/ui/Card';
+import FilterBar, { type ScopeFilter } from '../../components/FilterBar';
 import ComposerActions from '../../components/ComposerActions';
-import PrivacySelector from '../../components/PrivacySelector';
+import PrivacySelector, { type PrivacyOption } from '../../components/PrivacySelector';
 import { Ionicons } from '@expo/vector-icons';
+import { pickAttachment, type Attachment, type ActionType } from '../../utils/picker';
 
 const PRIMARY = '#0077b6';
 const BORDER  = '#e5e7eb';
-
-// types (align with components)
-type ActionType = 'photo' | 'file' | 'video' | 'audio' | 'link';
-type PrivacyOption = 'Public' | 'Only Me' | 'My Friends' | 'Members';
-type ScopeFilter = 'All Members' | 'My Friends' | 'My Groups' | 'My Favorites' | 'Mentions';
-
-// Simple attachment shape (file-like; links handled separately OR add a union later)
-type Attachment = {
-  type: Exclude<ActionType, 'link'>; // photo | file | video | audio
-  uri: string;
-  name?: string;
-  mime?: string;
-};
 
 export default function ActivityTab() {
   const { width } = useWindowDimensions();
@@ -57,18 +46,12 @@ export default function ActivityTab() {
 
   // ===== Handlers =====
   const handlePick = useCallback(async (type: ActionType) => {
-    if (type === 'link') { setLinkModal(true); return; }
-    // TODO: replace with real pickers; this is a stub so UI works end-to-end
-    const dummy: Attachment = {
-      type,
-      uri: `local://${type}-${Date.now()}`,
-      name: `${type}.tmp`,
-      mime: type === 'photo' ? 'image/jpeg'
-          : type === 'video' ? 'video/mp4'
-          : type === 'audio' ? 'audio/m4a'
-          : 'application/octet-stream',
-    };
-    setAttachments(prev => [...prev, dummy]);
+    if (type === 'link') {
+      setLinkModal(true);
+      return;
+    }
+    const att = await pickAttachment(type);
+    if (att) setAttachments(prev => [...prev, att]);
   }, []);
 
   const removeAttachment = useCallback((uri: string) => {
@@ -128,37 +111,41 @@ export default function ActivityTab() {
       style={{ backgroundColor: '#fff' }}
     >
       {/* Filter bar (friends, groups, etc.) */}
-      <FilterBar active={scope} onChange={(s: ScopeFilter) => { setScope(s); /* optionally reload */ }} />
+      <FilterBar active={scope} onChange={(s) => setScope(s)} />
 
-      <View style={{ padding: 16, borderBottomWidth: 1, borderColor: BORDER }}>
-        <Text style={{ fontSize: 18, fontWeight: '700', marginBottom: 8 }}>What’s new?</Text>
+      <View style={{ paddingHorizontal: 16, marginBottom: 8 }}>
+        <Card>
+          <Text style={{ fontSize: 16, fontWeight: '700', marginBottom: 8 }}>What’s new?</Text>
 
-        <TextInput
-          value={composer}
-          onChangeText={setComposer}
-          placeholder="Share an update…"
-          multiline
-          style={{ borderWidth: 1, borderColor: BORDER, borderRadius: 10, padding: 12, minHeight: 60 }}
-        />
+          <TextInput
+            value={composer}
+            onChangeText={setComposer}
+            placeholder="Share an update…"
+            multiline
+            style={{
+              borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 12, padding: 12, minHeight: 60,
+            }}
+          />
 
         {/* Action buttons: photo/file/video/audio/link */}
         <ComposerActions onPick={handlePick} />
 
-        {/* Attachment chips */}
+        {/* Attachments preview (chips) */}
         {attachments.length > 0 && (
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 8 }}>
-            {attachments.map(att => (
+            {attachments.map((att) => (
               <TouchableOpacity
                 key={att.uri}
                 onPress={() => removeAttachment(att.uri)}
                 style={{
                   flexDirection: 'row', alignItems: 'center',
                   paddingVertical: 6, paddingHorizontal: 10, marginRight: 8, marginTop: 8,
-                  borderRadius: 16, borderWidth: 1, borderColor: BORDER
+                  borderRadius: 16, borderWidth: 1, borderColor: '#e5e7eb',
+                  backgroundColor: '#f8fafc',
                 }}
               >
                 <Ionicons name="close-circle-outline" size={16} style={{ marginRight: 6 }} />
-                <Text>{att.type}</Text>
+                <Text style={{ fontSize: 12, color: '#334155' }}>{att.type}</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -167,23 +154,22 @@ export default function ActivityTab() {
         {/* Privacy */}
         <PrivacySelector value={privacy} onChange={setPrivacy} />
 
-        {/* Post */}
-        <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 10 }}>
+        {/* Post button */}
+        <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 12 }}>
           <TouchableOpacity
             onPress={handleSubmit}
             disabled={!composer.trim() && attachments.length === 0 && !linkUrl}
             style={{
-              backgroundColor: (composer.trim() || attachments.length || linkUrl) ? PRIMARY : '#93c5fd',
-              paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10,
-              opacity: (composer.trim() || attachments.length || linkUrl) ? 1 : 0.8
+              backgroundColor: (composer.trim() || attachments.length || linkUrl) ? '#0077b6' : '#93c5fd',
+              paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12,
+              opacity: (composer.trim() || attachments.length || linkUrl) ? 1 : 0.8,
             }}
           >
             <Text style={{ color: '#fff', fontWeight: '700' }}>Post</Text>
           </TouchableOpacity>
         </View>
-
-        {!!error && <Text style={{ color: '#dc2626', marginTop: 8 }} numberOfLines={2}>{error}</Text>}
-      </View>
+      </Card>
+    </View>
 
       {/* Link modal */}
       <Modal visible={linkModal} transparent animationType="fade" onRequestClose={() => setLinkModal(false)}>
