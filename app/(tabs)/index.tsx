@@ -1,116 +1,219 @@
 // app/(tabs)/index.tsx
 import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import {
-  SafeAreaView,
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  FlatList,
-  RefreshControl,
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
+  SafeAreaView, View, Text, TextInput, TouchableOpacity, FlatList,
+  RefreshControl, ActivityIndicator, KeyboardAvoidingView, Platform, Modal
 } from 'react-native';
 import { useWindowDimensions } from 'react-native';
 import { useActivityFeed } from '../../hooks/useActivityFeed';
 import { useActivityReplies } from '../../hooks/useActivityReplies';
 import ActivityRow from '../../components/ActivityRow';
 
+import FilterBar from '../../components/FilterBar';
+import ComposerActions from '../../components/ComposerActions';
+import PrivacySelector from '../../components/PrivacySelector';
+import { Ionicons } from '@expo/vector-icons';
+
 const PRIMARY = '#0077b6';
 const BORDER  = '#e5e7eb';
+
+// types (align with components)
+type ActionType = 'photo' | 'file' | 'video' | 'audio' | 'link';
+type PrivacyOption = 'Public' | 'Only Me' | 'My Friends' | 'Members';
+type ScopeFilter = 'All Members' | 'My Friends' | 'My Groups' | 'My Favorites' | 'Mentions';
+
+// Simple attachment shape (file-like; links handled separately OR add a union later)
+type Attachment = {
+  type: Exclude<ActionType, 'link'>; // photo | file | video | audio
+  uri: string;
+  name?: string;
+  mime?: string;
+};
 
 export default function ActivityTab() {
   const { width } = useWindowDimensions();
   const contentWidth = useMemo(() => Math.max(0, width - 32), [width]);
 
-  const [composer, setComposer] = useState('');
+   // ===== Composer state =====
+   const [composer, setComposer] = useState('');
+   const [privacy, setPrivacy] = useState<PrivacyOption>('Public');
+   const [scope, setScope] = useState<ScopeFilter>('All Members');
+   const [attachments, setAttachments] = useState<Attachment[]>([]);
+   const [linkModal, setLinkModal] = useState(false);
+   const [linkUrl, setLinkUrl] = useState('');
 
-  const {
-    items,
-    loading,
-    refreshing,
-    hasMore,
-    load,
-    refresh,
-    loadMore,
-    submitStatus,
+   const {
+    items, loading, refreshing, hasMore,
+    load, refresh, loadMore,
+    submitStatus, // <-- we'll pass a payload to this
     toggleLike,
-    error, // you expose this from the hook already
-  } = useActivityFeed(20);
+    error,
+  } = useActivityFeed(20 /*, { scope }*/);
 
   const replies = useActivityReplies();
 
   // Initial load
-  useEffect(() => { load(1, true); }, [load]);
+  useEffect(() => { load(1, true); }, [load /*, scope*/]);
 
+  // ===== Handlers =====
+  const handlePick = useCallback(async (type: ActionType) => {
+    if (type === 'link') { setLinkModal(true); return; }
+    // TODO: replace with real pickers; this is a stub so UI works end-to-end
+    const dummy: Attachment = {
+      type,
+      uri: `local://${type}-${Date.now()}`,
+      name: `${type}.tmp`,
+      mime: type === 'photo' ? 'image/jpeg'
+          : type === 'video' ? 'video/mp4'
+          : type === 'audio' ? 'audio/m4a'
+          : 'application/octet-stream',
+    };
+    setAttachments(prev => [...prev, dummy]);
+  }, []);
+
+  const removeAttachment = useCallback((uri: string) => {
+    setAttachments(prev => prev.filter(a => a.uri !== uri));
+  }, []);
+
+  // Map UI privacy to API values used by BuddyBoss
+  const apiPrivacy = useCallback((p: PrivacyOption) => {
+    switch (p) {
+      case 'Public': return 'public';
+      case 'Only Me': return 'onlyme';
+      case 'My Friends': return 'friends';
+      case 'Members': return 'groups'; // or 'loggedin' if you use that
+      default: return 'public';
+    }
+  }, []);
+
+  // Submit including text, privacy, scope, attachments, link
   const handleSubmit = useCallback(async () => {
     const text = composer.trim();
-    if (!text) return;
-    await submitStatus(text);
-    setComposer('');
-  }, [composer, submitStatus]);
+    if (!text && !attachments.length && !linkUrl) return;
 
-  // One-shot guard for onEndReached (prevents double fire)
+  // Minimal payload; your hook will:
+    // 1) upload files to /wp-json/wp/v2/media, get media_ids
+    // 2) POST /wp-json/buddyboss/v1/activity with { content, privacy, media_ids, group_id? }
+    const payload = {
+      text,
+      privacy: apiPrivacy(privacy),   // 'public' | 'friends' | 'onlyme' | 'groups'
+      scope,                          // optional: pass to your GET hook as well
+      link: linkUrl || undefined,
+      attachments,                    // local URIs; the hook handles actual upload
+    };
+
+    // @ts-ignore — extend your hook signature to accept payload
+    await submitStatus(text, payload);
+
+    // reset
+    setComposer('');
+    setAttachments([]);
+    setLinkUrl('');
+    setLinkModal(false);
+  }, [composer, attachments, linkUrl, privacy, scope, submitStatus, apiPrivacy]);
+
+  // Infinite scroll guards
   const endReachedOK = useRef(true);
   const handleEndReached = useCallback(() => {
     if (!endReachedOK.current) return;
     endReachedOK.current = false;
-    if (hasMore && !loading && !refreshing) {
-      loadMore();
-    }
+    if (hasMore && !loading && !refreshing) loadMore();
   }, [hasMore, loading, refreshing, loadMore]);
-  const onMomentumScrollBegin = useCallback(() => {
-    endReachedOK.current = true;
-  }, []);
+  const onMomentumScrollBegin = useCallback(() => { endReachedOK.current = true; }, []);
 
-  // Composer header (inside the list)
+  // ===== Header: Filter + Composer =====
   const ListHeader = useCallback(() => (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       style={{ backgroundColor: '#fff' }}
     >
+      {/* Filter bar (friends, groups, etc.) */}
+      <FilterBar active={scope} onChange={(s: ScopeFilter) => { setScope(s); /* optionally reload */ }} />
+
       <View style={{ padding: 16, borderBottomWidth: 1, borderColor: BORDER }}>
-        <Text style={{ fontSize: 18, fontWeight: '700', marginBottom: 8 }}>
-          What’s new?
-        </Text>
+        <Text style={{ fontSize: 18, fontWeight: '700', marginBottom: 8 }}>What’s new?</Text>
+
         <TextInput
           value={composer}
           onChangeText={setComposer}
           placeholder="Share an update…"
           multiline
-          style={{
-            borderWidth: 1,
-            borderColor: BORDER,
-            borderRadius: 10,
-            padding: 12,
-            minHeight: 60,
-          }}
+          style={{ borderWidth: 1, borderColor: BORDER, borderRadius: 10, padding: 12, minHeight: 60 }}
         />
+
+        {/* Action buttons: photo/file/video/audio/link */}
+        <ComposerActions onPick={handlePick} />
+
+        {/* Attachment chips */}
+        {attachments.length > 0 && (
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 8 }}>
+            {attachments.map(att => (
+              <TouchableOpacity
+                key={att.uri}
+                onPress={() => removeAttachment(att.uri)}
+                style={{
+                  flexDirection: 'row', alignItems: 'center',
+                  paddingVertical: 6, paddingHorizontal: 10, marginRight: 8, marginTop: 8,
+                  borderRadius: 16, borderWidth: 1, borderColor: BORDER
+                }}
+              >
+                <Ionicons name="close-circle-outline" size={16} style={{ marginRight: 6 }} />
+                <Text>{att.type}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+
+        {/* Privacy */}
+        <PrivacySelector value={privacy} onChange={setPrivacy} />
+
+        {/* Post */}
         <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 10 }}>
           <TouchableOpacity
             onPress={handleSubmit}
-            disabled={!composer.trim()}
+            disabled={!composer.trim() && attachments.length === 0 && !linkUrl}
             style={{
-              backgroundColor: composer.trim() ? PRIMARY : '#93c5fd',
-              paddingHorizontal: 16,
-              paddingVertical: 10,
-              borderRadius: 10,
-              opacity: !composer.trim() ? 0.8 : 1,
+              backgroundColor: (composer.trim() || attachments.length || linkUrl) ? PRIMARY : '#93c5fd',
+              paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10,
+              opacity: (composer.trim() || attachments.length || linkUrl) ? 1 : 0.8
             }}
           >
             <Text style={{ color: '#fff', fontWeight: '700' }}>Post</Text>
           </TouchableOpacity>
         </View>
-        {!!error && (
-          <Text style={{ color: '#dc2626', marginTop: 8 }} numberOfLines={2}>
-            {error}
-          </Text>
-        )}
-      </View>
-    </KeyboardAvoidingView>
-  ), [composer, handleSubmit, error]);
 
+        {!!error && <Text style={{ color: '#dc2626', marginTop: 8 }} numberOfLines={2}>{error}</Text>}
+      </View>
+
+      {/* Link modal */}
+      <Modal visible={linkModal} transparent animationType="fade" onRequestClose={() => setLinkModal(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', padding: 24 }}>
+          <View style={{ backgroundColor: '#fff', borderRadius: 12, padding: 16 }}>
+            <Text style={{ fontWeight: '600', marginBottom: 8 }}>Add a link</Text>
+            <TextInput
+              value={linkUrl}
+              onChangeText={setLinkUrl}
+              placeholder="https://example.org"
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="url"
+              style={{ borderWidth: 1, borderColor: BORDER, borderRadius: 8, padding: 10 }}
+            />
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 12 }}>
+              <TouchableOpacity onPress={() => setLinkModal(false)} style={{ marginRight: 12 }}>
+                <Text>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setLinkModal(false)}>
+                <Text style={{ color: PRIMARY, fontWeight: '600' }}>Add</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </KeyboardAvoidingView>
+  ), [scope, composer, attachments, privacy, linkModal, linkUrl, handlePick, removeAttachment, handleSubmit, error]);
+
+  // ===== Render items / footers (unchanged) =====
   const renderItem = useCallback(
     ({ item }: { item: any }) => (
       <ActivityRow
@@ -136,32 +239,15 @@ export default function ActivityTab() {
   );
 
   const ListFooter = useCallback(() => {
-    if (loading && hasMore) {
-      return (
-        <View style={{ paddingVertical: 16 }}>
-          <ActivityIndicator />
-        </View>
-      );
-    }
-    if (!loading && !refreshing && items.length > 0 && !hasMore) {
-      return (
-        <View style={{ paddingVertical: 16, alignItems: 'center' }}>
-          <Text style={{ color: '#6b7280' }}>You’re all caught up</Text>
-        </View>
-      );
-    }
+    if (loading && hasMore) return <View style={{ paddingVertical: 16 }}><ActivityIndicator /></View>;
+    if (!loading && !refreshing && items.length > 0 && !hasMore)
+      return <View style={{ paddingVertical: 16, alignItems: 'center' }}><Text style={{ color: '#6b7280' }}>You’re all caught up</Text></View>;
     return null;
   }, [loading, refreshing, hasMore, items.length]);
 
   const ListEmpty = useCallback(() => {
     if (loading || refreshing) return null;
-    return (
-      <View style={{ padding: 24, alignItems: 'center' }}>
-        <Text style={{ color: '#6b7280' }}>
-          No posts yet. Be the first to share something!
-        </Text>
-      </View>
-    );
+    return <View style={{ padding: 24, alignItems: 'center' }}><Text style={{ color: '#6b7280' }}>No posts yet. Be the first to share something!</Text></View>;
   }, [loading, refreshing]);
 
   return (
@@ -174,18 +260,14 @@ export default function ActivityTab() {
         ListFooterComponent={ListFooter}
         ListEmptyComponent={ListEmpty}
         contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24 }}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={refresh} />
-        }
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} />}
         onEndReachedThreshold={0.4}
         onEndReached={handleEndReached}
         onMomentumScrollBegin={onMomentumScrollBegin}
-        // Virtualization hints
         initialNumToRender={6}
         maxToRenderPerBatch={8}
         windowSize={7}
         removeClippedSubviews
-        // Keep position stable when refreshing on iOS
         maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 10 }}
       />
     </SafeAreaView>
