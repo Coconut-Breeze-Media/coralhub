@@ -15,60 +15,106 @@ const PAGE_URL = "https://www.thecoralreefresearchhub.com/articles/";
 const STRIP_CHROME_JS = `
 (function () {
   var KEEP_SELECTORS = [
-    '.wpb-content-wrapper',      // your site uses WPBakery wrapper
-    'main', '#main', '#content', '.content'
+    '.wpb-content-wrapper', 'main', '#main', '#content', '.content'
   ];
+  var KILL_SELECTORS = [
+    '#top-social',
+    'ul.kleo-social-icons',
+    'li.tabdrop',
+    'header .kleo-social-icons',
+    '.top-bar .kleo-social-icons'
+  ];
+
+  function log(msg, extra) {
+    try {
+      window.ReactNativeWebView.postMessage(JSON.stringify({ tag: 'ARTICLES_DEBUG', msg, extra }));
+    } catch (e) {}
+  }
 
   function ensureViewportAndCSS() {
     var m = document.querySelector('meta[name="viewport"]');
     if (!m) { m = document.createElement('meta'); m.name='viewport'; document.head.appendChild(m); }
     m.setAttribute('content','width=device-width,initial-scale=1,maximum-scale=1');
 
-    var s = document.createElement('style');
-    s.setAttribute('data-from','app-clean');
-    s.textContent = [
-      'html,body{margin:0!important;padding:0!important}',
-      'img,video{max-width:100%!important;height:auto!important}',
-      '.vc_row{margin-left:0!important;margin-right:0!important}'
-    ].join(';');
-    if (!document.querySelector('style[data-from="app-clean"]')) document.head.appendChild(s);
+    if (!document.querySelector('style[data-from="app-clean"]')) {
+      var s = document.createElement('style');
+      s.setAttribute('data-from','app-clean');
+      s.textContent = [
+        'html,body{margin:0!important;padding:0!important}',
+        'img,video{max-width:100%!important;height:auto!important}',
+        '.vc_row{margin-left:0!important;margin-right:0!important}',
+        /* nuclear CSS fallback */
+        '#top-social, ul.kleo-social-icons, li.tabdrop,' +
+        'header .kleo-social-icons, .top-bar .kleo-social-icons' +
+        '{display:none!important;visibility:hidden!important;height:0!important;overflow:hidden!important}'
+      ].join(';');
+      document.head.appendChild(s);
+      log('Injected CSS');
+    }
+  }
+
+  function killChrome(why) {
+    var removed = 0;
+    KILL_SELECTORS.forEach(function(sel){
+      document.querySelectorAll(sel).forEach(function(n){
+        try { n.remove(); removed++; } catch(e){}
+      });
+    });
+    var still = {
+      top_social: document.querySelectorAll('#top-social').length,
+      kleo_lists: document.querySelectorAll('ul.kleo-social-icons').length,
+      tabdrop: document.querySelectorAll('li.tabdrop').length
+    };
+    log('killChrome(' + why + ')', { removed, still });
   }
 
   function keepOnly() {
-    // find first existing content wrapper
-    var keep = null;
+    var keep = null, matchedSel = null;
     for (var i=0;i<KEEP_SELECTORS.length;i++) {
       keep = document.querySelector(KEEP_SELECTORS[i]);
-      if (keep) break;
+      if (keep) { matchedSel = KEEP_SELECTORS[i]; break; }
     }
-    if (!keep) return false;
+    if (!keep) { log('keepOnly: NO KEEP CONTAINER FOUND'); return false; }
 
-    // clone to detach from any hidden/positioned parents
+    // If the "keep" contains the social list, we’ll still nuke it later.
     var clone = keep.cloneNode(true);
-
-    // nuke body and replace with just the clone
     document.body.innerHTML = '';
     document.body.appendChild(clone);
-
-    // small scroll reset
     try { window.scrollTo(0,0); } catch(e){}
+    log('keepOnly: kept container', { matchedSel, childCount: clone.childElementCount });
     return true;
   }
 
-  function run() {
+  function run(phase) {
     ensureViewportAndCSS();
+    killChrome('pre-' + phase);
     if (!keepOnly()) {
-      // try again a few times if builder injects late
-      setTimeout(run, 150);
+      setTimeout(function(){ run('retry'); }, 150);
+    } else {
+      // After we’ve replaced the body, run another kill in case the clone carried any social nodes
+      killChrome('post-keepOnly');
     }
   }
 
-  // first pass
-  run();
+  // First pass
+  run('initial');
 
-  // as extra defense, if anything mutates, enforce again
-  var obs = new MutationObserver(function(){ run(); });
-  obs.observe(document.documentElement, { childList: true, subtree: true });
+  // Re-enforce if the theme mutates the DOM later
+  var obs = new MutationObserver(function(mutations){
+    // If anything adds nodes that match, kill again
+    var reAdd = false;
+    for (var i=0;i<mutations.length;i++) {
+      var m = mutations[i];
+      if (m.addedNodes && m.addedNodes.length) { reAdd = true; break; }
+    }
+    if (reAdd) killChrome('mutation');
+  });
+  try {
+    obs.observe(document.documentElement, { childList: true, subtree: true });
+    log('Observer attached');
+  } catch(e) {
+    log('Observer failed', { error: String(e) });
+  }
 
   true;
 })();
@@ -92,6 +138,7 @@ export default function ArticlesWebViewScreen() {
     setTimeout(() => setRefreshing(false), 600);
   }, []);
 
+
   return (
     <>
       <Stack.Screen options={{ title: "Articles" }} />
@@ -112,7 +159,7 @@ export default function ArticlesWebViewScreen() {
                 <ActivityIndicator style={{ marginTop: 6 }} />
               </View>
             )}
-
+  
             <WebView
               ref={webRef}
               source={{ uri: PAGE_URL }}
@@ -124,19 +171,26 @@ export default function ArticlesWebViewScreen() {
               }}
               startInLoadingState={false}
               pullToRefreshEnabled
-              // Run early and after load
               injectedJavaScriptBeforeContentLoaded={STRIP_CHROME_JS}
               injectedJavaScript={STRIP_CHROME_JS}
               javaScriptEnabled
               domStorageEnabled
-            // If cache keeps showing old header, disable it while testing
               cacheEnabled={false}
-            // (Android only) avoid cached header
-            // @ts-ignore
+              // @ts-ignore
               cacheMode="LOAD_NO_CACHE"
+              onMessage={(e) => {
+                try {
+                  const payload = JSON.parse(e.nativeEvent.data);
+                  if (payload?.tag === 'ARTICLES_DEBUG') {
+                    console.log('[ArticlesWebView]', payload.msg, payload.extra ?? '');
+                  }
+                } catch {
+                  console.log('[ArticlesWebView:raw]', e.nativeEvent.data);
+                }
+              }}
             />
           </>
-        )}
+        )}  
       </SafeAreaView>
     </>
   );
