@@ -9,7 +9,7 @@ type ResourceItem = {
   title: string;
   description?: string;
   icon: keyof typeof Ionicons.glyphMap;
-  group: "Learn" | "Programs" | "Career" | "Community";
+  group: "Learn" | "Career" | "Community";
 };
 
 const ALL_ITEMS: ResourceItem[] = [
@@ -28,7 +28,7 @@ const ALL_ITEMS: ResourceItem[] = [
 ];
 
 // Simple pill filter UI; keep it minimal for now
-const FILTERS: Array<ResourceItem["group"] | "All"> = ["All", "Learn", "Programs", "Career", "Community"];
+const FILTERS: Array<ResourceItem["group"] | "All"> = ["All", "Learn", "Career", "Community"];
 
 export default function ResourcesScreen() {
   const [query, setQuery] = useState("");

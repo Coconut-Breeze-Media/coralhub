@@ -9,26 +9,26 @@ import {
 } from "react-native";
 import { Stack } from "expo-router";
 import { WebView } from "react-native-webview";
+import { Pressable } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { router } from "expo-router";
+
 
 const PAGE_URL = "https://www.thecoralreefresearchhub.com/articles/";
 
 const STRIP_CHROME_JS = `
 (function () {
-  var KEEP_SELECTORS = [
-    '.wpb-content-wrapper', 'main', '#main', '#content', '.content'
-  ];
-  var KILL_SELECTORS = [
-    '#top-social',
-    'ul.kleo-social-icons',
-    'li.tabdrop',
-    'header .kleo-social-icons',
-    '.top-bar .kleo-social-icons'
-  ];
+  // Hide ASAP to prevent any flash
+  try {
+    document.documentElement.style.visibility = 'hidden';
+    document.documentElement.style.opacity = '0';
+  } catch(e){}
+
+  var KEEP_SELECTORS = ['.wpb-content-wrapper','main','#main','#content','.content'];
+  var KILL_SELECTORS = ['#top-social','ul.kleo-social-icons','li.tabdrop','header .kleo-social-icons','.top-bar .kleo-social-icons'];
 
   function log(msg, extra) {
-    try {
-      window.ReactNativeWebView.postMessage(JSON.stringify({ tag: 'ARTICLES_DEBUG', msg, extra }));
-    } catch (e) {}
+    try { window.ReactNativeWebView.postMessage(JSON.stringify({ tag:'ARTICLES_DEBUG', msg, extra })); } catch(e) {}
   }
 
   function ensureViewportAndCSS() {
@@ -43,79 +43,56 @@ const STRIP_CHROME_JS = `
         'html,body{margin:0!important;padding:0!important}',
         'img,video{max-width:100%!important;height:auto!important}',
         '.vc_row{margin-left:0!important;margin-right:0!important}',
-        /* nuclear CSS fallback */
-        '#top-social, ul.kleo-social-icons, li.tabdrop,' +
-        'header .kleo-social-icons, .top-bar .kleo-social-icons' +
-        '{display:none!important;visibility:hidden!important;height:0!important;overflow:hidden!important}'
+        '#top-social, ul.kleo-social-icons, li.tabdrop, header .kleo-social-icons, .top-bar .kleo-social-icons{display:none!important;visibility:hidden!important;height:0!important;overflow:hidden!important}'
       ].join(';');
       document.head.appendChild(s);
-      log('Injected CSS');
     }
   }
 
-  function killChrome(why) {
-    var removed = 0;
+  function killChrome() {
     KILL_SELECTORS.forEach(function(sel){
-      document.querySelectorAll(sel).forEach(function(n){
-        try { n.remove(); removed++; } catch(e){}
-      });
+      document.querySelectorAll(sel).forEach(function(n){ try { n.remove(); } catch(e){} });
     });
-    var still = {
-      top_social: document.querySelectorAll('#top-social').length,
-      kleo_lists: document.querySelectorAll('ul.kleo-social-icons').length,
-      tabdrop: document.querySelectorAll('li.tabdrop').length
-    };
-    log('killChrome(' + why + ')', { removed, still });
   }
 
   function keepOnly() {
-    var keep = null, matchedSel = null;
-    for (var i=0;i<KEEP_SELECTORS.length;i++) {
-      keep = document.querySelector(KEEP_SELECTORS[i]);
-      if (keep) { matchedSel = KEEP_SELECTORS[i]; break; }
-    }
-    if (!keep) { log('keepOnly: NO KEEP CONTAINER FOUND'); return false; }
-
-    // If the "keep" contains the social list, we’ll still nuke it later.
+    var keep = null;
+    for (var i=0;i<KEEP_SELECTORS.length;i++) { keep = document.querySelector(KEEP_SELECTORS[i]); if (keep) break; }
+    if (!keep) return false;
     var clone = keep.cloneNode(true);
     document.body.innerHTML = '';
     document.body.appendChild(clone);
     try { window.scrollTo(0,0); } catch(e){}
-    log('keepOnly: kept container', { matchedSel, childCount: clone.childElementCount });
     return true;
   }
 
-  function run(phase) {
+  function finish() {
+    // Unhide in the next frame to avoid partial paint
+    requestAnimationFrame(function(){
+      try {
+        document.documentElement.style.visibility = '';
+        document.documentElement.style.opacity = '';
+      } catch(e){}
+      try { window.ReactNativeWebView.postMessage(JSON.stringify({ tag:'ARTICLES_DEBUG', msg:'READY' })); } catch(e){}
+    });
+  }
+
+  function run() {
     ensureViewportAndCSS();
-    killChrome('pre-' + phase);
+    killChrome();
     if (!keepOnly()) {
-      setTimeout(function(){ run('retry'); }, 150);
-    } else {
-      // After we’ve replaced the body, run another kill in case the clone carried any social nodes
-      killChrome('post-keepOnly');
+      // If builder elements arrive late, keep trying while still hidden
+      return setTimeout(run, 60);
     }
+    killChrome();  // remove anything that cloned in
+    finish();
   }
 
-  // First pass
-  run('initial');
+  run();
 
-  // Re-enforce if the theme mutates the DOM later
-  var obs = new MutationObserver(function(mutations){
-    // If anything adds nodes that match, kill again
-    var reAdd = false;
-    for (var i=0;i<mutations.length;i++) {
-      var m = mutations[i];
-      if (m.addedNodes && m.addedNodes.length) { reAdd = true; break; }
-    }
-    if (reAdd) killChrome('mutation');
-  });
-  try {
-    obs.observe(document.documentElement, { childList: true, subtree: true });
-    log('Observer attached');
-  } catch(e) {
-    log('Observer failed', { error: String(e) });
-  }
-
+  // If theme injects later, keep killing silently (page is already visible)
+  var obs = new MutationObserver(function(m){ for (var i=0;i<m.length;i++){ if (m[i].addedNodes && m[i].addedNodes.length){ killChrome(); break; } } });
+  try { obs.observe(document.documentElement, { childList:true, subtree:true }); } catch(e){}
   true;
 })();
 `;
@@ -141,7 +118,16 @@ export default function ArticlesWebViewScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ title: "Articles" }} />
+      <Stack.Screen options={{ title: "Articles",
+          headerLeft: () => (
+            <Pressable
+              onPress={() => (router.canGoBack() ? router.back() : router.replace("/"))}
+              hitSlop={12} style={{ paddingHorizontal: 4 }} >
+              <Ionicons name="chevron-back" size={24} color="#111827" />
+            </Pressable>
+          ),
+        }}
+      />
       <SafeAreaView style={{ flex: 1, backgroundColor: "#fff" }}>
         {err ? (
           <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 16 }}>
