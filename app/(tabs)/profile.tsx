@@ -1,8 +1,8 @@
 // components/profilepage/ProfilePage.tsx
 import { Ionicons } from '@expo/vector-icons';
-import { Link, router } from 'expo-router';
+import { Link } from 'expo-router';
 import { Pressable, Text, View, Alert } from 'react-native';
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../../lib/auth';
 
 type Item = { label: string; href: string; icon: keyof typeof Ionicons.glyphMap };
@@ -20,10 +20,16 @@ const items: Item[] = [
 export default function ProfilePage() {
   const { clearAuth } = useAuth();
   const [signingOut, setSigningOut] = useState(false);
+  const mounted = useRef(true);
 
-  const handleSignOut = async () => {
+  // track unmount to avoid setState after clearAuth
+  useEffect(() => {
+    return () => { mounted.current = false; };
+  }, []);
+
+  const handleSignOut = () => {
     if (signingOut) return;
-    // Optional confirm dialog
+
     Alert.alert('Sign out', 'Are you sure you want to sign out?', [
       { text: 'Cancel', style: 'cancel' },
       {
@@ -32,10 +38,9 @@ export default function ProfilePage() {
         onPress: async () => {
           try {
             setSigningOut(true);
-            await clearAuth();          // clears SecureStore + state
-            router.replace('/'); // immediate UX bounce (layout will also redirect)
+            await clearAuth(); // this clears auth, layout should handle redirect
           } finally {
-            setSigningOut(false);
+            if (mounted.current) setSigningOut(false);
           }
         },
       },

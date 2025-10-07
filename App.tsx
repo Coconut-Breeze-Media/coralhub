@@ -1,17 +1,8 @@
-import { AuthProvider } from './lib/auth';
-import { Slot } from 'expo-router';
-import { useEffect } from "react";
-import { detectBpRoutes } from "./lib/api/buddypress/routes";
+import { ExpoRoot } from 'expo-router';
 
+// @ts-expect-error - provided by expo-router
+const ctx = require.context('./app');
 
 export default function App() {
-  useEffect(() => {
-    detectBpRoutes().catch(() => {});
-  }, []);
-
-  return (
-    <AuthProvider>
-      <Slot />
-    </AuthProvider>
-  );
+  return <ExpoRoot context={ctx} />;
 }

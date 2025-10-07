@@ -2,13 +2,17 @@
 /**
  * Plugin Name: Coral Membership API
  * Description: Exposes REST API endpoints used by the mobile app (membership check + membership levels).
- * Version: 1.3
+ * Version: 1.4.0
  * Author: Coral Reef Research Hub
  */
 
-///////////////////////////////////////////////
-// Minimal checkout page URL (app-only view) //
-///////////////////////////////////////////////
+if (!defined('ABSPATH')) { exit; }
+
+/** ------------------------------------------------------------------------
+ * Utilities
+ * --------------------------------------------------------------------- */
+
+/** Minimal checkout page URL (app-only view) */
 function coral_app_checkout_base_url() {
   // Try to find a page with slug "app-checkout"
   if (function_exists('get_page_by_path')) {
@@ -18,26 +22,11 @@ function coral_app_checkout_base_url() {
       if ($url) return $url;
     }
   }
-
   return home_url('/app-checkout/');
 }
 
-
-// ---------------------------------------------
-// Helper: fetch benefits ONLY from WP (ACF/Option)
-// ---------------------------------------------
+/** Get benefits list for a membership level (ACF repeater/textarea, then WP option) */
 if (!function_exists('coral_membership_get_benefits')) {
-  /**
-   * Resolve benefits from (in order): ACF repeater, ACF textarea, WP option.
-   * Returns an array of strings. If nothing is set, returns [].
-   *
-   * ACF scope: "pmpro_level_{ID}"
-   *  - Repeater field: benefits (rows with 'text')
-   *  - Textarea field: benefits_text (newline-separated)
-   *
-   * WP Option fallback:
-   *  - option_name = "coral_benefits_{ID}" (newline-separated)
-   */
   function coral_membership_get_benefits($level_id) {
     $benefits = [];
 
@@ -56,9 +45,7 @@ if (!function_exists('coral_membership_get_benefits')) {
             $txt = wp_strip_all_tags($row);
           }
           $txt = trim($txt);
-          if ($txt !== '') {
-            $benefits[] = $txt;
-          }
+          if ($txt !== '') $benefits[] = $txt;
         }
       }
 
@@ -69,9 +56,7 @@ if (!function_exists('coral_membership_get_benefits')) {
           $lines = preg_split('/\r\n|\r|\n/', $txt);
           foreach ($lines as $line) {
             $line = trim(wp_strip_all_tags($line));
-            if ($line !== '') {
-              $benefits[] = $line;
-            }
+            if ($line !== '') $benefits[] = $line;
           }
         }
       }
@@ -84,9 +69,7 @@ if (!function_exists('coral_membership_get_benefits')) {
         $lines = preg_split('/\r\n|\r|\n/', $opt);
         foreach ($lines as $line) {
           $line = trim(wp_strip_all_tags($line));
-          if ($line !== '') {
-            $benefits[] = $line;
-          }
+          if ($line !== '') $benefits[] = $line;
         }
       }
     }
@@ -95,19 +78,37 @@ if (!function_exists('coral_membership_get_benefits')) {
   }
 }
 
-// ---------------------------------------------------
-// /coral/v1/membership  → { is_member: boolean }
-// ---------------------------------------------------
+/** ------------------------------------------------------------------------
+ * REST API: routes
+ * --------------------------------------------------------------------- */
+
+/** Always-on ping to verify plugin is loaded */
+add_action('rest_api_init', function () {
+  register_rest_route('coral/v1', '/ping', [
+    'methods'  => 'GET',
+    'permission_callback' => '__return_true',
+    'callback' => function () {
+      return new WP_REST_Response([
+        'ok'      => true,
+        'plugin'  => 'coral-membership',
+        'version' => '1.4.0'
+      ], 200);
+    },
+  ]);
+});
+
+/** GET /coral/v1/membership → { is_member: boolean } */
 add_action('rest_api_init', function () {
   register_rest_route('coral/v1', '/membership', [
     'methods'  => 'GET',
-    'callback' => function (WP_REST_Request $request) {
+    'permission_callback' => '__return_true',
+    'callback' => function () {
       $user_id = get_current_user_id();
       if (!$user_id) {
         return new WP_REST_Response(['is_member' => false, 'reason' => 'not_logged_in'], 200);
       }
 
-      // Paid Memberships Pro
+      // Paid Memberships Pro (preferred if present)
       if (function_exists('pmpro_hasMembershipLevel') && pmpro_hasMembershipLevel(null, $user_id)) {
         return new WP_REST_Response(['is_member' => true], 200);
       }
@@ -115,31 +116,28 @@ add_action('rest_api_init', function () {
       // MemberPress
       if (class_exists('\MeprUser')) {
         $user = new \MeprUser($user_id);
-        if ($user->is_active()) {
+        if (method_exists($user, 'is_active') && $user->is_active()) {
           return new WP_REST_Response(['is_member' => true], 200);
         }
       }
 
-      // Fallback: role/capability
+      // Fallback: capability-based (customize as needed)
       if (user_can($user_id, 'read_private_pages')) {
         return new WP_REST_Response(['is_member' => true], 200);
       }
 
       return new WP_REST_Response(['is_member' => false], 200);
     },
-    'permission_callback' => '__return_true',
   ]);
 });
 
-
-// ---------------------------------------------------
-// /coral/v1/levels  → { levels: [...] }  (public)
-// Shows recurring amount as the big price if present.
-// ---------------------------------------------------
+/** GET /coral/v1/levels → { levels: [...] } (public) */
 add_action('rest_api_init', function () {
   register_rest_route('coral/v1', '/levels', [
     'methods'  => 'GET',
+    'permission_callback' => '__return_true',
     'callback' => function () {
+      // If PMPro not present, return empty list rather than fatal-ing
       if (!function_exists('pmpro_getAllLevels')) {
         return new WP_REST_Response(['levels' => []], 200);
       }
@@ -147,15 +145,15 @@ add_action('rest_api_init', function () {
       $levels = pmpro_getAllLevels(true, true);
       $out = [];
 
-      // Resolve the minimal checkout page once
+      // One-time resolve of minimal checkout page
       $minimal_base = coral_app_checkout_base_url(); // e.g. https://site.com/app-checkout/
 
       foreach ($levels as $lvl) {
-        // Price to show big (prefer recurring)
+        // Price (prefer recurring)
         $amount_for_badge = ($lvl->billing_amount > 0) ? $lvl->billing_amount : $lvl->initial_payment;
         $price = '$' . number_format((float)$amount_for_badge, 2);
 
-        // Note text
+        // Note
         if ($lvl->billing_amount > 0 && !empty($lvl->cycle_number) && !empty($lvl->cycle_period)) {
           $note = sprintf('$%s per %s.', number_format((float)$lvl->billing_amount, 2), ucfirst($lvl->cycle_period));
         } elseif ((float)$lvl->initial_payment === 0.0) {
@@ -164,12 +162,9 @@ add_action('rest_api_init', function () {
           $note = sprintf('One-time $%s.', number_format((float)$lvl->initial_payment, 2));
         }
 
-        // Build checkout URL, preferring the minimal page
-        $checkout_url = add_query_arg(
-          'level',
-          (int) $lvl->id,
-          $minimal_base ?: pmpro_url('checkout')
-        );
+        // Checkout URL with guards (avoid fatal if pmpro_url missing)
+        $pmpro_checkout = function_exists('pmpro_url') ? pmpro_url('checkout') : home_url('/membership-account/membership-checkout/');
+        $checkout_url = add_query_arg('level', (int) $lvl->id, $minimal_base ?: $pmpro_checkout);
 
         $out[] = [
           'id'               => (int) $lvl->id,
@@ -179,8 +174,7 @@ add_action('rest_api_init', function () {
           'description'      => wp_strip_all_tags($lvl->description),
           'benefits'         => coral_membership_get_benefits($lvl->id),
           'checkout_url'     => $checkout_url,
-
-          // Raw fields if needed client-side
+          // raw fields if needed
           'recurring_amount' => (float) $lvl->billing_amount,
           'initial_payment'  => (float) $lvl->initial_payment,
           'cycle_period'     => $lvl->cycle_period,
@@ -190,8 +184,21 @@ add_action('rest_api_init', function () {
 
       return new WP_REST_Response(['levels' => array_values($out)], 200);
     },
-    'permission_callback' => '__return_true',
   ]);
 });
 
-require_once __DIR__ . '/coral-tokens.php';
+/** ------------------------------------------------------------------------
+ * Optional: load tokens endpoints if provided (safe include)
+ * --------------------------------------------------------------------- */
+
+add_action('plugins_loaded', function () {
+  $tokens_file = __DIR__ . '/coral-tokens.php';
+  if (file_exists($tokens_file)) {
+    require_once $tokens_file;
+  } else {
+    // Not fatal; just log for awareness
+    if (defined('WP_DEBUG') && WP_DEBUG) {
+      error_log('[Coral Membership API] coral-tokens.php not found; skipping tokens routes.');
+    }
+  }
+});
