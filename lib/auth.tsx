@@ -1,11 +1,21 @@
 // lib/auth.tsx
 import * as SecureStore from 'expo-secure-store';
 import React, {
-  createContext, useContext, useEffect, useState, useCallback, useMemo, useRef,
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
 } from 'react';
 import { JWTPayload, getMembershipStatus, type MembershipResp, ApiError } from './api';
 
 const MEMBERSHIP_THROTTLE_MS = 30_000;
+
+/** Dev-only logger helpers */
+const log = (...args: any[]) => { if (__DEV__) console.log(...args); };
+const safe = (t: string | null) => (t ? `${t.slice(0, 6)}…` : null);
 
 type AuthContextType = {
   token: string | null;
@@ -34,7 +44,7 @@ const AuthContext = createContext<AuthContextType>({
 });
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  if (__DEV__) console.log('[auth] provider mounted');
+  log('[auth] provider mounted');
 
   const [token, setToken] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState<string | null>(null);
@@ -44,11 +54,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [checkingMembership, setCheckingMembership] = useState(false);
   const [lastMembershipCheckAt, setLastMembershipCheckAt] = useState<number | undefined>(undefined);
 
-  // guards
+  // guards / refs
   const mountedRef = useRef(true);
   const lastCheckedTokenRef = useRef<string | null>(null);
   const inFlightAbortRef = useRef<AbortController | null>(null);
   const lastMembershipCheckRef = useRef<number>(0);
+  const lastTokenRef = useRef<string | null>(null);
 
   useEffect(() => {
     return () => {
@@ -60,7 +71,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Restore from SecureStore on app start
   useEffect(() => {
     (async () => {
-      if (__DEV__) console.log('[auth] restore start');
+      log('[auth] restore start');
       try {
         const [t, rt, email, name] = await Promise.all([
           SecureStore.getItemAsync('jwt'),
@@ -70,30 +81,38 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         ]);
         if (!mountedRef.current) return;
 
+        log('[auth] restore fetched', { jwt: !!t, rt: !!rt, email: !!email, name: !!name });
         if (t) setToken(t);
         if (rt) setRefreshToken(rt);
         if (email && name) setProfile({ user_email: email, user_display_name: name });
       } catch (e) {
-        if (__DEV__) console.warn('[auth] restore failed:', e);
+        log('[auth] restore failed:', e);
       } finally {
-        if (mountedRef.current) setReady(true);
+        if (mountedRef.current) {
+          setReady(true);
+          log('[auth] restore done → ready=true');
+        }
       }
     })();
   }, []);
 
-  // membership checker (callable + used internally)
+  // Membership checker
   const refreshMembership = useCallback(
     async (opts?: { force?: boolean }) => {
       const force = !!opts?.force;
 
       if (!token) {
+        log('[auth] refreshMembership: no token → reset flags');
         setIsMember(null);
         setLastMembershipCheckAt(undefined);
         return;
       }
 
       const now = Date.now();
-      if (!force && now - lastMembershipCheckRef.current < MEMBERSHIP_THROTTLE_MS) return;
+      if (!force && now - lastMembershipCheckRef.current < MEMBERSHIP_THROTTLE_MS) {
+        log('[auth] refreshMembership: throttled');
+        return;
+      }
       lastMembershipCheckRef.current = now;
 
       inFlightAbortRef.current?.abort();
@@ -103,45 +122,79 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setCheckingMembership(true);
       lastCheckedTokenRef.current = token;
 
+      log('[auth] refreshMembership: start', { token: safe(token), force });
+
       try {
         const res: MembershipResp = await getMembershipStatus(token, ac.signal);
         if (!mountedRef.current) return;
-        if (lastCheckedTokenRef.current !== token) return;
+
+        // Ignore if token changed mid-flight
+        if (lastCheckedTokenRef.current !== token) {
+          log('[auth] refreshMembership: token changed mid-flight; ignoring');
+          return;
+        }
 
         setIsMember(!!res.is_member);
         setLastMembershipCheckAt(Date.now());
-      } catch (e) {
+        log('[auth] refreshMembership: success', { is_member: !!res.is_member });
+      } catch (e: any) {
         if (!mountedRef.current) return;
-        if ((e as any)?.name === 'AbortError') return;
+        if (e?.name === 'AbortError') {
+          log('[auth] refreshMembership: aborted');
+          return;
+        }
 
         if (e instanceof ApiError && e.status === 401) {
-          // token invalid for membership route; leave token as-is, unset member flag
+          log('[auth] refreshMembership: 401 (token invalid for membership endpoint)');
+          // token might be expired/invalid for that endpoint
           setIsMember(null);
-        } else if (__DEV__) {
-          console.warn('[auth] membership check failed:', e);
+        } else {
+          log('[auth] refreshMembership: error', e);
         }
       } finally {
-        if (mountedRef.current) setCheckingMembership(false);
+        if (mountedRef.current) {
+          setCheckingMembership(false);
+          log('[auth] refreshMembership: end');
+        }
       }
     },
     [token]
   );
 
-  // When token is ready/changes, check membership
+  // Keep a stable ref to the function used by effects/callbacks
+  const refreshRef = useRef(refreshMembership);
+  useEffect(() => {
+    refreshRef.current = refreshMembership;
+  }, [refreshMembership]);
+
+  // React to token changes (only when it actually changes)
   useEffect(() => {
     if (!ready) return;
+
+    if (lastTokenRef.current === token) return; // no real change
+    log('[auth] token changed', { from: safe(lastTokenRef.current), to: safe(token) });
+    lastTokenRef.current = token;
+
     if (token) {
-      void refreshMembership({ force: true });
+      log('[auth] token present → force membership check');
+      void refreshRef.current({ force: true });
     } else {
+      log('[auth] token cleared → reset membership + abort inflight');
       setIsMember(null);
       setLastMembershipCheckAt(undefined);
       inFlightAbortRef.current?.abort();
     }
-  }, [token, ready, refreshMembership]);
+  }, [ready, token]);
 
-  // Login setter (can accept refresh_token from your custom login)
+  // Login setter (can accept refresh_token from custom login)
   const setAuth = useCallback(
     async (payload: JWTPayload & { refresh_token?: string }) => {
+      log('[auth] setAuth called', {
+        hasToken: !!payload.token,
+        hasRefresh: !!payload.refresh_token,
+        email: payload.user_email,
+      });
+
       setToken(payload.token);
       setProfile({ user_email: payload.user_email, user_display_name: payload.user_display_name });
 
@@ -156,13 +209,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       await Promise.all(ops);
 
-      await refreshMembership({ force: true });
+      await refreshRef.current({ force: true });
     },
-    [refreshMembership]
+    []
   );
 
   // Logout
   const clearAuth = useCallback(async () => {
+    log('[auth] clearAuth called');
+
     inFlightAbortRef.current?.abort();
 
     setToken(null);
@@ -179,29 +234,49 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     ]);
   }, []);
 
-  const value = useMemo<AuthContextType>(() => ({
-    token,
-    refreshToken,
-    profile,
-    isMember,
-    refreshMembership,
-    setAuth,
-    clearAuth,
-    ready,
-    checkingMembership,
-    lastMembershipCheckAt,
-  }), [
-    token,
-    refreshToken,
-    profile,
-    isMember,
-    refreshMembership,
-    setAuth,
-    clearAuth,
-    ready,
-    checkingMembership,
-    lastMembershipCheckAt,
-  ]);
+  // Lightweight watchers (excellent for spotting churn)
+  useEffect(() => {
+    if (ready) {
+      log('[auth] state snapshot →', {
+        ready,
+        token: !!token,
+        isMember,
+        checking: checkingMembership,
+        lastCheckAt: lastMembershipCheckAt,
+      });
+    }
+  }, [ready, token, isMember, checkingMembership, lastMembershipCheckAt]);
+
+  useEffect(() => {
+    log('[auth] profile changed:', profile ? profile.user_email : null);
+  }, [profile]);
+
+  const value = useMemo<AuthContextType>(
+    () => ({
+      token,
+      refreshToken,
+      profile,
+      isMember,
+      refreshMembership,
+      setAuth,
+      clearAuth,
+      ready,
+      checkingMembership,
+      lastMembershipCheckAt,
+    }),
+    [
+      token,
+      refreshToken,
+      profile,
+      isMember,
+      refreshMembership,
+      setAuth,
+      clearAuth,
+      ready,
+      checkingMembership,
+      lastMembershipCheckAt,
+    ]
+  );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };

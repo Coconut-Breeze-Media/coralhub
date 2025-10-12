@@ -1,8 +1,8 @@
-// components/profilepage/ProfilePage.tsx
+// app/(tabs)/profile.tsx (or your ProfilePage component)
+import React, { useEffect, useRef, useState } from 'react';
+import { Alert, Pressable, Text, View } from 'react-native';
+import { Link, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { Link } from 'expo-router';
-import { Pressable, Text, View, Alert } from 'react-native';
-import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../../lib/auth';
 
 type Item = { label: string; href: string; icon: keyof typeof Ionicons.glyphMap };
@@ -17,15 +17,13 @@ const items: Item[] = [
   { label: 'Account',          href: '/profile/account',          icon: 'card-outline' },
 ];
 
-export default function ProfilePage() {
+export default function ProfileScreen() {
   const { clearAuth } = useAuth();
   const [signingOut, setSigningOut] = useState(false);
   const mounted = useRef(true);
+  const navigated = useRef(false);
 
-  // track unmount to avoid setState after clearAuth
-  useEffect(() => {
-    return () => { mounted.current = false; };
-  }, []);
+  useEffect(() => () => { mounted.current = false; }, []);
 
   const handleSignOut = () => {
     if (signingOut) return;
@@ -37,8 +35,12 @@ export default function ProfilePage() {
         style: 'destructive',
         onPress: async () => {
           try {
-            setSigningOut(true);
-            await clearAuth(); // this clears auth, layout should handle redirect
+            if (mounted.current) setSigningOut(true);
+            await clearAuth();                  // clear tokens & storage
+            if (!navigated.current) {           // single-shot navigation out of (tabs)
+              navigated.current = true;
+              router.replace('/');              // go to Welcome
+            }
           } finally {
             if (mounted.current) setSigningOut(false);
           }
@@ -53,13 +55,9 @@ export default function ProfilePage() {
         <Link key={item.href} href={{ pathname: item.href }} asChild>
           <Pressable
             style={{
-              paddingHorizontal: 16,
-              paddingVertical: 14,
-              borderTopWidth: idx === 0 ? 0 : 1,
-              borderColor: '#e5e7eb',
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 12,
+              paddingHorizontal: 16, paddingVertical: 14,
+              borderTopWidth: idx === 0 ? 0 : 1, borderColor: '#e5e7eb',
+              flexDirection: 'row', alignItems: 'center', gap: 12,
             }}
           >
             <Ionicons name={item.icon} size={22} color="#2563eb" />
@@ -69,19 +67,12 @@ export default function ProfilePage() {
         </Link>
       ))}
 
-      {/* Sign out row */}
       <Pressable
         onPress={handleSignOut}
         disabled={signingOut}
         style={{
-          paddingHorizontal: 16,
-          paddingVertical: 14,
-          borderTopWidth: 1,
-          borderColor: '#e5e7eb',
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: 12,
-          opacity: signingOut ? 0.6 : 1,
+          paddingHorizontal: 16, paddingVertical: 14, borderTopWidth: 1, borderColor: '#e5e7eb',
+          flexDirection: 'row', alignItems: 'center', gap: 12, opacity: signingOut ? 0.6 : 1,
         }}
         accessibilityRole="button"
         accessibilityLabel="Sign out"

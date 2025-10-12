@@ -1,13 +1,6 @@
 // app/index.tsx
 import React from 'react';
-import {
-  SafeAreaView,
-  View,
-  Text,
-  Image,
-  TouchableOpacity,
-  Linking,
-} from 'react-native';
+import { SafeAreaView, View, Text, Image, TouchableOpacity } from 'react-native';
 import { Redirect, router } from 'expo-router';
 import { useAuth } from '../lib/auth';
 
@@ -28,30 +21,18 @@ export default function WelcomeScreen() {
           padding: 24,
           justifyContent: 'center',
           alignItems: 'center',
-          gap: 16, // ← unified spacing between ALL children
+          gap: 16,
         }}
       >
-        {/* Logo */}
         <Image
-          // source={require('../assets/icon.png')}
           source={require('../assets/Logo_Text_transparent.png')}
-          style={{ width: 120, height: 120, resizeMode: 'contain', transform: [{ scale: 2.5 }], }}
+          style={{ width: 120, height: 120, resizeMode: 'contain', transform: [{ scale: 2.5 }] }}
         />
 
-
-        {/* Headline */}
-        <Text
-          style={{
-            fontSize: 20,
-            fontWeight: '800',
-            color: '#000',
-            textAlign: 'center',
-          }}
-        >
+        <Text style={{ fontSize: 20, fontWeight: '800', color: '#000', textAlign: 'center' }}>
           GET CONNECTED
         </Text>
 
-        {/* Subhead */}
         <Text
           style={{
             fontSize: 16,
@@ -65,39 +46,22 @@ export default function WelcomeScreen() {
           researchers, early career scientists and other reef specialists.
         </Text>
 
-        {/* Log in */}
+        {/* Log in → use the grouped path */}
         <TouchableOpacity
-          onPress={() => router.push('/sign-in')}
-          style={{
-            backgroundColor: PRIMARY,
-            padding: 14,
-            borderRadius: 12,
-            width: '85%',
-          }}
+          onPress={() => router.push('/(auth)/sign-in')}
+          style={{ backgroundColor: PRIMARY, padding: 14, borderRadius: 12, width: '85%' }}
           accessibilityLabel="Log in"
         >
-          <Text
-            style={{ color: '#fff', textAlign: 'center', fontWeight: '700' }}
-          >
-            LOG IN
-          </Text>
+          <Text style={{ color: '#fff', textAlign: 'center', fontWeight: '700' }}>LOG IN</Text>
         </TouchableOpacity>
 
         {/* Register */}
         <TouchableOpacity
           onPress={() => router.push('/(auth)/membership-levels')}
-          style={{
-            borderWidth: 2,
-            borderColor: PRIMARY,
-            padding: 14,
-            borderRadius: 12,
-            width: '85%',
-          }}
+          style={{ borderWidth: 2, borderColor: PRIMARY, padding: 14, borderRadius: 12, width: '85%' }}
           accessibilityLabel="Not a member? Register now"
         >
-          <Text
-            style={{ color: PRIMARY, textAlign: 'center', fontWeight: '700' }}
-          >
+          <Text style={{ color: PRIMARY, textAlign: 'center', fontWeight: '700' }}>
             NOT A MEMBER? REGISTER NOW!
           </Text>
         </TouchableOpacity>

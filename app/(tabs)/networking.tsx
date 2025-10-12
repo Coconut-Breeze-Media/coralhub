@@ -1,4 +1,4 @@
-// app/tabs/index.tsx
+// app/tabs/networking.tsx
 import { Text, View } from 'react-native';
 
 export default function CommunityScreen() {

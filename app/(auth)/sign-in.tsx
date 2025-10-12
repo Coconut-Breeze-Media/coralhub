@@ -1,21 +1,11 @@
 
 // app/(auth)/sign-in.tsx
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
-  SafeAreaView,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
-  ActivityIndicator,
-  Pressable,
-  StyleSheet,
-  Linking,
+  SafeAreaView, Text, TextInput, TouchableOpacity, View, Alert,
+  KeyboardAvoidingView, Platform, ActivityIndicator, Pressable, StyleSheet, Linking,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams, usePathname } from 'expo-router';
 import { useAuth } from '../../lib/auth';   
 import { wpLogin } from '../../lib/api/auth'; 
 
@@ -25,8 +15,18 @@ const PRIMARY = '#0077b6';
 const FIELD_GAP = 16;   // gap between stacked fields
 const SECTION_GAP = 28; // gap before the primary button
 
+function isSafeInternalPath(p?: string) {
+  if (!p) return false;
+  // basic internal guard: starts with "/" and not an absolute URL
+  return p.startsWith('/') && !/^https?:\/\//i.test(p);
+}
+
 export default function SignInScreen() {
   const { setAuth, ready } = useAuth();
+  const params = useLocalSearchParams<{ returnTo?: string }>();
+  const pathname = usePathname();
+  const returnTo = useMemo(() => (isSafeInternalPath(params.returnTo) ? params.returnTo! : null), [params.returnTo]);
+
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -41,7 +41,13 @@ export default function SignInScreen() {
       setBusy(true);
       const payload = await wpLogin(username.trim(), password);
       await setAuth(payload);
-      router.replace('/(tabs)');
+
+      // Prefer returnTo if present and safe, else default to tabs
+      if (returnTo && returnTo !== pathname) {
+        router.replace(returnTo);
+      } else {
+        router.replace('/(tabs)');
+      }
     } catch (e: any) {
       Alert.alert('Login failed', e?.message ?? 'Please try again.');
     } finally {
