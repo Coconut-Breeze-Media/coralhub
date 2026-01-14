@@ -1,0 +1,726 @@
+{
+  "info": {
+    "name": "Coral Social API - CoralHub",
+    "description": "REST API for CoralHub social features with BuddyPress and bbPress",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "version": "1.0.0"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{jwt_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "https://your-domain.com/wp-json/coral/v1",
+      "type": "string"
+    },
+    {
+      "key": "jwt_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "user_id",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "group_id",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "activity_id",
+      "value": "1",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "0. Authentication",
+      "item": [
+        {
+          "name": "Login - Get JWT Token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"admin\",\n  \"password\": \"your_password\"\n}"
+            },
+            "url": {
+              "raw": "https://your-domain.com/wp-json/jwt-auth/v1/token",
+              "protocol": "https",
+              "host": ["your-domain", "com"],
+              "path": ["wp-json", "jwt-auth", "v1", "token"]
+            },
+            "description": "Gets the JWT token for authentication. Save the token in the jwt_token variable."
+          },
+          "response": []
+        },
+        {
+          "name": "Validate Token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              }
+            ],
+            "url": {
+              "raw": "https://your-domain.com/wp-json/jwt-auth/v1/token/validate",
+              "protocol": "https",
+              "host": ["your-domain", "com"],
+              "path": ["wp-json", "jwt-auth", "v1", "token", "validate"]
+            },
+            "description": "Validates if the JWT token is valid."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "1. Activity Feed",
+      "item": [
+        {
+          "name": "Get Activity Feed",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/activity/feed?page=1&per_page=20&scope=all",
+              "host": ["{{base_url}}"],
+              "path": ["activity", "feed"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "per_page",
+                  "value": "20"
+                },
+                {
+                  "key": "scope",
+                  "value": "all",
+                  "description": "Options: all, friends, groups, mentions"
+                }
+              ]
+            },
+            "description": "Gets the activity feed. Optional parameters: user_id, type, scope."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Specific Activity",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/activity/{{activity_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["activity", "{{activity_id}}"]
+            },
+            "description": "Gets a specific activity by ID."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Activity",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"Hello everyone! This is my first post on CoralHub 🐠\",\n  \"type\": \"activity_update\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/activity/feed",
+              "host": ["{{base_url}}"],
+              "path": ["activity", "feed"]
+            },
+            "description": "Creates a new activity in the feed."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Activity",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/activity/{{activity_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["activity", "{{activity_id}}"]
+            },
+            "description": "Deletes an activity. Only the owner or administrator can delete it."
+          },
+          "response": []
+        },
+        {
+          "name": "Like/Unlike Activity",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/activity/{{activity_id}}/like",
+              "host": ["{{base_url}}"],
+              "path": ["activity", "{{activity_id}}", "like"]
+            },
+            "description": "Likes an activity. If already liked, it unlikes it."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "2. Groups",
+      "item": [
+        {
+          "name": "List Groups",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/groups?page=1&per_page=20&type=active",
+              "host": ["{{base_url}}"],
+              "path": ["groups"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "per_page",
+                  "value": "20"
+                },
+                {
+                  "key": "type",
+                  "value": "active",
+                  "description": "Options: active, newest, alphabetical, random, popular, most-forum-topics, most-forum-posts"
+                },
+                {
+                  "key": "search",
+                  "value": "",
+                  "description": "Search by name",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Lists all available groups with pagination and filters."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Specific Group",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/groups/{{group_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["groups", "{{group_id}}"]
+            },
+            "description": "Gets the details of a specific group."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Group",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Coral Lovers\",\n  \"description\": \"Group dedicated to coral reef conservation and study\",\n  \"status\": \"public\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/groups",
+              "host": ["{{base_url}}"],
+              "path": ["groups"]
+            },
+            "description": "Creates a new group. Status can be: public, private, hidden."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Group",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Coral Lovers - Updated\",\n  \"description\": \"Updated group description\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/groups/{{group_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["groups", "{{group_id}}"]
+            },
+            "description": "Updates an existing group. Only group administrators."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Group",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/groups/{{group_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["groups", "{{group_id}}"]
+            },
+            "description": "Deletes a group. Only group administrators or super admin."
+          },
+          "response": []
+        },
+        {
+          "name": "Join Group",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/groups/{{group_id}}/join",
+              "host": ["{{base_url}}"],
+              "path": ["groups", "{{group_id}}", "join"]
+            },
+            "description": "Current user joins the group."
+          },
+          "response": []
+        },
+        {
+          "name": "Leave Group",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/groups/{{group_id}}/leave",
+              "host": ["{{base_url}}"],
+              "path": ["groups", "{{group_id}}", "leave"]
+            },
+            "description": "Current user leaves the group."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Group Members",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/groups/{{group_id}}/members",
+              "host": ["{{base_url}}"],
+              "path": ["groups", "{{group_id}}", "members"]
+            },
+            "description": "Lists all members of the group."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "3. Group Posts",
+      "item": [
+        {
+          "name": "Get Group Posts",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/groups/{{group_id}}/posts?page=1&per_page=20",
+              "host": ["{{base_url}}"],
+              "path": ["groups", "{{group_id}}", "posts"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "per_page",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Gets all posts from a specific group."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Post in Group",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"Hello group! Sharing information about coral reefs 🪸\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/groups/{{group_id}}/posts",
+              "host": ["{{base_url}}"],
+              "path": ["groups", "{{group_id}}", "posts"]
+            },
+            "description": "Creates a new post in the group. You must be a group member."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "4. Comments",
+      "item": [
+        {
+          "name": "Get Post Comments",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/posts/{{activity_id}}/comments?page=1&per_page=20",
+              "host": ["{{base_url}}"],
+              "path": ["posts", "{{activity_id}}", "comments"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "per_page",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Gets all comments from an activity/post."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Comment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"Excellent post! I love it 👍\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/posts/{{activity_id}}/comments",
+              "host": ["{{base_url}}"],
+              "path": ["posts", "{{activity_id}}", "comments"]
+            },
+            "description": "Creates a new comment on an activity/post."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Comment",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"Comment updated with new information\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/posts/{{activity_id}}/comments/123",
+              "host": ["{{base_url}}"],
+              "path": ["posts", "{{activity_id}}", "comments", "123"]
+            },
+            "description": "Updates an existing comment. Only the owner can update it."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Comment",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/posts/{{activity_id}}/comments/123",
+              "host": ["{{base_url}}"],
+              "path": ["posts", "{{activity_id}}", "comments", "123"]
+            },
+            "description": "Deletes a comment. Only the owner or administrator."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "5. User Profiles",
+      "item": [
+        {
+          "name": "Get User Profile",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/users/{{user_id}}/profile",
+              "host": ["{{base_url}}"],
+              "path": ["users", "{{user_id}}", "profile"]
+            },
+            "description": "Gets the complete profile of a user including statistics."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Profile",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"display_name\": \"John Doe\",\n  \"bio\": \"Passionate about oceans and marine conservation\",\n  \"location\": \"Cancun, Mexico\",\n  \"website\": \"https://mywebsite.com\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/users/{{user_id}}/profile",
+              "host": ["{{base_url}}"],
+              "path": ["users", "{{user_id}}", "profile"]
+            },
+            "description": "Updates the user's profile. Can only update own profile."
+          },
+          "response": []
+        },
+        {
+          "name": "Get User Activity",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/users/{{user_id}}/activity",
+              "host": ["{{base_url}}"],
+              "path": ["users", "{{user_id}}", "activity"]
+            },
+            "description": "Gets all activities from a specific user."
+          },
+          "response": []
+        },
+        {
+          "name": "Get User Groups",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/users/{{user_id}}/groups",
+              "host": ["{{base_url}}"],
+              "path": ["users", "{{user_id}}", "groups"]
+            },
+            "description": "Lists all groups the user belongs to."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "6. Friendships",
+      "item": [
+        {
+          "name": "Get User Friends",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/users/{{user_id}}/friends?page=1&per_page=20",
+              "host": ["{{base_url}}"],
+              "path": ["users", "{{user_id}}", "friends"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "per_page",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Lists all friends of a user."
+          },
+          "response": []
+        },
+        {
+          "name": "Send Friend Request",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/users/{{user_id}}/friend-request",
+              "host": ["{{base_url}}"],
+              "path": ["users", "{{user_id}}", "friend-request"]
+            },
+            "description": "Sends a friend request to the specified user."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Pending Requests",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/users/me/friend-requests",
+              "host": ["{{base_url}}"],
+              "path": ["users", "me", "friend-requests"]
+            },
+            "description": "Gets all pending friend requests for the current user."
+          },
+          "response": []
+        },
+        {
+          "name": "Accept Friend Request",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/users/{{user_id}}/accept-friendship",
+              "host": ["{{base_url}}"],
+              "path": ["users", "{{user_id}}", "accept-friendship"]
+            },
+            "description": "Accepts a friend request from the specified user."
+          },
+          "response": []
+        },
+        {
+          "name": "Remove Friendship",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/users/{{user_id}}/remove-friendship",
+              "host": ["{{base_url}}"],
+              "path": ["users", "{{user_id}}", "remove-friendship"]
+            },
+            "description": "Removes the friendship with the specified user."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "7. Mentions",
+      "item": [
+        {
+          "name": "Get Mentions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/mentions?page=1&per_page=20",
+              "host": ["{{base_url}}"],
+              "path": ["mentions"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "per_page",
+                  "value": "20"
+                },
+                {
+                  "key": "is_read",
+                  "value": "false",
+                  "description": "Filter by read (true) or unread (false)",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Gets all mentions for the current user."
+          },
+          "response": []
+        },
+        {
+          "name": "Mark Mentions as Read",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mention_ids\": [123, 124, 125]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/mentions/mark-read",
+              "host": ["{{base_url}}"],
+              "path": ["mentions", "mark-read"]
+            },
+            "description": "Marks specific mentions as read."
+          },
+          "response": []
+        },
+        {
+          "name": "Search Users to Mention",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/mentions/search?q=john",
+              "host": ["{{base_url}}"],
+              "path": ["mentions", "search"],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "john",
+                  "description": "Search term (minimum 2 characters)"
+                }
+              ]
+            },
+            "description": "Searches users to mention (autocomplete). Useful for @mentions."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}
