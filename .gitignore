@@ -22,3 +22,4 @@ web-build/
 !.env.example
 
 *.zip
+node_modules
