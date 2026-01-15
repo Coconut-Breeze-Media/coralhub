@@ -1,7 +1,33 @@
 // lib/auth.tsx
 import * as SecureStore from 'expo-secure-store';
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import { Platform } from 'react-native';
 import { JWTPayload, getMembershipStatus, type MembershipResp, ApiError } from './api';
+
+// Helper functions to handle storage on web vs native
+async function getStorageItem(key: string): Promise<string | null> {
+  if (Platform.OS === 'web') {
+    return localStorage.getItem(key);
+  }
+  return await SecureStore.getItemAsync(key);
+}
+
+async function setStorageItem(key: string, value: string): Promise<void> {
+  if (Platform.OS === 'web') {
+    localStorage.setItem(key, value);
+  } else {
+    await SecureStore.setItemAsync(key, value);
+  }
+}
+
+async function deleteStorageItem(key: string): Promise<void> {
+  if (Platform.OS === 'web') {
+    localStorage.removeItem(key);
+  } else {
+    await SecureStore.deleteItemAsync(key);
+  }
+}
+
 
 type AuthContextType = {
   token: string | null;
@@ -57,9 +83,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     (async () => {
       console.log('[auth] restore start');
       try {
-        const t = await SecureStore.getItemAsync('jwt');
-        const email = await SecureStore.getItemAsync('user_email');
-        const name = await SecureStore.getItemAsync('user_display_name');
+        const t = await getStorageItem('jwt');
+        const email = await getStorageItem('user_email');
+        const name = await getStorageItem('user_display_name');
         if (t) {
           setToken(t);
           setProfile(email && name ? { user_email: email, user_display_name: name } : null);
@@ -112,9 +138,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setToken(payload.token);
     setProfile({ user_email: payload.user_email, user_display_name: payload.user_display_name });
 
-    await SecureStore.setItemAsync('jwt', payload.token);
-    await SecureStore.setItemAsync('user_email', payload.user_email);
-    await SecureStore.setItemAsync('user_display_name', payload.user_display_name);
+    await setStorageItem('jwt', payload.token);
+    await setStorageItem('user_email', payload.user_email);
+    await setStorageItem('user_display_name', payload.user_display_name);
 
     // Immediately check membership after login
     await refreshMembership();
@@ -127,9 +153,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsMember(null);
     setLastMembershipCheckAt(undefined);
 
-    await SecureStore.deleteItemAsync('jwt');
-    await SecureStore.deleteItemAsync('user_email');
-    await SecureStore.deleteItemAsync('user_display_name');
+    await deleteStorageItem('jwt');
+    await deleteStorageItem('user_email');
+    await deleteStorageItem('user_display_name');
   };
 
   return (

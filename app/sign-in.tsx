@@ -36,13 +36,16 @@ export default function SignInScreen() {
     try {
       if (!username || !password) {
         Alert.alert('Missing info', 'Please enter both username/email and password.');
+        console.log('Login attempt failed: Missing username or password');
         return;
       }
       setBusy(true);
       const payload = await wpLogin(username.trim(), password);
       await setAuth(payload);
+      console.log('Login successful for user:', username);
       router.replace('/(tabs)');
     } catch (e: any) {
+      console.log('Login failed for user:', username, '- Error:', e?.message ?? 'Unknown error');
       Alert.alert('Login failed', e?.message ?? 'Please try again.');
     } finally {
       setBusy(false);
