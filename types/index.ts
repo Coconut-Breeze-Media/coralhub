@@ -223,3 +223,44 @@ export interface PaginatedResponse<T> {
   items: T[];
   meta: PaginationMeta;
 }
+
+// ============================================
+// React Query Types
+// ============================================
+
+/**
+ * Query configuration options
+ */
+export interface QueryConfig {
+  staleTime?: number;
+  cacheTime?: number;
+  refetchOnWindowFocus?: boolean;
+  refetchOnReconnect?: boolean;
+  retry?: number | boolean;
+  enabled?: boolean;
+}
+
+/**
+ * Mutation configuration options
+ */
+export interface MutationConfig {
+  onSuccess?: () => void;
+  onError?: (error: Error) => void;
+  retry?: number | boolean;
+}
+
+/**
+ * Query key types for type safety
+ */
+export type AuthQueryKey = ['auth', 'me'] | ['auth', 'membership'];
+export type PostsQueryKey = 
+  | ['posts']
+  | ['posts', 'list', number]
+  | ['posts', 'detail', number]
+  | ['posts', 'category', string, number]
+  | ['posts', 'tag', string, number];
+export type MembershipQueryKey = 
+  | ['membership', 'levels']
+  | ['membership', 'status'];
+
+export type QueryKey = AuthQueryKey | PostsQueryKey | MembershipQueryKey;

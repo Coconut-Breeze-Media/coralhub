@@ -8,6 +8,9 @@
 export * from './api';
 export * from './auth';
 
+// Query client and utilities
+export * from './queryClient';
+
 // Types
 export type * from '../types';
 

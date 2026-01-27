@@ -26,12 +26,18 @@ coralhub/
 │   └── RequireAuth.tsx          # Auth guard component
 ├── constants/                    # Application constants
 │   └── navigation.ts            # Navigation configuration & routes
+├── hooks/                        # Custom React hooks
+│   ├── useQueries.ts            # TanStack Query hooks
+│   └── index.ts                 # Hook exports
 ├── lib/                          # Core utilities and services
 │   ├── api.ts                   # WordPress API client
 │   ├── auth.tsx                 # Authentication context & provider
+│   ├── queryClient.ts           # TanStack Query configuration
 │   └── index.ts                 # Centralized exports
 ├── types/                        # TypeScript type definitions
 │   └── index.ts                 # Centralized type definitions
+├── docs/                         # Documentation
+│   └── TANSTACK_QUERY.md        # TanStack Query guide
 └── screens/                      # Additional screen components
 ```
 
@@ -157,32 +163,164 @@ import {
 
 ## API Integration
 
+### TanStack Query (React Query)
+
+The application uses TanStack Query for efficient data fetching and caching:
+
+#### Configuration (`lib/queryClient.ts`)
+- **Cache duration**: 5 minutes default
+- **Garbage collection**: 10 minutes
+- **Retry logic**: 3 attempts with exponential backoff
+- **Automatic refetching**: On window focus and when data is stale
+
+#### Custom Hooks (`hooks/useQueries.ts`)
+```typescript
+// Fetch posts with caching
+const { data, isLoading, error } = usePosts(1);
+
+// Fetch current user
+const { data: user } = useMe();
+
+// Fetch membership levels
+const { data: levels } = useMembershipLevels();
+
+// Login mutation
+const login = useLogin();
+login.mutate({ username, password });
+
+// Logout mutation (clears cache)
+const logout = useLogout();
+logout.mutate();
+```
+
+#### Query Keys (`queryKeys`)
+Centralized query keys for cache management:
+```typescript
+queryKeys.auth.me()              // ['auth', 'me']
+queryKeys.posts.list(1)          // ['posts', 'list', 1]
+queryKeys.membership.levels()    // ['membership', 'levels']
+```
+
+#### Cache Invalidation
+```typescript
+invalidateQueries.posts()        // Invalidate all posts
+invalidateQueries.user()         // Invalidate user data
+invalidateQueries.all()          // Clear entire cache
+```
+
+See [docs/TANSTACK_QUERY.md](docs/TANSTACK_QUERY.md) for complete documentation.
+
 ### Authentication Flow
-1. User signs in via `wpLogin()` from `lib/api.ts`
+1. User signs in via `useLogin()` hook
 2. JWT token stored securely via `AuthProvider`
-3. Membership status checked with `getMembershipStatus()`
+3. Membership status cached with TanStack Query
 4. Protected routes use `useAuth()` hook for access control
 
 ### Data Fetching
-- `getPosts()`: Fetch WordPress posts
-- `getMembershipLevels()`: Get available plans
-- `getMe()`: Get current user profile
-- `authedFetch()`: Generic authenticated API calls
+- **With caching** (recommended): Use hooks from `hooks/useQueries.ts`
+- **Direct API calls**: Functions in `lib/api.ts` for special cases
+- **Prefetching**: Use `prefetchQueries` helpers for better UX
 
 ## Best Practices
 
 1. **Always use types**: Import types from `types/` directory
 2. **Use constants**: Reference routes via `ROUTES` object
-3. **Document code**: Add JSDoc comments for complex logic
-4. **Follow patterns**: Maintain consistency with existing code
-5. **Type everything**: Avoid `any` types when possible
+3. **Use query hooks**: Prefer `usePosts()` over direct `getPosts()` calls
+4. **Handle loading states**: Always handle `isLoading`, `isError`, and empty states
+5. **Invalidate on mutations**: Clear cache after data modifications
+6. **Document code**: Add JSDoc comments for complex logic
+7. **Follow patterns**: Maintain consistency with existing code
+8. **Type everything**: Avoid `any` types when possible
+9. **Prefetch wisely**: Use prefetching for predictable user navigation
+10. **Cache appropriately**: Adjust stale times based on data volatility
+
+## Performance Optimization
+
+### Caching Strategy
+- **Frequently changing**: 3-5 minutes (posts, user activity)
+- **Moderately stable**: 10 minutes (user profile, settings)
+- **Rarely changing**: 30 minutes (membership levels, static content)
+
+### Request Deduplication
+TanStack Query automatically deduplicates simultaneous requests for the same data.
+
+### Background Refetching
+Data is automatically refreshed in the background when:
+- Window regains focus
+- Network reconnects
+- Data becomes stale
+
+### Pagination
+Use `usePrefetchNextPage()` to load next page while user views current page.
 
 ## Migration Notes
 
 The refactoring maintains backward compatibility while introducing:
 - Centralized type definitions
 - Navigation constants
+- TanStack Query for caching and optimization
+- Custom hooks for data fetching
 - Better code organization
 - Improved documentation
 
-All existing functionality remains intact with enhanced type safety and maintainability.
+All existing functionality remains intact with enhanced:
+- **Type safety**: Comprehensive TypeScript types
+- **Performance**: Automatic caching and request deduplication
+- **Developer experience**: Better IntelliSense and error messages
+- **Maintainability**: Centralized configuration and consistent patterns
+
+## Quick Start
+
+### Using TanStack Query Hooks
+
+```typescript
+import { usePosts, useMembershipLevels } from '../hooks';
+
+function MyScreen() {
+  // Automatic caching, loading states, and error handling
+  const { data: posts, isLoading, error } = usePosts(1);
+  const { data: levels } = useMembershipLevels();
+  
+  if (isLoading) return <LoadingSpinner />;
+  if (error) return <ErrorMessage error={error} />;
+  
+  return <DataDisplay posts={posts} levels={levels} />;
+}
+```
+
+### Authentication with Mutations
+
+```typescript
+import { useLogin, useLogout } from '../hooks';
+
+function AuthExample() {
+  const login = useLogin();
+  const logout = useLogout();
+  
+  const handleLogin = () => {
+    login.mutate(
+      { username: 'user@example.com', password: 'password' },
+      {
+        onSuccess: () => console.log('Logged in!'),
+        onError: (error) => alert(error.message),
+      }
+    );
+  };
+  
+  return (
+    <>
+      <Button onPress={handleLogin} disabled={login.isPending}>
+        {login.isPending ? 'Logging in...' : 'Login'}
+      </Button>
+      <Button onPress={() => logout.mutate()}>Logout</Button>
+    </>
+  );
+}
+```
+
+## Additional Resources
+
+- [TanStack Query Documentation](docs/TANSTACK_QUERY.md)
+- [API Reference](lib/api.ts)
+- [Type Definitions](types/index.ts)
+- [Navigation Constants](constants/navigation.ts)
