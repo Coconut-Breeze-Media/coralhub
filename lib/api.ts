@@ -1,4 +1,13 @@
 // lib/api.ts
+import type {
+  JWTPayload,
+  MembershipResponse,
+  WPPage,
+  WPPost,
+  WPUser,
+  MembershipLevel,
+} from '../types';
+
 const API = process.env.EXPO_PUBLIC_WP_API!;
 const WP  = process.env.EXPO_PUBLIC_WP_URL!;
 
@@ -47,18 +56,6 @@ function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit, ms = 150
   const id = setTimeout(() => ctrl.abort(), ms);
   return fetch(input, { ...init, signal: ctrl.signal }).finally(() => clearTimeout(id));
 }
-
-// ---------- types ----------
-export type JWTPayload = {
-  token: string;
-  user_email: string;
-  user_nicename: string;
-  user_display_name: string;
-};
-
-export type MembershipResp = { is_member: boolean; user_id?: number; roles?: string[] };
-export type WPPage = { id: number; slug: string; content: { rendered: string } };
-export type WPPost = { id: number; date: string; title: { rendered: string }; excerpt?: { rendered: string }; _embedded?: any };
 
 // ---------- auth ----------
 export async function wpLogin(username: string, password: string): Promise<JWTPayload> {
@@ -109,7 +106,7 @@ export function stripHtmlPublic(html: string): string {
 }
 
 // ---------- membership check (protected) ----------
-export async function getMembershipStatus(token: string): Promise<MembershipResp> {
+export async function getMembershipStatus(token: string): Promise<MembershipResponse> {
   const res = await fetchWithTimeout(`${API}/coral/v1/membership`, {
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -120,16 +117,6 @@ export async function getMembershipStatus(token: string): Promise<MembershipResp
 // =========================
 // Membership Levels (public)
 // =========================
-export type MembershipLevel = {
-  id: number;
-  name: string;
-  price: string;        // e.g. "$29.99" or "$0"
-  note: string;         // e.g. "$29.99 per Year." or "Free"
-  description: string;  // short text from WP (stripped)
-  benefits: string[];   // optional; empty if none
-  checkout_url: string; // PMPro checkout URL (our minimal page)
-};
-
 export async function getMembershipLevels(): Promise<MembershipLevel[]> {
   const res = await fetchWithTimeout(`${API}/coral/v1/levels`);
   await assertOk(res);
@@ -165,7 +152,6 @@ export async function authedFetch<T = any>(path: string, token: string, init: Re
   return res.json() as Promise<T>;
 }
 
-export type WPUserMe = { id: number; name: string; email?: string; username?: string; roles?: string[] };
 export function getMe(token: string) {
-  return authedFetch<WPUserMe>('/wp/v2/users/me', token);
+  return authedFetch<WPUser>('/wp/v2/users/me', token);
 }

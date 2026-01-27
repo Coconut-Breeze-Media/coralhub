@@ -2,7 +2,13 @@
 import * as SecureStore from 'expo-secure-store';
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { Platform } from 'react-native';
-import { JWTPayload, getMembershipStatus, type MembershipResp, ApiError } from './api';
+import { getMembershipStatus, ApiError } from './api';
+import type { 
+  JWTPayload, 
+  MembershipResponse, 
+  UserProfile, 
+  AuthContextState 
+} from '../types';
 
 // Helper functions to handle storage on web vs native
 async function getStorageItem(key: string): Promise<string | null> {
@@ -29,19 +35,7 @@ async function deleteStorageItem(key: string): Promise<void> {
 }
 
 
-type AuthContextType = {
-  token: string | null;
-  profile: Pick<JWTPayload, 'user_email' | 'user_display_name'> | null;
-  isMember: boolean | null;        // null = not checked yet
-  refreshMembership: () => Promise<void>;
-  setAuth: (payload: JWTPayload) => Promise<void>;
-  clearAuth: () => Promise<void>;
-  ready: boolean;                  // storage restored + initial membership (if token) attempted
-  checkingMembership: boolean;     // useful for UI spinners
-  lastMembershipCheckAt?: number;  // Date.now()
-};
-
-const AuthContext = createContext<AuthContextType>({
+const AuthContext = createContext<AuthContextState>({
   token: null,
   profile: null,
   isMember: null,
@@ -56,7 +50,7 @@ const AuthContext = createContext<AuthContextType>({
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   console.log('[auth] provider mounted'); 
   const [token, setToken] = useState<string | null>(null);
-  const [profile, setProfile] = useState<AuthContextType['profile']>(null);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isMember, setIsMember] = useState<boolean | null>(null);
   const [ready, setReady] = useState(false);
   const [checkingMembership, setCheckingMembership] = useState(false);
