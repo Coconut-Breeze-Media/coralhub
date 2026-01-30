@@ -155,3 +155,42 @@ export async function authedFetch<T = any>(path: string, token: string, init: Re
 export function getMe(token: string) {
   return authedFetch<WPUser>('/wp/v2/users/me', token);
 }
+
+// ---------- Push Notifications ----------
+/**
+ * Register a push notification token for the current user
+ * @param {string} token - JWT authentication token
+ * @param {string} pushToken - Expo push token
+ * @param {string} deviceId - Unique device identifier
+ * @returns {Promise<{success: boolean, message: string}>}
+ */
+export async function registerPushToken(
+  token: string,
+  pushToken: string,
+  deviceId: string
+): Promise<{ success: boolean; message: string }> {
+  return authedFetch('/coral/v1/push-token', token, {
+    method: 'POST',
+    body: JSON.stringify({ 
+      push_token: pushToken,
+      device_id: deviceId,
+      platform: 'expo'
+    }),
+  });
+}
+
+/**
+ * Remove a push notification token for the current user
+ * @param {string} token - JWT authentication token
+ * @param {string} deviceId - Unique device identifier
+ * @returns {Promise<{success: boolean, message: string}>}
+ */
+export async function removePushToken(
+  token: string,
+  deviceId: string
+): Promise<{ success: boolean; message: string }> {
+  return authedFetch('/coral/v1/push-token', token, {
+    method: 'DELETE',
+    body: JSON.stringify({ device_id: deviceId }),
+  });
+}

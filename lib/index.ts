@@ -11,6 +11,9 @@ export * from './auth';
 // Query client and utilities
 export * from './queryClient';
 
+// Notification utilities
+export * from './notifications';
+
 // Types
 export type * from '../types';
 

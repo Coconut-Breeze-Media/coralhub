@@ -16,6 +16,7 @@ export default {
       },
       ios: {
         supportsTablet: true,
+        bundleIdentifier: "com.coralhub.app",
       },
       android: {
         adaptiveIcon: {
@@ -23,9 +24,18 @@ export default {
           backgroundColor: "#ffffff",
         },
         edgeToEdgeEnabled: true,
+        package: "com.coralhub.app",
       },
       web: {
         favicon: "./assets/favicon.png",
+      },
+      plugins: [
+        "expo-notifications"
+      ],
+      extra: {
+        eas: {
+          projectId: "21162a1d-7628-4e29-b0b1-fd4931db0a29",
+        },
       },
     },
   };
