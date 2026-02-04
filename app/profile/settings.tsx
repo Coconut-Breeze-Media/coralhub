@@ -453,15 +453,22 @@ export default function ProfileSettingsScreen() {
             </View>
             <View>
               <Text style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Last Activity</Text>
-              <Text style={{ fontSize: 16, color: '#1f2937' }}>
-                {activities && activities.length > 0
-                  ? new Date(activities[0].date).toLocaleDateString('en-US', {
+              {activities && activities.length > 0 ? (
+                <>
+                  <Text style={{ fontSize: 16, color: '#1f2937', fontWeight: '600' }}>
+                    {activities[0].type?.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())}
+                  </Text>
+                  <Text style={{ fontSize: 14, color: '#6b7280', marginTop: 2 }}>
+                    {new Date(activities[0].date_recorded || activities[0].date).toLocaleDateString('en-US', {
                       year: 'numeric',
                       month: 'long',
                       day: 'numeric',
-                    })
-                  : 'No activity recorded'}
-              </Text>
+                    })}
+                  </Text>
+                </>
+              ) : (
+                <Text style={{ fontSize: 16, color: '#1f2937' }}>No activity recorded</Text>
+              )}
             </View>
             {member?.registered_date && (
               <View>
