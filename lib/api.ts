@@ -6,6 +6,12 @@ import type {
   WPPost,
   WPUser,
   MembershipLevel,
+  BPMember,
+  UpdateMemberPayload,
+  BPAvatar,
+  BPCoverImage,
+  XProfileFieldData,
+  UpdateXProfilePayload,
 } from '../types';
 
 const API = process.env.EXPO_PUBLIC_WP_API!;
@@ -193,4 +199,185 @@ export async function removePushToken(
     method: 'DELETE',
     body: JSON.stringify({ device_id: deviceId }),
   });
+}
+
+// ---------- BuddyPress Profile API ----------
+
+/**
+ * Get current user's BuddyPress member profile
+ * @param {string} token - JWT authentication token
+ * @returns {Promise<BPMember>}
+ */
+export async function getCurrentMember(token: string): Promise<BPMember> {
+  return authedFetch<BPMember>('/buddypress/v1/members/me', token);
+}
+
+/**
+ * Get a BuddyPress member by ID
+ * @param {number} userId - User ID
+ * @param {string} token - JWT authentication token
+ * @returns {Promise<BPMember>}
+ */
+export async function getMemberById(userId: number, token: string): Promise<BPMember> {
+  return authedFetch<BPMember>(`/buddypress/v1/members/${userId}`, token);
+}
+
+/**
+ * Update current user's profile
+ * @param {string} token - JWT authentication token
+ * @param {UpdateMemberPayload} payload - Profile update data
+ * @returns {Promise<BPMember>}
+ */
+export async function updateCurrentMember(
+  token: string,
+  payload: UpdateMemberPayload
+): Promise<BPMember> {
+  return authedFetch<BPMember>('/buddypress/v1/members/me', token, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+/**
+ * Get user avatar
+ * @param {number} userId - User ID
+ * @param {string} token - JWT authentication token
+ * @returns {Promise<BPAvatar>}
+ */
+export async function getUserAvatar(userId: number, token: string): Promise<BPAvatar> {
+  const res = await fetchWithTimeout(`${API}/buddypress/v1/members/${userId}/avatar`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  await assertOk(res);
+  const data = await res.json();
+  return {
+    full: data.full || '',
+    thumb: data.thumb || '',
+  };
+}
+
+/**
+ * Upload user avatar
+ * @param {number} userId - User ID
+ * @param {string} token - JWT authentication token
+ * @param {FormData} formData - Form data with image file
+ * @returns {Promise<BPAvatar>}
+ */
+export async function uploadUserAvatar(
+  userId: number,
+  token: string,
+  formData: FormData
+): Promise<BPAvatar> {
+  const res = await fetchWithTimeout(`${API}/buddypress/v1/members/${userId}/avatar`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      // Don't set Content-Type - let browser set it with boundary for multipart/form-data
+    },
+    body: formData,
+  });
+  await assertOk(res);
+  const data = await res.json();
+  return {
+    full: data.full || '',
+    thumb: data.thumb || '',
+  };
+}
+
+/**
+ * Delete user avatar
+ * @param {number} userId - User ID
+ * @param {string} token - JWT authentication token
+ * @returns {Promise<{deleted: boolean}>}
+ */
+export async function deleteUserAvatar(
+  userId: number,
+  token: string
+): Promise<{ deleted: boolean }> {
+  return authedFetch<{ deleted: boolean }>(`/buddypress/v1/members/${userId}/avatar`, token, {
+    method: 'DELETE',
+  });
+}
+
+/**
+ * Get user cover image
+ * @param {number} userId - User ID
+ * @param {string} token - JWT authentication token
+ * @returns {Promise<BPCoverImage>}
+ */
+export async function getUserCover(userId: number, token: string): Promise<BPCoverImage> {
+  const res = await fetchWithTimeout(`${API}/buddypress/v1/members/${userId}/cover`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  await assertOk(res);
+  const data = await res.json();
+  return {
+    image: data.image || '',
+  };
+}
+
+/**
+ * Upload user cover image
+ * @param {number} userId - User ID
+ * @param {string} token - JWT authentication token
+ * @param {FormData} formData - Form data with image file
+ * @returns {Promise<BPCoverImage>}
+ */
+export async function uploadUserCover(
+  userId: number,
+  token: string,
+  formData: FormData
+): Promise<BPCoverImage> {
+  const res = await fetchWithTimeout(`${API}/buddypress/v1/members/${userId}/cover`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      // Don't set Content-Type - let browser set it with boundary for multipart/form-data
+    },
+    body: formData,
+  });
+  await assertOk(res);
+  const data = await res.json();
+  return {
+    image: data.image || '',
+  };
+}
+
+/**
+ * Delete user cover image
+ * @param {number} userId - User ID
+ * @param {string} token - JWT authentication token
+ * @returns {Promise<{deleted: boolean}>}
+ */
+export async function deleteUserCover(
+  userId: number,
+  token: string
+): Promise<{ deleted: boolean }> {
+  return authedFetch<{ deleted: boolean }>(`/buddypress/v1/members/${userId}/cover`, token, {
+    method: 'DELETE',
+  });
+}
+
+/**
+ * Update XProfile field data
+ * @param {number} fieldId - XProfile field ID
+ * @param {number} userId - User ID
+ * @param {string} token - JWT authentication token
+ * @param {UpdateXProfilePayload} payload - Field value update
+ * @returns {Promise<XProfileFieldData>}
+ */
+export async function updateXProfileField(
+  fieldId: number,
+  userId: number,
+  token: string,
+  payload: UpdateXProfilePayload
+): Promise<XProfileFieldData> {
+  return authedFetch<XProfileFieldData>(
+    `/buddypress/v1/xprofile/${fieldId}/data/${userId}`,
+    token,
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }
+  );
 }

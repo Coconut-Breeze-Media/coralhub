@@ -5,3 +5,4 @@
 
 export * from './useQueries';
 export * from './useNotifications';
+export * from './useProfile';
