@@ -17,6 +17,7 @@ import {
   uploadUserCover,
   deleteUserCover,
   updateXProfileField,
+  getUserActivity,
 } from '../lib/api';
 import type {
   BPMember,
@@ -36,6 +37,7 @@ const profileKeys = {
   member: (userId: number) => [...profileKeys.all, 'member', userId] as const,
   avatar: (userId: number) => [...profileKeys.all, 'avatar', userId] as const,
   cover: (userId: number) => [...profileKeys.all, 'cover', userId] as const,
+  activity: (userId: number) => [...profileKeys.all, 'activity', userId] as const,
 };
 
 // ============================================
@@ -111,6 +113,24 @@ export function useUserCover(userId: number) {
     },
     enabled: !!token && !!userId,
     staleTime: 10 * 60 * 1000,
+  });
+}
+
+/**
+ * Hook to fetch user activity
+ * Requires authentication
+ */
+export function useUserActivity(userId: number) {
+  const { token } = useAuth();
+
+  return useQuery({
+    queryKey: profileKeys.activity(userId),
+    queryFn: () => {
+      if (!token) throw new Error('No authentication token');
+      return getUserActivity(userId, token);
+    },
+    enabled: !!token && !!userId,
+    staleTime: 5 * 60 * 1000, // 5 minutes
   });
 }
 

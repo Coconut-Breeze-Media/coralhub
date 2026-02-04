@@ -186,6 +186,23 @@ export interface UpdateXProfilePayload {
   value: string;
 }
 
+/**
+ * BuddyPress activity item
+ */
+export interface BPActivity {
+  id: number;
+  primary_item_id: number;
+  secondary_item_id: number;
+  user_id: number;
+  link: string;
+  component: string;
+  type: string;
+  title: string;
+  content: string;
+  date: string;
+  date_gmt: string;
+}
+
 // ============================================
 // Authentication Types
 // ============================================

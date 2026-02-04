@@ -29,6 +29,7 @@ import {
   useDeleteAvatar,
   useUploadCover,
   useDeleteCover,
+  useUserActivity,
 } from '../../hooks';
 import BackButton from '../../components/BackButton';
 
@@ -40,6 +41,7 @@ export default function ProfileSettingsScreen() {
   const deleteAvatar = useDeleteAvatar();
   const uploadCover = useUploadCover();
   const deleteCover = useDeleteCover();
+  const { data: activities } = useUserActivity(member?.id || 0);
 
   const [displayName, setDisplayName] = useState('');
   const [isEditing, setIsEditing] = useState(false);
@@ -366,26 +368,6 @@ export default function ProfileSettingsScreen() {
                   </Text>
                 )}
               </Pressable>
-              {avatarUrl && (
-                <Pressable
-                  onPress={() => handleDeleteImage('avatar')}
-                  disabled={deleteAvatar.isPending}
-                  style={{
-                    paddingVertical: 10,
-                    backgroundColor: '#fff',
-                    borderWidth: 1,
-                    borderColor: '#ef4444',
-                    borderRadius: 8,
-                    alignItems: 'center',
-                  }}
-                >
-                  {deleteAvatar.isPending ? (
-                    <ActivityIndicator size="small" color="#ef4444" />
-                  ) : (
-                    <Text style={{ color: '#ef4444', fontSize: 14, fontWeight: '600' }}>Delete</Text>
-                  )}
-                </Pressable>
-              )}
             </View>
           </View>
         </View>
@@ -468,6 +450,18 @@ export default function ProfileSettingsScreen() {
             <View>
               <Text style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Member ID</Text>
               <Text style={{ fontSize: 16, color: '#1f2937' }}>{member?.id}</Text>
+            </View>
+            <View>
+              <Text style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Last Activity</Text>
+              <Text style={{ fontSize: 16, color: '#1f2937' }}>
+                {activities && activities.length > 0
+                  ? new Date(activities[0].date).toLocaleDateString('en-US', {
+                      year: 'numeric',
+                      month: 'long',
+                      day: 'numeric',
+                    })
+                  : 'No activity recorded'}
+              </Text>
             </View>
             {member?.registered_date && (
               <View>

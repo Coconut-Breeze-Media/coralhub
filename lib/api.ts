@@ -12,6 +12,7 @@ import type {
   BPCoverImage,
   XProfileFieldData,
   UpdateXProfilePayload,
+  BPActivity,
 } from '../types';
 
 const API = process.env.EXPO_PUBLIC_WP_API!;
@@ -380,4 +381,17 @@ export async function updateXProfileField(
       body: JSON.stringify(payload),
     }
   );
+}
+
+/**
+ * Get user activity from BuddyPress
+ * @param {number} userId - User ID
+ * @param {string} token - JWT authentication token
+ * @returns {Promise<any[]>} - Array of activity items
+ */
+export async function getUserActivity(
+  userId: number,
+  token: string
+): Promise<any[]> {
+  return authedFetch<any[]>(`/buddypress/v1/activity?user_id=${userId}`, token);
 }
