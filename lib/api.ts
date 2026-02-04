@@ -156,6 +156,13 @@ export function getMe(token: string) {
   return authedFetch<WPUser>('/wp/v2/users/me', token);
 }
 
+export function updateUser(token: string, data: Partial<WPUser>) {
+  return authedFetch<WPUser>('/wp/v2/users/me', token, {
+    method: 'POST', // or PUT, but WP API often accepts POST for updates
+    body: JSON.stringify(data),
+  });
+}
+
 // ---------- Push Notifications ----------
 /**
  * Register a push notification token for the current user

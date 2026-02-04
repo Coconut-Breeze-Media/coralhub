@@ -41,6 +41,7 @@ const AuthContext = createContext<AuthContextState>({
   isMember: null,
   refreshMembership: async () => {},
   setAuth: async () => {},
+  updateProfile: async () => {},
   clearAuth: async () => {},
   ready: false,
   checkingMembership: false,
@@ -100,7 +101,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     setCheckingMembership(true);
     try {
-      const res: MembershipResp = await getMembershipStatus(token);
+      const res: MembershipResponse = await getMembershipStatus(token);
       setIsMember(!!res.is_member);
       setLastMembershipCheckAt(Date.now());
     } catch (e) {
@@ -140,6 +141,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await refreshMembership();
   };
 
+  // Update profile (locally)
+  const updateProfile = async (newProfile: UserProfile) => {
+    setProfile(newProfile);
+    await setStorageItem('user_email', newProfile.user_email);
+    await setStorageItem('user_display_name', newProfile.user_display_name);
+  };
+
   // Logout
   const clearAuth = async () => {
     setToken(null);
@@ -160,6 +168,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isMember,
         refreshMembership,
         setAuth,
+        updateProfile,
         clearAuth,
         ready,
         checkingMembership,

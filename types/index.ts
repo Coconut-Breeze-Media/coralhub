@@ -76,7 +76,10 @@ export interface WPPost {
 export interface WPUser {
   id: number;
   name: string;
+  first_name?: string;
+  last_name?: string;
   email?: string;
+  description?: string;
   username?: string;
   roles?: string[];
   avatar_urls?: Record<string, string>;
@@ -116,6 +119,7 @@ export interface AuthContextState {
   isMember: boolean | null;
   refreshMembership: () => Promise<void>;
   setAuth: (payload: JWTPayload) => Promise<void>;
+  updateProfile: (profile: UserProfile) => Promise<void>;
   clearAuth: () => Promise<void>;
   ready: boolean;
   checkingMembership: boolean;

@@ -11,7 +11,8 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { getMembershipLevels, MembershipLevel } from '../../lib/api';
+import { getMembershipLevels } from '../../lib/api';
+import { MembershipLevel } from '../../types';
 
 export const options = { headerShown: false };
 

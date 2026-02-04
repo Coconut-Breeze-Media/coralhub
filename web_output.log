@@ -1,0 +1,15 @@
+
+> coralhub@1.0.0 web
+> expo start --web
+
+env: load .env
+env: export EXPO_PUBLIC_WP_URL EXPO_PUBLIC_WP_API EXPO_PUBLIC_JOIN_URL
+Starting project at /app
+TypeError: (0 , _metroconfig(...).resolveConfig) is not a function
+TypeError: (0 , _metroconfig(...).resolveConfig) is not a function
+    at loadMetroConfigAsync (/app/node_modules/expo/node_modules/@expo/cli/src/start/server/metro/instantiateMetro.ts:107:45)
+    at instantiateMetroAsync (/app/node_modules/expo/node_modules/@expo/cli/src/start/server/metro/instantiateMetro.ts:230:13)
+    at MetroBundlerDevServer.startImplementationAsync (/app/node_modules/expo/node_modules/@expo/cli/src/start/server/metro/MetroBundlerDevServer.ts:1062:96)
+    at MetroBundlerDevServer.startAsync (/app/node_modules/expo/node_modules/@expo/cli/src/start/server/BundlerDevServer.ts:160:18)
+    at DevServerManager.startAsync (/app/node_modules/expo/node_modules/@expo/cli/src/start/server/DevServerManager.ts:184:7)
+    at startAsync (/app/node_modules/expo/node_modules/@expo/cli/src/start/startAsync.ts:100:3)
