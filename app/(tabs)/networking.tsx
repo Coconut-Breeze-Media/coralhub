@@ -10,6 +10,7 @@ import {
   Alert,
   ActivityIndicator,
   StyleSheet,
+  Platform,
 } from 'react-native';
 import { useMe, useFriendsList, useRemoveFriend } from '../../hooks/useQueries';
 import type { FriendWithDetails } from '../../types';
@@ -39,27 +40,68 @@ export default function NetworkingScreen() {
   };
   
   const handleRemoveFriend = (friend: FriendWithDetails) => {
-    Alert.alert(
-      'Remove Friend',
-      `Are you sure you want to remove ${friend.name} from your friends?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Remove',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await removeFriendMutation.mutateAsync({
-                friendshipId: friend.friendship_id,
-              });
-              Alert.alert('Success', `${friend.name} has been removed from your friends.`);
-            } catch (err) {
-              Alert.alert('Error', 'Failed to remove friend. Please try again.');
-            }
+    console.log('handleRemoveFriend called for:', friend.name);
+    console.log('friend user ID:', friend.id);
+    console.log('friendship_id (for reference):', friend.friendship_id);
+    
+    // Check if friend ID is valid
+    if (!friend.id || friend.id === 0) {
+      console.log('Invalid friend user ID, showing error alert');
+      Alert.alert(
+        'Error',
+        'Cannot remove friend: Invalid user ID. Please refresh and try again.'
+      );
+      return;
+    }
+    
+    console.log('About to show confirmation dialog');
+    
+    // Directly remove without confirmation for testing
+    const confirmRemove = async () => {
+      try {
+        console.log('Removing friend:', {
+          userId: friend.id,
+          name: friend.name,
+          friendshipId: friend.friendship_id
+        });
+        
+        const result = await removeFriendMutation.mutateAsync({
+          friendUserId: friend.id,
+          friendshipId: friend.friendship_id,
+        });
+        
+        console.log('Remove friend result:', result);
+        Alert.alert('Success', `${friend.name} has been removed from your friends.`);
+      } catch (err) {
+        console.error('Error removing friend:', err);
+        Alert.alert(
+          'Error',
+          `Failed to remove friend: ${err instanceof Error ? err.message : 'Unknown error'}`
+        );
+      }
+    };
+    
+    // Use platform-appropriate confirmation
+    if (Platform.OS === 'web') {
+      // For web, use native confirm
+      if (window.confirm(`Are you sure you want to remove ${friend.name} from your friends?`)) {
+        confirmRemove();
+      }
+    } else {
+      // For mobile, use Alert.alert
+      Alert.alert(
+        'Remove Friend',
+        `Are you sure you want to remove ${friend.name} from your friends?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Remove',
+            style: 'destructive',
+            onPress: confirmRemove,
           },
-        },
-      ]
-    );
+        ]
+      );
+    }
   };
   
   const calculateFriendshipDuration = (dateString: string): string => {
@@ -122,8 +164,12 @@ export default function NetworkingScreen() {
         
         <TouchableOpacity
           style={styles.removeButton}
-          onPress={() => handleRemoveFriend(item)}
+          onPress={() => {
+            console.log('Remove button pressed!');
+            handleRemoveFriend(item);
+          }}
           disabled={removeFriendMutation.isPending}
+          activeOpacity={0.7}
         >
           <Text style={styles.removeButtonText}>Remove</Text>
         </TouchableOpacity>

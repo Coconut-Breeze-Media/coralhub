@@ -220,10 +220,16 @@ export function useRemoveFriend() {
   const { token } = useAuth();
   
   return useMutation({
-    mutationFn: async ({ friendshipId }: { friendshipId: number }) => {
+    mutationFn: async ({ 
+      friendUserId, 
+      friendshipId 
+    }: { 
+      friendUserId: number;
+      friendshipId?: number;
+    }) => {
       if (!token) throw new Error('No authentication token');
       const { removeFriend } = await import('../lib/api');
-      return removeFriend(friendshipId, token);
+      return removeFriend(friendUserId, token, friendshipId);
     },
     onSuccess: () => {
       // Invalidate all friends queries to refresh the list
