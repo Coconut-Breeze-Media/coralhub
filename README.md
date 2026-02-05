@@ -1,7 +1,7 @@
 # CoralHub
 
 This is an Expo / React Native project for The Coral Reef Research Hub.
-
+  
 ## Prerequisites
 
 - Node.js (LTS recommended)
