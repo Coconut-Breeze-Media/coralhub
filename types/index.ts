@@ -204,6 +204,42 @@ export interface BPActivity {
 }
 
 // ============================================
+// BuddyPress Friends Types
+// ============================================
+
+/**
+ * BuddyPress friendship relationship
+ * Represents a connection between two users
+ */
+export interface BPFriendship {
+  id: number;
+  initiator_id: number;
+  friend_id: number;
+  is_confirmed: boolean;
+  date_created: string;
+  date_created_gmt?: string;
+}
+
+/**
+ * Friend with complete user details
+ * Combines friendship data with member profile data
+ */
+export interface FriendWithDetails extends BPMember {
+  friendship_id: number;
+  friendship_date: string;
+  friendship_date_gmt?: string;
+}
+
+/**
+ * Friends list response with pagination
+ */
+export interface FriendsListResponse {
+  friends: FriendWithDetails[];
+  total: number;
+  pages: number;
+}
+
+// ============================================
 // Authentication Types
 // ============================================
 
@@ -211,6 +247,7 @@ export interface BPActivity {
  * User profile data stored in auth context
  */
 export interface UserProfile {
+  user_id?: number;
   user_email: string;
   user_display_name: string;
 }
@@ -377,4 +414,9 @@ export type ProfileQueryKey =
   | ['profile', 'cover', number]
   | ['profile', 'xprofile', number, number];
 
-export type QueryKey = AuthQueryKey | PostsQueryKey | MembershipQueryKey | ProfileQueryKey;
+export type FriendsQueryKey =
+  | ['friends', 'list', number]
+  | ['friends', 'relationships', number]
+  | ['friends', 'count', number];
+
+export type QueryKey = AuthQueryKey | PostsQueryKey | MembershipQueryKey | ProfileQueryKey | FriendsQueryKey;

@@ -395,3 +395,108 @@ export async function getUserActivity(
 ): Promise<any[]> {
   return authedFetch<any[]>(`/buddypress/v1/activity?user_id=${userId}`, token);
 }
+
+// ---------- BuddyPress Friends API ----------
+
+/**
+ * Get friendship relationships for a user
+ * Returns raw friendship data (relationships, not user details)
+ * @param {number} userId - User ID
+ * @param {string} token - JWT authentication token
+ * @returns {Promise<BPFriendship[]>}
+ */
+export async function getFriendshipRelationships(
+  userId: number,
+  token: string
+): Promise<import('../types').BPFriendship[]> {
+  return authedFetch<import('../types').BPFriendship[]>(
+    `/buddypress/v1/friends?user_id=${userId}&is_confirmed=1`,
+    token
+  );
+}
+
+/**
+ * Get friends list with full user details (OPTIMAL APPROACH)
+ * This uses the members endpoint which already filters friends
+ * and includes all member data in one efficient request
+ * @param {number} userId - User ID
+ * @param {string} token - JWT authentication token
+ * @param {number} page - Page number for pagination
+ * @param {number} perPage - Items per page
+ * @returns {Promise<import('../types').FriendsListResponse>}
+ */
+export async function getFriendsList(
+  userId: number,
+  token: string,
+  page: number = 1,
+  perPage: number = 20
+): Promise<import('../types').FriendsListResponse> {
+  // Step 1: Get friendship relationships to get dates
+  const friendships = await getFriendshipRelationships(userId, token);
+  
+  // Step 2: Get friends with full member details
+  const res = await fetchWithTimeout(
+    `${API}/buddypress/v1/members?user_id=${userId}&populate_extras=true&per_page=${perPage}&page=${page}`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+    }
+  );
+  await assertOk(res);
+  const members: import('../types').BPMember[] = await res.json();
+  
+  // Get pagination info from headers
+  const total = parseInt(res.headers.get('X-WP-Total') || '0', 10);
+  const pages = parseInt(res.headers.get('X-WP-TotalPages') || '1', 10);
+  
+  // Step 3: Merge friendship dates with member data
+  const friendsWithDetails: import('../types').FriendWithDetails[] = members.map((member) => {
+    // Find the friendship relationship for this member
+    const friendship = friendships.find(
+      (f) => 
+        (f.initiator_id === userId && f.friend_id === member.id) ||
+        (f.friend_id === userId && f.initiator_id === member.id)
+    );
+    
+    return {
+      ...member,
+      friendship_id: friendship?.id || 0,
+      friendship_date: friendship?.date_created || '',
+      friendship_date_gmt: friendship?.date_created_gmt,
+    };
+  });
+  
+  return {
+    friends: friendsWithDetails,
+    total,
+    pages,
+  };
+}
+
+/**
+ * Get friend details by ID
+ * @param {number} friendId - Friend user ID
+ * @param {string} token - JWT authentication token
+ * @returns {Promise<BPMember>}
+ */
+export async function getFriendById(friendId: number, token: string): Promise<import('../types').BPMember> {
+  return getMemberById(friendId, token);
+}
+
+/**
+ * Remove a friend (delete friendship)
+ * @param {number} friendshipId - Friendship ID (not user ID)
+ * @param {string} token - JWT authentication token
+ * @returns {Promise<{deleted: boolean}>}
+ */
+export async function removeFriend(
+  friendshipId: number,
+  token: string
+): Promise<{ deleted: boolean }> {
+  return authedFetch<{ deleted: boolean }>(
+    `/buddypress/v1/friends/${friendshipId}`,
+    token,
+    {
+      method: 'DELETE',
+    }
+  );
+}
