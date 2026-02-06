@@ -432,14 +432,41 @@ class Coral_Users_Endpoint {
             return new WP_Error('rest_forbidden', 'You do not have permission to upload this avatar.', array('status' => 403));
         }
         
-        // Check if file was uploaded
-        $files = $request->get_file_params();
+        // Debug logging
+        error_log('=== Avatar Upload Debug ===');
+        error_log('User ID: ' . $user_id);
+        error_log('$_FILES content: ' . print_r($_FILES, true));
+        error_log('Request file params: ' . print_r($request->get_file_params(), true));
+        error_log('Request body params: ' . print_r($request->get_body_params(), true));
         
-        if (empty($files) || !isset($files['file'])) {
-            return new WP_Error('bp_rest_missing_file', 'No file was uploaded. Expected field name: "file"', array('status' => 400));
+        // Try to get file from $_FILES first (most reliable)
+        if (!empty($_FILES) && isset($_FILES['file'])) {
+            $file = $_FILES['file'];
+            error_log('File found in $_FILES');
+        } 
+        // Fallback to get_file_params()
+        else {
+            $files = $request->get_file_params();
+            if (empty($files) || !isset($files['file'])) {
+                error_log('ERROR: No file received in $_FILES or get_file_params()');
+                return new WP_Error(
+                    'missing_file', 
+                    'No file received. Expected field: "file"', 
+                    array(
+                        'status' => 400,
+                        'data' => array(
+                            'files_count' => count($_FILES),
+                            'files_keys' => array_keys($_FILES),
+                            'request_files' => $request->get_file_params()
+                        )
+                    )
+                );
+            }
+            $file = $files['file'];
+            error_log('File found in get_file_params()');
         }
         
-        $file = $files['file'];
+        error_log('File details: ' . print_r($file, true));
         
         // Validate file type
         $allowed_types = array('image/jpeg', 'image/jpg', 'image/png', 'image/gif');

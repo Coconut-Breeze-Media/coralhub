@@ -14,6 +14,9 @@ export * from './queryClient';
 // Notification utilities
 export * from './notifications';
 
+// Image optimization utilities
+export * from './imageHelpers';
+
 // Types
 export type * from '../types';
 

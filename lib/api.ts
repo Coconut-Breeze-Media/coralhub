@@ -1,4 +1,5 @@
 // lib/api.ts
+import { Platform } from 'react-native';
 import type {
   JWTPayload,
   MembershipResponse,
@@ -258,27 +259,85 @@ export async function getUserAvatar(userId: number, token: string): Promise<BPAv
 }
 
 /**
- * Upload user avatar
+ * Upload user avatar using Coral API endpoint
  * @param {number} userId - User ID
  * @param {string} token - JWT authentication token
- * @param {FormData} formData - Form data with image file
- * @returns {Promise<BPAvatar>}
+ * @param {string} imageUri - Local URI of the selected image
+ * @returns {Promise<BPAvatar>} Object with avatar URLs (full and thumb)
  */
 export async function uploadUserAvatar(
   userId: number,
   token: string,
-  formData: FormData
+  imageUri: string
 ): Promise<BPAvatar> {
-  const res = await fetchWithTimeout(`${API}/buddypress/v1/members/${userId}/avatar`, {
+  console.log('🔍 Platform detected:', Platform.OS);
+  console.log('📷 Image URI received:', imageUri);
+  
+  const formData = new FormData();
+  
+  if (Platform.OS === 'web') {
+    // Web: Convert URI to Blob and then to File
+    console.log('🌐 Processing for Web platform');
+    const response = await fetch(imageUri);
+    const blob = await response.blob();
+    console.log('📦 Blob created - size:', blob.size, 'type:', blob.type);
+    
+    // Detect actual MIME type from blob
+    const mimeType = blob.type || 'image/jpeg';
+    const extension = mimeType.split('/')[1] || 'jpg';
+    console.log('🎯 Detected MIME type:', mimeType, '- Extension:', extension);
+    
+    const file = new File([blob], `avatar.${extension}`, { type: mimeType });
+    console.log('📄 File created - name:', file.name, 'type:', file.type, 'size:', file.size);
+    
+    formData.append('file', file);
+    console.log('✅ FormData appended with file');
+  } else {
+    // React Native (iOS/Android)
+    console.log('📱 Processing for Native platform');
+    const uriParts = imageUri.split('.');
+    const fileType = uriParts[uriParts.length - 1] || 'jpg';
+    
+    // Map common extensions to proper MIME types
+    const mimeMap: { [key: string]: string } = {
+      'jpg': 'image/jpeg',
+      'jpeg': 'image/jpeg',
+      'png': 'image/png',
+      'gif': 'image/gif',
+      'heic': 'image/heic',
+      'heif': 'image/heif',
+    };
+    
+    const mimeType = mimeMap[fileType.toLowerCase()] || 'image/jpeg';
+    console.log('🎯 Detected extension:', fileType, '- MIME type:', mimeType);
+    
+    // @ts-ignore - React Native FormData accepts this format
+    formData.append('file', {
+      uri: imageUri,
+      name: `avatar.${fileType}`,
+      type: mimeType,
+    });
+    console.log('✅ FormData appended with native file object');
+  }
+  
+  console.log('🚀 Sending request to:', `${API}/coral/v1/users/${userId}/avatar`);
+  
+  const res = await fetchWithTimeout(`${API}/coral/v1/users/${userId}/avatar`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
-      // Don't set Content-Type - let browser set it with boundary for multipart/form-data
+      // Don't set Content-Type - browser/RN sets it automatically with boundary
     },
     body: formData,
-  });
+  }, 30000); // 30 second timeout for file uploads
+  
+  console.log('📡 Response status:', res.status);
+  
   await assertOk(res);
   const data = await res.json();
+  
+  console.log('✅ Upload successful - Avatar URLs:', data);
+  
   return {
     full: data.full || '',
     thumb: data.thumb || '',

@@ -170,9 +170,9 @@ export function useUploadAvatar() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ userId, formData }: { userId: number; formData: FormData }) => {
+    mutationFn: ({ userId, imageUri }: { userId: number; imageUri: string }) => {
       if (!token) throw new Error('No authentication token');
-      return uploadUserAvatar(userId, token, formData);
+      return uploadUserAvatar(userId, token, imageUri);
     },
     onSuccess: (_, variables) => {
       // Invalidate avatar and profile queries

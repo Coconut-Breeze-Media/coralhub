@@ -80,7 +80,12 @@ export default function ProfileSettingsScreen() {
 
       if (!result.canceled && result.assets[0]) {
         const asset = result.assets[0];
-        await handleUploadImage(asset.uri, type);
+        
+        if (type === 'avatar') {
+          await handleUploadAvatar(asset.uri);
+        } else {
+          await handleUploadCover(asset.uri);
+        }
       }
     } catch (error) {
       console.error('Error picking image:', error);
@@ -88,68 +93,70 @@ export default function ProfileSettingsScreen() {
     }
   };
 
-  const handleUploadImage = async (uri: string, type: 'avatar' | 'cover') => {
+  const handleUploadAvatar = async (imageUri: string) => {
     if (!member?.id) return;
 
     try {
-      console.log(`📤 Starting ${type} upload for user ${member.id}`);
-      console.log('📷 Image URI:', uri);
+      console.log('📤 Starting avatar upload for user', member.id);
+      console.log('📷 Image URI:', imageUri);
       
-      // Create form data
+      const response = await uploadAvatar.mutateAsync({ 
+        userId: member.id, 
+        imageUri 
+      });
+      
+      console.log('✅ Avatar uploaded successfully');
+      console.log('Avatar URLs:', response.full, response.thumb);
+      
+      Alert.alert('Success', 'Profile picture updated successfully');
+    } catch (error: any) {
+      console.error('❌ Error uploading avatar:', error);
+      
+      let errorMessage = 'Failed to update profile picture';
+      if (error?.message) {
+        errorMessage += `: ${error.message}`;
+      }
+      
+      Alert.alert('Error', errorMessage);
+    }
+  };
+
+  const handleUploadCover = async (imageUri: string) => {
+    if (!member?.id) return;
+
+    try {
+      console.log('📤 Starting cover upload for user', member.id);
+      console.log('📷 Image URI:', imageUri);
+      
+      // Create form data for cover (keeping old implementation for now)
       const formData = new FormData();
       
       if (Platform.OS === 'web') {
-        // For web, fetch the blob and create a File object
-        console.log('🌐 Platform: Web - Fetching blob...');
-        const response = await fetch(uri);
+        const response = await fetch(imageUri);
         const blob = await response.blob();
-        console.log('📦 Blob size:', blob.size, 'bytes');
-        console.log('📦 Blob type:', blob.type);
-        
-        const filename = uri.split('/').pop() || (type === 'cover' ? 'cover.jpg' : 'avatar.jpg');
-        const file = new File([blob], filename, { type: blob.type || 'image/jpeg' });
-        console.log('📄 File created:', file.name, file.type, file.size);
-        
-        // IMPORTANT: BuddyPress expects the field name to be 'file'
+        const file = new File([blob], 'cover.jpg', { type: 'image/jpeg' });
         formData.append('file', file);
-        console.log('✅ FormData prepared with field "file"');
       } else {
-        // For native platforms
-        console.log('📱 Platform: Native');
-        const filename = uri.split('/').pop() || (type === 'cover' ? 'cover.jpg' : 'avatar.jpg');
+        const filename = imageUri.split('/').pop() || 'cover.jpg';
         const match = /\.(\w+)$/.exec(filename);
         const fileType = match ? `image/${match[1]}` : 'image/jpeg';
 
         // @ts-ignore - FormData append is different in React Native
         formData.append('file', {
-          uri,
+          uri: imageUri,
           name: filename,
           type: fileType,
         });
-        console.log('✅ FormData prepared:', filename, fileType);
       }
-
-      console.log(`🚀 Sending ${type} upload request...`);
       
-      if (type === 'avatar') {
-        await uploadAvatar.mutateAsync({ userId: member.id, formData });
-        console.log('✅ Avatar uploaded successfully');
-        Alert.alert('Success', 'Profile picture updated successfully');
-      } else {
-        await uploadCover.mutateAsync({ userId: member.id, formData });
-        console.log('✅ Cover uploaded successfully');
-        Alert.alert('Success', 'Cover image updated successfully');
-      }
+      await uploadCover.mutateAsync({ userId: member.id, formData });
+      console.log('✅ Cover uploaded successfully');
+      
+      Alert.alert('Success', 'Cover image updated successfully');
     } catch (error: any) {
-      console.error(`❌ Error uploading ${type}:`, error);
-      console.error('Error details:', {
-        message: error?.message,
-        status: error?.status,
-        name: error?.name,
-      });
+      console.error('❌ Error uploading cover:', error);
       
-      let errorMessage = `Failed to update ${type === 'avatar' ? 'profile picture' : 'cover image'}`;
-      
+      let errorMessage = 'Failed to update cover image';
       if (error?.message) {
         errorMessage += `: ${error.message}`;
       }
