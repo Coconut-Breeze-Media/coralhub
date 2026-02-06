@@ -20,10 +20,13 @@ import {
 import { Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useMe, useFriendsList, useRemoveFriend } from '../../hooks/useQueries';
+import RemoveFriendModal from '../../components/RemoveFriendModal';
 import type { FriendWithDetails } from '../../types';
 
 export default function ConnectionsScreen() {
   const [page, setPage] = useState(1);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [selectedFriend, setSelectedFriend] = useState<FriendWithDetails | null>(null);
   
   // Get current user to retrieve their ID
   const { data: currentUser } = useMe();
@@ -61,54 +64,58 @@ export default function ConnectionsScreen() {
       return;
     }
     
-    console.log('About to show Alert.alert confirmation dialog');
+    // Show confirmation modal
+    setSelectedFriend(friend);
+    setModalVisible(true);
+  };
+  
+  const confirmRemoveFriend = async () => {
+    if (!selectedFriend) return;
     
-    // Directly remove without confirmation for testing
-    const confirmRemove = async () => {
-      try {
-        console.log('Removing friend:', {
-          userId: friend.id,
-          name: friend.name,
-          friendshipId: friend.friendship_id
-        });
-        
-        const result = await removeFriendMutation.mutateAsync({
-          friendUserId: friend.id,
-          friendshipId: friend.friendship_id,
-        });
-        
-        console.log('Remove friend result:', result);
-        Alert.alert('Success', `${friend.name} has been removed from your friends.`);
-      } catch (err) {
-        console.error('Error removing friend:', err);
-        Alert.alert(
-          'Error',
-          `Failed to remove friend: ${err instanceof Error ? err.message : 'Unknown error'}`
-        );
-      }
-    };
-    
-    // Use platform-appropriate confirmation
-    if (Platform.OS === 'web') {
-      // For web, use native confirm
-      if (window.confirm(`Are you sure you want to remove ${friend.name} from your friends?`)) {
-        confirmRemove();
-      }
-    } else {
-      // For mobile, use Alert.alert
+    try {
+      console.log('Removing friend:', {
+        userId: selectedFriend.id,
+        name: selectedFriend.name,
+        friendshipId: selectedFriend.friendship_id
+      });
+      
+      const result = await removeFriendMutation.mutateAsync({
+        friendUserId: selectedFriend.id,
+        friendshipId: selectedFriend.friendship_id,
+      });
+      
+      console.log('Remove friend result:', result);
+      
+      // Close modal
+      setModalVisible(false);
+      setSelectedFriend(null);
+      
+      // Refresh the friends list immediately
+      await refetch();
+      
+      // Show success message
       Alert.alert(
-        'Remove Friend',
-        `Are you sure you want to remove ${friend.name} from your friends?`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Remove',
-            style: 'destructive',
-            onPress: confirmRemove,
-          },
-        ]
+        'Friend Removed',
+        `${selectedFriend.name} has been removed from your connections.`
+      );
+    } catch (err) {
+      console.error('Error removing friend:', err);
+      
+      // Close modal
+      setModalVisible(false);
+      setSelectedFriend(null);
+      
+      // Show error message
+      Alert.alert(
+        'Error',
+        `Failed to remove friend: ${err instanceof Error ? err.message : 'Unknown error'}`
       );
     }
+  };
+  
+  const cancelRemoveFriend = () => {
+    setModalVisible(false);
+    setSelectedFriend(null);
   };
   
   const calculateFriendshipDuration = (dateString: string): string => {
@@ -224,7 +231,8 @@ export default function ConnectionsScreen() {
   
   const friends = friendsData?.friends || [];
   
-  if (friends.length === 0) {
+  // Only show empty state if data has loaded and there are no friends
+  if (friendsData && friends.length === 0) {
     return (
       <>
         <Stack.Screen
@@ -274,6 +282,15 @@ export default function ConnectionsScreen() {
           ItemSeparatorComponent={() => <View style={styles.separator} />}
         />
       </View>
+      
+      {/* Remove Friend Confirmation Modal */}
+      <RemoveFriendModal
+        visible={modalVisible}
+        friendName={selectedFriend?.name || ''}
+        isRemoving={removeFriendMutation.isPending}
+        onConfirm={confirmRemoveFriend}
+        onCancel={cancelRemoveFriend}
+      />
     </>
   );
 }

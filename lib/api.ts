@@ -554,87 +554,35 @@ export async function getFriendById(friendId: number, token: string): Promise<im
 
 /**
  * Remove a friend (delete friendship)
- * Tries multiple API approaches as BuddyPress implementations vary
- * @param {number} friendUserId - Friend's user ID
+ * Uses the coralhub/v1/remove-friend endpoint which requires authentication
+ * @param {number} friendUserId - Friend's user ID to remove
  * @param {string} token - JWT authentication token
- * @param {number} friendshipId - Optional friendship ID for fallback
- * @returns {Promise<{deleted: boolean}>}
+ * @param {number} friendshipId - Optional friendship ID (not used by current endpoint)
+ * @returns {Promise<{success: boolean; message: string}>}
  */
 export async function removeFriend(
   friendUserId: number,
   token: string,
   friendshipId?: number
-): Promise<{ deleted: boolean }> {
+): Promise<{ success: boolean; message: string }> {
   console.log('[removeFriend] Attempting to remove friend:', {
     friendUserId,
     friendshipId,
   });
   
-  // Try multiple approaches in order of most likely to work
-  const attempts = [
-    // Approach 1: Query parameter with friend_id (most common)
-    {
-      name: 'Query parameter (friend_id)',
-      url: `${API}/buddypress/v1/friends?friend_id=${friendUserId}`,
-    },
-    // Approach 2: Path parameter with user ID
-    {
-      name: 'Path parameter (user ID)',
-      url: `${API}/buddypress/v1/friends/${friendUserId}`,
-    },
-    // Approach 3: Query parameter with initiator_id
-    {
-      name: 'Query parameter (initiator_id)',
-      url: `${API}/buddypress/v1/friends?initiator_id=${friendUserId}`,
-    },
-    // Approach 4: Path parameter with friendship ID (if provided)
-    ...(friendshipId
-      ? [
-          {
-            name: 'Path parameter (friendship ID)',
-            url: `${API}/buddypress/v1/friends/${friendshipId}`,
-          },
-        ]
-      : []),
-  ];
+  const url = `${API}/coralhub/v1/remove-friend?friend_id=${friendUserId}`;
+  console.log('[removeFriend] URL:', url);
   
-  let lastError: any = null;
+  const res = await fetchWithTimeout(url, {
+    method: 'DELETE',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+  });
   
-  for (const attempt of attempts) {
-    try {
-      console.log(`[removeFriend] Trying: ${attempt.name}`);
-      console.log(`[removeFriend] URL: ${attempt.url}`);
-      
-      const res = await fetchWithTimeout(attempt.url, {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-      });
-      
-      // If successful, return immediately
-      if (res.ok) {
-        const result = await res.json();
-        console.log(`[removeFriend] SUCCESS with ${attempt.name}:`, result);
-        return result;
-      }
-      
-      // Store error for logging
-      const errorText = await res.text();
-      lastError = { status: res.status, statusText: res.statusText, body: errorText };
-      console.log(`[removeFriend] FAILED with ${attempt.name}:`, lastError);
-      
-    } catch (err) {
-      console.log(`[removeFriend] ERROR with ${attempt.name}:`, err);
-      lastError = err;
-    }
-  }
-  
-  // All attempts failed
-  console.error('[removeFriend] All attempts failed. Last error:', lastError);
-  throw new ApiError(
-    lastError?.body || lastError?.message || 'Failed to remove friend after trying multiple approaches',
-    lastError?.status || 500
-  );
+  await assertOk(res);
+  const result = await res.json();
+  console.log('[removeFriend] SUCCESS:', result);
+  return result;
 }
