@@ -257,10 +257,6 @@ function CommunityScreen() {
   
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Community</Text>
-      </View>
-      
       {/* Tab Navigation */}
       <View style={styles.tabContainer}>
         <TouchableOpacity
@@ -407,35 +403,12 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#fafafa',
   },
-  header: {
-    backgroundColor: '#fff',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#dbdbdb',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.05,
-        shadowRadius: 2,
-      },
-      android: {
-        elevation: 2,
-      },
-    }),
-  },
-  headerTitle: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#262626',
-    letterSpacing: 0.3,
-  },
   tabContainer: {
     flexDirection: 'row',
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#dbdbdb',
+    marginBottom: 16,
   },
   tab: {
     flex: 1,

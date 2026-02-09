@@ -51,6 +51,9 @@ export const DEFAULT_HEADER_OPTIONS = {
   headerTitleAlign: 'center' as const,
   headerShadowVisible: false,
   headerBackVisible: false,
+  headerTitleStyle: {
+    fontWeight: 'bold' as const,
+  },
 };
 
 /**
