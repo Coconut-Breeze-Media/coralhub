@@ -586,3 +586,172 @@ export async function removeFriend(
   console.log('[removeFriend] SUCCESS:', result);
   return result;
 }
+
+// ---------- BuddyPress Activity API ----------
+
+/**
+ * Get activity feed from BuddyPress
+ * @param {string} token - JWT authentication token
+ * @param {object} options - Query options
+ * @param {string} options.scope - 'just-me' for user's posts, 'friends' for friends' posts, or undefined for all
+ * @param {number} options.user_id - Filter by specific user ID
+ * @param {number} options.page - Page number for pagination
+ * @param {number} options.per_page - Items per page
+ * @returns {Promise<import('../types').ActivityFeedResponse>}
+ */
+export async function getActivityFeed(
+  token: string,
+  options: {
+    scope?: 'just-me' | 'friends';
+    user_id?: number;
+    page?: number;
+    per_page?: number;
+  } = {}
+): Promise<import('../types').ActivityFeedResponse> {
+  const { scope, user_id, page = 1, per_page = 20 } = options;
+  
+  const params = new URLSearchParams({
+    page: String(page),
+    per_page: String(per_page),
+    display_comments: 'threaded',
+  });
+  
+  if (scope) params.append('scope', scope);
+  if (user_id) params.append('user_id', String(user_id));
+  
+  const url = `/buddypress/v1/activity?${params.toString()}`;
+  console.log('[getActivityFeed] Fetching:', url);
+  
+  const res = await fetchWithTimeout(`${API}${url}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  
+  await assertOk(res);
+  const activities: import('../types').BPActivity[] = await res.json();
+  
+  const total = parseInt(res.headers.get('X-WP-Total') || '0', 10);
+  const pages = parseInt(res.headers.get('X-WP-TotalPages') || '1', 10);
+  
+  console.log('[getActivityFeed] Found:', activities.length, 'activities');
+  
+  return {
+    activities,
+    total,
+    pages,
+  };
+}
+
+/**
+ * Create a new activity post
+ * @param {string} token - JWT authentication token
+ * @param {import('../types').CreateActivityPayload} payload - Post content and metadata
+ * @returns {Promise<import('../types').BPActivity>}
+ */
+export async function createPost(
+  token: string,
+  payload: import('../types').CreateActivityPayload
+): Promise<import('../types').BPActivity> {
+  const data = {
+    content: payload.content,
+    component: payload.component || 'activity',
+    type: payload.type || 'activity_update',
+    ...(payload.primary_item_id && { primary_item_id: payload.primary_item_id }),
+  };
+  
+  console.log('[createPost] Creating post:', data);
+  
+  return authedFetch<import('../types').BPActivity>('/buddypress/v1/activity', token, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+/**
+ * Like/favorite an activity post
+ * @param {number} activityId - Activity ID to favorite
+ * @param {string} token - JWT authentication token
+ * @returns {Promise<{favorited: boolean}>}
+ */
+export async function likePost(
+  activityId: number,
+  token: string
+): Promise<{ favorited: boolean }> {
+  console.log('[likePost] Favoriting activity:', activityId);
+  
+  return authedFetch<{ favorited: boolean }>(
+    `/buddypress/v1/activity/${activityId}/favorite`,
+    token,
+    {
+      method: 'POST',
+    }
+  );
+}
+
+/**
+ * Unlike/unfavorite an activity post
+ * @param {number} activityId - Activity ID to unfavorite
+ * @param {string} token - JWT authentication token
+ * @returns {Promise<{favorited: boolean}>}
+ */
+export async function unlikePost(
+  activityId: number,
+  token: string
+): Promise<{ favorited: boolean }> {
+  console.log('[unlikePost] Unfavoriting activity:', activityId);
+  
+  return authedFetch<{ favorited: boolean }>(
+    `/buddypress/v1/activity/${activityId}/favorite`,
+    token,
+    {
+      method: 'DELETE',
+    }
+  );
+}
+
+/**
+ * Share an activity post (create a new post referencing the original)
+ * @param {number} originalActivityId - Original activity ID to share
+ * @param {string} content - Optional message to add when sharing
+ * @param {string} token - JWT authentication token
+ * @returns {Promise<import('../types').BPActivity>}
+ */
+export async function sharePost(
+  originalActivityId: number,
+  content: string,
+  token: string
+): Promise<import('../types').BPActivity> {
+  const data = {
+    content: content || `Shared post`,
+    component: 'activity',
+    type: 'activity_share',
+    primary_item_id: originalActivityId,
+  };
+  
+  console.log('[sharePost] Sharing activity:', originalActivityId);
+  
+  return authedFetch<import('../types').BPActivity>('/buddypress/v1/activity', token, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+/**
+ * Delete an activity post (only works for own posts or admin)
+ * @param {number} activityId - Activity ID to delete
+ * @param {string} token - JWT authentication token
+ * @returns {Promise<{deleted: boolean; previous: import('../types').BPActivity}>}
+ */
+export async function deletePost(
+  activityId: number,
+  token: string
+): Promise<{ deleted: boolean; previous: import('../types').BPActivity }> {
+  console.log('[deletePost] Deleting activity:', activityId);
+  
+  return authedFetch<{ deleted: boolean; previous: import('../types').BPActivity }>(
+    `/buddypress/v1/activity/${activityId}`,
+    token,
+    {
+      method: 'DELETE',
+    }
+  );
+}

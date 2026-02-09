@@ -198,9 +198,32 @@ export interface BPActivity {
   component: string;
   type: string;
   title: string;
-  content: string;
+  content: string | { rendered: string; raw?: string };
   date: string;
   date_gmt: string;
+  user_avatar?: string | { full: string; thumb: string };
+  user_name?: string;
+  favorited?: boolean;
+  favorite_count?: number;
+}
+
+/**
+ * Create activity post payload
+ */
+export interface CreateActivityPayload {
+  content: string;
+  component?: string;
+  type?: string;
+  primary_item_id?: number;
+}
+
+/**
+ * Activity feed response with pagination
+ */
+export interface ActivityFeedResponse {
+  activities: BPActivity[];
+  total: number;
+  pages: number;
 }
 
 // ============================================
@@ -419,4 +442,9 @@ export type FriendsQueryKey =
   | ['friends', 'relationships', number]
   | ['friends', 'count', number];
 
-export type QueryKey = AuthQueryKey | PostsQueryKey | MembershipQueryKey | ProfileQueryKey | FriendsQueryKey;
+export type ActivityQueryKey =
+  | ['activity', 'feed', string]
+  | ['activity', 'user', number]
+  | ['activity', 'detail', number];
+
+export type QueryKey = AuthQueryKey | PostsQueryKey | MembershipQueryKey | ProfileQueryKey | FriendsQueryKey | ActivityQueryKey;
