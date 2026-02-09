@@ -29,11 +29,11 @@ export default function ConnectionsScreen() {
   const [selectedFriend, setSelectedFriend] = useState<FriendWithDetails | null>(null);
   
   // Get current user to retrieve their ID
-  const { data: currentUser } = useMe();
+  const { data: currentUser, isLoading: isLoadingUser } = useMe();
   const userId = currentUser?.id;
   
   // Fetch friends list for current user
-  const { data: friendsData, isLoading, error, refetch } = useFriendsList(
+  const { data: friendsData, isLoading: isLoadingFriends, error, refetch } = useFriendsList(
     userId,
     page,
     20
@@ -42,6 +42,9 @@ export default function ConnectionsScreen() {
   const removeFriendMutation = useRemoveFriend();
   
   const [refreshing, setRefreshing] = useState(false);
+  
+  // Combined loading state - show loader while user or friends are loading
+  const isLoading = isLoadingUser || isLoadingFriends;
   
   const onRefresh = async () => {
     setRefreshing(true);

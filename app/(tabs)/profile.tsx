@@ -4,11 +4,20 @@
  */
 
 import { Ionicons } from '@expo/vector-icons';
-import { Link } from 'expo-router';
+import { Link, useRouter } from 'expo-router';
 import { Pressable, Text, View } from 'react-native';
 import { PROFILE_MENU_ITEMS } from '../../constants/navigation';
+import { useAuth } from '../../lib/auth';
 
 export default function ProfilePage() {
+  const { clearAuth } = useAuth();
+  const router = useRouter();
+
+  const handleLogout = async () => {
+    await clearAuth();
+    router.replace('/sign-in');
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: '#fff' }}>
       {PROFILE_MENU_ITEMS.map((item, idx) => (
@@ -30,6 +39,23 @@ export default function ProfilePage() {
           </Pressable>
         </Link>
       ))}
+
+      {/* Logout Button */}
+      <Pressable
+        onPress={handleLogout}
+        style={{
+          paddingHorizontal: 16,
+          paddingVertical: 14,
+          borderTopWidth: 1,
+          borderColor: '#e5e7eb',
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 12,
+        }}
+      >
+        <Ionicons name="log-out-outline" size={22} color="#dc2626" />
+        <Text style={{ fontSize: 16, color: '#dc2626', flex: 1 }}>Log Out</Text>
+      </Pressable>
     </View>
   );
 }
