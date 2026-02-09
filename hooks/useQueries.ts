@@ -166,3 +166,76 @@ export function useRefreshMembership() {
   
   return { refresh };
 }
+
+// ============================================
+// Friends Hooks
+// ============================================
+
+/**
+ * Hook to fetch friends list for a user
+ * @param userId - User ID to get friends for
+ * @param page - Page number for pagination
+ * @param perPage - Items per page
+ */
+export function useFriendsList(userId?: number, page = 1, perPage = 20) {
+  const { token } = useAuth();
+  
+  return useQuery({
+    queryKey: [...queryKeys.friends.all(userId || 0), page, perPage] as const,
+    queryFn: async () => {
+      if (!token || !userId) throw new Error('No authentication token or user ID');
+      const { getFriendsList } = await import('../lib/api');
+      return getFriendsList(userId, token, page, perPage);
+    },
+    enabled: !!token && !!userId,
+    staleTime: 3 * 60 * 1000, // 3 minutes
+  });
+}
+
+/**
+ * Hook to fetch friendship relationships (raw data)
+ * @param userId - User ID to get friendships for
+ */
+export function useFriendshipRelationships(userId?: number) {
+  const { token } = useAuth();
+  
+  return useQuery({
+    queryKey: queryKeys.friends.relationships(userId || 0),
+    queryFn: async () => {
+      if (!token || !userId) throw new Error('No authentication token or user ID');
+      const { getFriendshipRelationships } = await import('../lib/api');
+      return getFriendshipRelationships(userId, token);
+    },
+    enabled: !!token && !!userId,
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  });
+}
+
+/**
+ * Mutation hook to remove a friend
+ * Invalidates friends list on success
+ */
+export function useRemoveFriend() {
+  const queryClient = useQueryClient();
+  const { token } = useAuth();
+  
+  return useMutation({
+    mutationFn: async ({ 
+      friendUserId, 
+      friendshipId 
+    }: { 
+      friendUserId: number;
+      friendshipId?: number;
+    }) => {
+      if (!token) throw new Error('No authentication token');
+      const { removeFriend } = await import('../lib/api');
+      return removeFriend(friendUserId, token, friendshipId);
+    },
+    onSuccess: () => {
+      // Invalidate all friends queries to refresh the list
+      queryClient.invalidateQueries({
+        queryKey: ['friends'],
+      });
+    },
+  });
+}

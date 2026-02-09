@@ -45,6 +45,44 @@ class Coral_Social_API {
     private function init_hooks() {
         add_action('rest_api_init', array($this, 'register_routes'));
         add_action('init', array($this, 'check_dependencies'));
+        
+        // Enable file uploads for REST API
+        add_filter('rest_api_init', array($this, 'enable_rest_file_uploads'));
+        
+        // Handle CORS for file uploads
+        add_action('rest_api_init', array($this, 'add_cors_support'));
+    }
+    
+    /**
+     * Enable file uploads in WordPress REST API
+     */
+    public function enable_rest_file_uploads() {
+        // Ensure $_FILES is available in REST requests
+        add_filter('rest_pre_serve_request', '__return_false');
+    }
+    
+    /**
+     * Add CORS support for REST API file uploads
+     */
+    public function add_cors_support() {
+        // Remove default CORS headers to avoid conflicts
+        remove_filter('rest_pre_serve_request', 'rest_send_cors_headers');
+        
+        // Add custom CORS headers
+        add_filter('rest_pre_serve_request', function($served, $result, $request, $server) {
+            header('Access-Control-Allow-Origin: *');
+            header('Access-Control-Allow-Methods: POST, GET, OPTIONS, PUT, DELETE');
+            header('Access-Control-Allow-Credentials: true');
+            header('Access-Control-Allow-Headers: Authorization, Content-Type, X-WP-Nonce');
+            
+            // Handle preflight OPTIONS request
+            if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+                status_header(200);
+                exit();
+            }
+            
+            return $served;
+        }, 10, 4);
     }
     
     private function load_dependencies() {

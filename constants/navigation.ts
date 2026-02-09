@@ -78,7 +78,7 @@ export const TAB_BAR_OPTIONS = {
 export const PROFILE_MENU_ITEMS: ReadonlyArray<ProfileMenuItem> = [
   {
     label: 'Profile Settings',
-    href: '/profile/profile-settings',
+    href: '/profile/settings',
     icon: 'person-circle-outline',
   },
   {
@@ -137,7 +137,7 @@ export const ROUTES = {
   PROFILE: '/(tabs)/profile',
   
   // Profile subroutes
-  PROFILE_SETTINGS: '/profile/profile-settings',
+  PROFILE_SETTINGS: '/profile/settings',
   PROFILE_ACTIVITY: '/profile/activity',
   PROFILE_MESSAGES: '/profile/messages',
   PROFILE_GROUPS: '/profile/groups',

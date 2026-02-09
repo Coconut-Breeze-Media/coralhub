@@ -93,6 +93,13 @@ export const queryKeys = {
     levels: () => ['membership', 'levels'] as const,
     status: () => ['membership', 'status'] as const,
   },
+  
+  // Friends
+  friends: {
+    all: (userId: number) => ['friends', 'list', userId] as const,
+    relationships: (userId: number) => ['friends', 'relationships', userId] as const,
+    count: (userId: number) => ['friends', 'count', userId] as const,
+  },
 } as const;
 
 /**

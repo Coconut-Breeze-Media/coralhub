@@ -96,6 +96,150 @@ export interface MembershipLevel {
 }
 
 // ============================================
+// BuddyPress Member Types
+// ============================================
+
+/**
+ * BuddyPress member object
+ */
+export interface BPMember {
+  id: number;
+  name: string;
+  mention_name?: string;
+  link?: string;
+  user_login?: string;
+  member_types?: string[];
+  registered_date?: string;
+  registered_date_gmt?: string;
+  password?: string;
+  roles?: string[];
+  capabilities?: Record<string, boolean>;
+  extra_capabilities?: Record<string, boolean>;
+  xprofile?: Array<{
+    field_id: number;
+    name: string;
+    value: {
+      raw: string;
+      rendered: string;
+    };
+  }>;
+  friendship_status?: boolean;
+  friendship_status_slug?: string;
+  last_activity?: {
+    timediff: string;
+    date: string;
+    date_gmt: string;
+  };
+  latest_update?: {
+    id: number;
+    raw: string;
+    rendered: string;
+  };
+  total_friend_count?: number;
+  avatar_urls?: {
+    full: string;
+    thumb: string;
+  };
+}
+
+/**
+ * Update member profile payload
+ */
+export interface UpdateMemberPayload {
+  name?: string;
+  member_type?: string;
+}
+
+/**
+ * BuddyPress avatar response
+ */
+export interface BPAvatar {
+  full: string;
+  thumb: string;
+}
+
+/**
+ * BuddyPress cover image response
+ */
+export interface BPCoverImage {
+  image: string;
+}
+
+/**
+ * XProfile field data
+ */
+export interface XProfileFieldData {
+  id: number;
+  user_id: number;
+  field_id: number;
+  value: {
+    raw: string;
+    rendered: string;
+  };
+  last_updated: string;
+}
+
+/**
+ * Update XProfile field payload
+ */
+export interface UpdateXProfilePayload {
+  value: string;
+}
+
+/**
+ * BuddyPress activity item
+ */
+export interface BPActivity {
+  id: number;
+  primary_item_id: number;
+  secondary_item_id: number;
+  user_id: number;
+  link: string;
+  component: string;
+  type: string;
+  title: string;
+  content: string;
+  date: string;
+  date_gmt: string;
+}
+
+// ============================================
+// BuddyPress Friends Types
+// ============================================
+
+/**
+ * BuddyPress friendship relationship
+ * Represents a connection between two users
+ */
+export interface BPFriendship {
+  id: number;
+  initiator_id: number;
+  friend_id: number;
+  is_confirmed: boolean;
+  date_created: string;
+  date_created_gmt?: string;
+}
+
+/**
+ * Friend with complete user details
+ * Combines friendship data with member profile data
+ */
+export interface FriendWithDetails extends BPMember {
+  friendship_id: number;
+  friendship_date: string;
+  friendship_date_gmt?: string;
+}
+
+/**
+ * Friends list response with pagination
+ */
+export interface FriendsListResponse {
+  friends: FriendWithDetails[];
+  total: number;
+  pages: number;
+}
+
+// ============================================
 // Authentication Types
 // ============================================
 
@@ -103,6 +247,7 @@ export interface MembershipLevel {
  * User profile data stored in auth context
  */
 export interface UserProfile {
+  user_id?: number;
   user_email: string;
   user_display_name: string;
 }
@@ -262,5 +407,16 @@ export type PostsQueryKey =
 export type MembershipQueryKey = 
   | ['membership', 'levels']
   | ['membership', 'status'];
+export type ProfileQueryKey =
+  | ['profile', 'member', number]
+  | ['profile', 'me']
+  | ['profile', 'avatar', number]
+  | ['profile', 'cover', number]
+  | ['profile', 'xprofile', number, number];
 
-export type QueryKey = AuthQueryKey | PostsQueryKey | MembershipQueryKey;
+export type FriendsQueryKey =
+  | ['friends', 'list', number]
+  | ['friends', 'relationships', number]
+  | ['friends', 'count', number];
+
+export type QueryKey = AuthQueryKey | PostsQueryKey | MembershipQueryKey | ProfileQueryKey | FriendsQueryKey;
