@@ -24,6 +24,7 @@ import {
   useSharePost, 
   useDeletePost 
 } from '../../hooks/useActivity';
+import { useMember } from '../../hooks/useMembers';
 import type { BPActivity } from '../../types';
 
 type TabType = 'feed' | 'my-posts';
@@ -47,6 +48,133 @@ function getUserNameFromTitle(title: string): string {
   return match ? match[1].trim() : 'Unknown User';
 }
 
+// Post Item Component - fetches user data for each post
+function PostItem({ 
+  item, 
+  token, 
+  profile, 
+  onLike, 
+  onShare, 
+  onDelete 
+}: { 
+  item: BPActivity;
+  token: string | null;
+  profile: any;
+  onLike: (activityId: number, isLiked: boolean) => void;
+  onShare: (activityId: number) => void;
+  onDelete: (activityId: number) => void;
+}) {
+  // Fetch member data from BuddyPress API
+  const { data: memberData, isLoading: isMemberLoading } = useMember(token, item.user_id);
+  
+  const isCurrentUserPost = item.user_id === profile?.user_id;
+  const isLiked = item.favorited || false;
+  
+  // Use member data from API if available, fallback to item data
+  const userName = memberData?.name || item.user_name || getUserNameFromTitle(item.title);
+  const userAvatar = memberData?.avatar_urls?.thumb || 
+    (typeof item.user_avatar === 'object' ? item.user_avatar.thumb : item.user_avatar) || 
+    undefined;
+  
+  // Log each post being rendered
+  console.log('[PostItem] Rendering post:', {
+    id: item.id,
+    user_id: item.user_id,
+    user_name: userName,
+    user_avatar: userAvatar,
+    memberData,
+    content: item.content,
+    date: item.date,
+    favorited: item.favorited,
+    favorite_count: item.favorite_count,
+    component: item.component,
+    type: item.type,
+    isCurrentUserPost,
+    isLiked,
+  });
+  
+  return (
+    <View style={styles.postCard}>
+      {/* Post Header */}
+      <View style={styles.postHeader}>
+        <View style={styles.postUserInfo}>
+          <View style={styles.avatar}>
+            {userAvatar ? (
+              <Image source={{ uri: userAvatar }} style={styles.avatarImage} />
+            ) : (
+              <Text style={styles.avatarText}>
+                {userName.charAt(0).toUpperCase()}
+              </Text>
+            )}
+          </View>
+          <View style={styles.userInfoText}>
+            <Text style={styles.userName}>{userName}</Text>
+            <Text style={styles.postDate}>
+              {new Date(item.date).toLocaleDateString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+              })}
+            </Text>
+          </View>
+        </View>
+        {isCurrentUserPost && (
+          <TouchableOpacity
+            onPress={() => onDelete(item.id)}
+            style={styles.deleteButton}
+          >
+            <Text style={styles.deleteButtonText}>•••</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+      
+      {/* Post Content */}
+      <Text style={styles.postContent}>{getContentText(item.content)}</Text>
+      
+      {/* Post Stats */}
+      <View style={styles.postStats}>
+        {item.favorite_count && item.favorite_count > 0 ? (
+          <Text style={styles.statsText}>
+            ❤️ {item.favorite_count} {item.favorite_count === 1 ? 'like' : 'likes'}
+          </Text>
+        ) : null}
+      </View>
+      
+      {/* Post Actions */}
+      <View style={styles.postActions}>
+        <TouchableOpacity
+          onPress={() => onLike(item.id, isLiked)}
+          style={styles.actionButton}
+        >
+          <Text style={[styles.actionIcon, isLiked && styles.likedIcon]}>
+            {isLiked ? '❤️' : '🤍'}
+          </Text>
+          <Text style={[styles.actionLabel, isLiked && styles.likedText]}>
+            Like
+          </Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity
+          onPress={() => Alert.alert('Comment', 'Comment feature coming soon!')}
+          style={styles.actionButton}
+        >
+          <Text style={styles.actionIcon}>💬</Text>
+          <Text style={styles.actionLabel}>Comment</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity
+          onPress={() => onShare(item.id)}
+          style={styles.actionButton}
+        >
+          <Text style={styles.actionIcon}>📤</Text>
+          <Text style={styles.actionLabel}>Share</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
 function CommunityScreen() {
   const { token, profile } = useAuth();
   const [activeTab, setActiveTab] = useState<TabType>('feed');
@@ -57,12 +185,9 @@ function CommunityScreen() {
   const scope = activeTab === 'my-posts' ? 'just-me' : undefined;
   const { data: feedData, isLoading, refetch, isRefetching } = useActivityFeed(token, scope);
   
-  // Filter activities - in My Posts tab, only show posts with component "activity"
+  // Filter activities - only show posts with component "activity"
   const filteredActivities = feedData?.activities?.filter(activity => {
-    if (activeTab === 'my-posts') {
-      return activity.component === 'activity';
-    }
-    return true; // Show all in feed tab
+    return activity.component === 'activity';
   }) || [];
   
   // Log posts data for debugging
@@ -152,106 +277,15 @@ function CommunityScreen() {
   };
   
   const renderPost = ({ item }: { item: BPActivity }) => {
-    const isCurrentUserPost = item.user_id === profile?.user_id;
-    const isLiked = item.favorited || false;
-    const userName = item.user_name || getUserNameFromTitle(item.title);
-    const userAvatar = typeof item.user_avatar === 'object' ? item.user_avatar.thumb : undefined;
-    
-    // Log each post being rendered
-    console.log('[renderPost] Rendering post:', {
-      id: item.id,
-      user_id: item.user_id,
-      user_name: userName,
-      user_avatar: userAvatar,
-      content: item.content,
-      date: item.date,
-      favorited: item.favorited,
-      favorite_count: item.favorite_count,
-      component: item.component,
-      type: item.type,
-      isCurrentUserPost,
-      isLiked,
-    });
-    
     return (
-      <View style={styles.postCard}>
-        {/* Post Header */}
-        <View style={styles.postHeader}>
-          <View style={styles.postUserInfo}>
-            <View style={styles.avatar}>
-              {userAvatar ? (
-                <Image source={{ uri: userAvatar }} style={styles.avatarImage} />
-              ) : (
-                <Text style={styles.avatarText}>
-                  {userName.charAt(0).toUpperCase()}
-                </Text>
-              )}
-            </View>
-            <View style={styles.userInfoText}>
-              <Text style={styles.userName}>{userName}</Text>
-              <Text style={styles.postDate}>
-                {new Date(item.date).toLocaleDateString('en-US', {
-                  month: 'short',
-                  day: 'numeric',
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })}
-              </Text>
-            </View>
-          </View>
-          {isCurrentUserPost && (
-            <TouchableOpacity
-              onPress={() => handleDeletePost(item.id)}
-              style={styles.deleteButton}
-            >
-              <Text style={styles.deleteButtonText}>•••</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-        
-        {/* Post Content */}
-        <Text style={styles.postContent}>{getContentText(item.content)}</Text>
-        
-        {/* Post Stats */}
-        <View style={styles.postStats}>
-          {item.favorite_count && item.favorite_count > 0 ? (
-            <Text style={styles.statsText}>
-              ❤️ {item.favorite_count} {item.favorite_count === 1 ? 'like' : 'likes'}
-            </Text>
-          ) : null}
-        </View>
-        
-        {/* Post Actions */}
-        <View style={styles.postActions}>
-          <TouchableOpacity
-            onPress={() => handleLikePost(item.id, isLiked)}
-            style={styles.actionButton}
-          >
-            <Text style={[styles.actionIcon, isLiked && styles.likedIcon]}>
-              {isLiked ? '❤️' : '🤍'}
-            </Text>
-            <Text style={[styles.actionLabel, isLiked && styles.likedText]}>
-              Like
-            </Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity
-            onPress={() => Alert.alert('Comment', 'Comment feature coming soon!')}
-            style={styles.actionButton}
-          >
-            <Text style={styles.actionIcon}>💬</Text>
-            <Text style={styles.actionLabel}>Comment</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity
-            onPress={() => handleSharePost(item.id)}
-            style={styles.actionButton}
-          >
-            <Text style={styles.actionIcon}>📤</Text>
-            <Text style={styles.actionLabel}>Share</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
+      <PostItem
+        item={item}
+        token={token}
+        profile={profile}
+        onLike={handleLikePost}
+        onShare={handleSharePost}
+        onDelete={handleDeletePost}
+      />
     );
   };
   

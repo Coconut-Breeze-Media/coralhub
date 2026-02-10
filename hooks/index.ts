@@ -7,3 +7,4 @@ export * from './useQueries';
 export * from './useNotifications';
 export * from './useProfile';
 export * from './useActivity';
+export * from './useMembers';
