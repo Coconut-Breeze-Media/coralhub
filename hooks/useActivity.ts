@@ -1,5 +1,5 @@
 // hooks/useActivity.ts
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
 import { 
   getActivityFeed, 
   createPost, 
@@ -15,7 +15,7 @@ import type {
 } from '../types';
 
 /**
- * Hook to fetch activity feed
+ * Hook to fetch activity feed with infinite scroll/pagination
  * @param token - JWT authentication token
  * @param scope - 'just-me' for user's posts, 'friends' for friends' posts, or undefined for all
  * @param userId - Filter by specific user ID
@@ -25,15 +25,30 @@ export function useActivityFeed(
   scope?: 'just-me' | 'friends',
   userId?: number
 ) {
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: ['activity', 'feed', scope || 'all', userId || 'all'] as const,
-    queryFn: async () => {
+    queryFn: async ({ pageParam = 1 }) => {
       if (!token) throw new Error('No authentication token');
-      return getActivityFeed(token, { scope, user_id: userId });
+      return getActivityFeed(token, { 
+        scope, 
+        user_id: userId, 
+        page: pageParam,
+        per_page: 20,
+        component: 'activity' // Only fetch activities with component 'activity'
+      });
     },
     enabled: !!token,
     staleTime: 30000, // 30 seconds
     refetchOnWindowFocus: true,
+    initialPageParam: 1,
+    getNextPageParam: (lastPage, allPages) => {
+      // Check if there are more pages
+      const currentPage = allPages.length;
+      if (currentPage < lastPage.pages) {
+        return currentPage + 1;
+      }
+      return undefined; // No more pages
+    },
   });
 }
 

@@ -606,9 +606,10 @@ export async function getActivityFeed(
     user_id?: number;
     page?: number;
     per_page?: number;
+    component?: string;
   } = {}
 ): Promise<import('../types').ActivityFeedResponse> {
-  const { scope, user_id, page = 1, per_page = 20 } = options;
+  const { scope, user_id, page = 1, per_page = 20, component } = options;
   
   const params = new URLSearchParams({
     page: String(page),
@@ -618,6 +619,7 @@ export async function getActivityFeed(
   
   if (scope) params.append('scope', scope);
   if (user_id) params.append('user_id', String(user_id));
+  if (component) params.append('component', component);
   
   const url = `/buddypress/v1/activity?${params.toString()}`;
   console.log('[getActivityFeed] Fetching:', url);

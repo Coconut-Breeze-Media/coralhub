@@ -181,20 +181,26 @@ function CommunityScreen() {
   const [postContent, setPostContent] = useState('');
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   
-  // Fetch feed based on active tab
+  // Fetch feed based on active tab with infinite scroll
   const scope = activeTab === 'my-posts' ? 'just-me' : undefined;
-  const { data: feedData, isLoading, refetch, isRefetching } = useActivityFeed(token, scope);
+  const { 
+    data: feedData, 
+    isLoading, 
+    refetch, 
+    isRefetching,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage
+  } = useActivityFeed(token, scope);
   
-  // Filter activities - only show posts with component "activity"
-  const filteredActivities = feedData?.activities?.filter(activity => {
-    return activity.component === 'activity';
-  }) || [];
+  // Flatten all activities from all pages
+  const allActivities = feedData?.pages?.flatMap(page => page.activities) || [];
   
   // Log posts data for debugging
   console.log('[CommunityScreen] Feed data:', feedData);
-  console.log('[CommunityScreen] Total activities:', feedData?.activities?.length || 0);
-  console.log('[CommunityScreen] Filtered activities:', filteredActivities.length);
-  console.log('[CommunityScreen] Activities:', feedData?.activities);
+  console.log('[CommunityScreen] Total pages:', feedData?.pages?.length || 0);
+  console.log('[CommunityScreen] Total activities:', allActivities.length);
+  console.log('[CommunityScreen] Has next page:', hasNextPage);
   
   // Mutations
   const createPostMutation = useCreatePost(token);
@@ -274,6 +280,12 @@ function CommunityScreen() {
         },
       ]
     );
+  };
+  
+  const handleLoadMore = () => {
+    if (hasNextPage && !isFetchingNextPage) {
+      fetchNextPage();
+    }
   };
   
   const renderPost = ({ item }: { item: BPActivity }) => {
@@ -410,12 +422,22 @@ function CommunityScreen() {
         </View>
       ) : (
         <FlatList
-          data={filteredActivities}
+          data={allActivities}
           keyExtractor={(item) => String(item.id)}
           renderItem={renderPost}
           contentContainerStyle={styles.feedContainer}
           refreshControl={
             <RefreshControl refreshing={isRefetching} onRefresh={refetch} colors={['#0066cc']} />
+          }
+          onEndReached={handleLoadMore}
+          onEndReachedThreshold={0.5}
+          ListFooterComponent={
+            isFetchingNextPage ? (
+              <View style={styles.loadMoreContainer}>
+                <ActivityIndicator size="small" color="#0066cc" />
+                <Text style={styles.loadMoreText}>Loading more...</Text>
+              </View>
+            ) : null
           }
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
@@ -714,6 +736,16 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 12,
     fontSize: 14,
+    color: '#8e8e8e',
+  },
+  loadMoreContainer: {
+    paddingVertical: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadMoreText: {
+    marginTop: 8,
+    fontSize: 13,
     color: '#8e8e8e',
   },
   emptyContainer: {
