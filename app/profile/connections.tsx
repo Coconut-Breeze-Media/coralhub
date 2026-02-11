@@ -150,20 +150,20 @@ export default function ConnectionsScreen() {
     }
     
     try {
-      // Determine who is the "other" user
-      const otherUserId = request.initiator_id === userId ? request.friend_id : request.initiator_id;
+      // Determine who is the "other" user (who sent the request)
+      const otherUserId = request.initiator_id === userId 
+        ? request.friend_id 
+        : request.initiator_id;
       
       console.log('[handleAcceptRequest] Accepting request:', {
-        currentUserId: userId,
+        friendshipId: request.id,
         otherUserId,
+        currentUserId: userId,
         request,
       });
       
-      // POST /friends with force: true to confirm the friendship
-      await acceptRequestMutation.mutateAsync({ 
-        currentUserId: userId,
-        otherUserId 
-      });
+      // Use PUT on the other user's ID to accept their friendship request
+      await acceptRequestMutation.mutateAsync(otherUserId);
       
       await Promise.all([refetchRequests(), refetchFriends()]);
       Alert.alert('Success', 'Friend request accepted!');

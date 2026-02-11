@@ -607,34 +607,31 @@ export async function getPendingFriendRequests(
 }
 
 /**
- * Accept a friend request by confirming the existing pending friendship
- * @param {number} initiatorId - ID of the user who sent the request (from request.initiator_id)
- * @param {number} friendId - ID of the user who received the request (from request.friend_id)
- * @param {string} token - JWT authentication token
+ * Accept a friend request by updating the friendship with the other user
+ * @param {number} otherUserId - ID of the other user in the friendship (initiator)
+ * @param {string} token - JWT authentication token (must be from the user accepting the request)
  * @returns {Promise<BPFriendship>}
  */
 export async function acceptFriendRequest(
-  currentUserId: number,
   otherUserId: number,
   token: string
 ): Promise<import('../types').BPFriendship> {
-  console.log('[acceptFriendRequest] Forcing friendship between', currentUserId, 'and', otherUserId);
+  console.log('[acceptFriendRequest] Accepting friendship with user:', otherUserId);
   
-  // POST with force: true to confirm the pending friendship
-  // initiator_id = the user who sent the request (otherUserId)
-  // friend_id = the user accepting (currentUserId)
-  const res = await fetchWithTimeout(`${API}/buddypress/v1/friends`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({
-      initiator_id: otherUserId,
-      friend_id: currentUserId,
-      force: true,
-    }),
-  });
+  // PUT on the other user's ID to accept their friendship request
+  const res = await fetchWithTimeout(
+    `${API}/buddypress/v1/friends/${otherUserId}`,
+    {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        context: 'edit',
+      }),
+    }
+  );
   
   await assertOk(res);
   const result = await res.json();

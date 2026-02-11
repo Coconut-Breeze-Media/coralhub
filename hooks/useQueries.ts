@@ -268,10 +268,10 @@ export function useAcceptFriendRequest() {
   const { token } = useAuth();
   
   return useMutation({
-    mutationFn: async ({ currentUserId, otherUserId }: { currentUserId: number; otherUserId: number }) => {
+    mutationFn: async (otherUserId: number) => {
       if (!token) throw new Error('No authentication token');
       const { acceptFriendRequest } = await import('../lib/api');
-      return acceptFriendRequest(currentUserId, otherUserId, token);
+      return acceptFriendRequest(otherUserId, token);
     },
     onSuccess: () => {
       // Invalidate friends and pending requests to refresh both lists
