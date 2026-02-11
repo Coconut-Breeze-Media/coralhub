@@ -1,7 +1,7 @@
 // app/profile/connections.tsx
 /**
- * Connections (Friends) screen accessible from profile menu
- * Shows the user's friends list with management options
+ * Connections screen accessible from profile menu
+ * Shows friends list and friend requests with tabs
  */
 
 import React, { useState } from 'react';
@@ -19,11 +19,23 @@ import {
 } from 'react-native';
 import { Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useMe, useFriendsList, useRemoveFriend } from '../../hooks/useQueries';
+import { useAuth } from '../../lib/auth';
+import { 
+  useMe, 
+  useFriendsList, 
+  useRemoveFriend,
+  usePendingFriendRequests,
+  useAcceptFriendRequest,
+  useRejectFriendRequest
+} from '../../hooks/useQueries';
+import { useMember } from '../../hooks/useMembers';
 import RemoveFriendModal from '../../components/RemoveFriendModal';
-import type { FriendWithDetails } from '../../types';
+import type { FriendWithDetails, BPFriendship } from '../../types';
+
+type TabType = 'friends' | 'requests';
 
 export default function ConnectionsScreen() {
+  const [activeTab, setActiveTab] = useState<TabType>('friends');
   const [page, setPage] = useState(1);
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedFriend, setSelectedFriend] = useState<FriendWithDetails | null>(null);
@@ -33,22 +45,32 @@ export default function ConnectionsScreen() {
   const userId = currentUser?.id;
   
   // Fetch friends list for current user
-  const { data: friendsData, isLoading: isLoadingFriends, error, refetch } = useFriendsList(
+  const { data: friendsData, isLoading: isLoadingFriends, error: friendsError, refetch: refetchFriends } = useFriendsList(
     userId,
     page,
     20
   );
   
+  // Fetch pending friend requests
+  const { data: pendingRequests, isLoading: isLoadingRequests, error: requestsError, refetch: refetchRequests } = usePendingFriendRequests(userId);
+  
   const removeFriendMutation = useRemoveFriend();
+  const acceptRequestMutation = useAcceptFriendRequest();
+  const rejectRequestMutation = useRejectFriendRequest();
   
   const [refreshing, setRefreshing] = useState(false);
   
   // Combined loading state - show loader while user or friends are loading
-  const isLoading = isLoadingUser || isLoadingFriends;
+  const isLoading = isLoadingUser || (activeTab === 'friends' ? isLoadingFriends : isLoadingRequests);
+  const error = activeTab === 'friends' ? friendsError : requestsError;
   
   const onRefresh = async () => {
     setRefreshing(true);
-    await refetch();
+    if (activeTab === 'friends') {
+      await refetchFriends();
+    } else {
+      await refetchRequests();
+    }
     setRefreshing(false);
   };
   
@@ -94,7 +116,7 @@ export default function ConnectionsScreen() {
       setSelectedFriend(null);
       
       // Refresh the friends list immediately
-      await refetch();
+      await refetchFriends();
       
       // Show success message
       Alert.alert(
@@ -119,6 +141,71 @@ export default function ConnectionsScreen() {
   const cancelRemoveFriend = () => {
     setModalVisible(false);
     setSelectedFriend(null);
+  };
+  
+  const handleAcceptRequest = async (request: BPFriendship) => {
+    if (!userId) {
+      Alert.alert('Error', 'User ID not available');
+      return;
+    }
+    
+    try {
+      // Determine who is the "other" user
+      const otherUserId = request.initiator_id === userId ? request.friend_id : request.initiator_id;
+      
+      console.log('[handleAcceptRequest] Accepting request:', {
+        currentUserId: userId,
+        otherUserId,
+        request,
+      });
+      
+      // POST /friends with force: true to confirm the friendship
+      await acceptRequestMutation.mutateAsync({ 
+        currentUserId: userId,
+        otherUserId 
+      });
+      
+      await Promise.all([refetchRequests(), refetchFriends()]);
+      Alert.alert('Success', 'Friend request accepted!');
+    } catch (err) {
+      console.error('Error accepting friend request:', err);
+      Alert.alert('Error', `Failed to accept request: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
+  };
+  
+  const handleRejectRequest = async (request: BPFriendship) => {
+    if (!userId) {
+      Alert.alert('Error', 'User ID not available');
+      return;
+    }
+    
+    Alert.alert(
+      'Reject Request',
+      'Are you sure you want to reject this friend request?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Reject',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              // Determine who is the "other" user - use their user_id, not friendship_id
+              const otherUserId = request.initiator_id === userId ? request.friend_id : request.initiator_id;
+              
+              console.log('[handleRejectRequest] Rejecting request for user:', otherUserId);
+              
+              // DELETE /friends/{otherUserId} with force: true
+              await rejectRequestMutation.mutateAsync(otherUserId);
+              await refetchRequests();
+              Alert.alert('Success', 'Friend request rejected.');
+            } catch (err) {
+              console.error('Error rejecting friend request:', err);
+              Alert.alert('Error', `Failed to reject request: ${err instanceof Error ? err.message : 'Unknown error'}`);
+            }
+          },
+        },
+      ]
+    );
   };
   
   const calculateFriendshipDuration = (dateString: string): string => {
@@ -194,6 +281,95 @@ export default function ConnectionsScreen() {
     );
   };
   
+  const FriendRequestItem = ({ item }: { item: BPFriendship }) => {
+    const isReceived = item.friend_id === userId;
+    const otherUserId = isReceived ? item.initiator_id : item.friend_id;
+    
+    // Fetch user data for the other person
+    const { token } = useAuth();
+    const { data: userData } = useMember(token, otherUserId);
+    
+    const avatarUrl = userData?.avatar_urls?.thumb || userData?.avatar_urls?.full;
+    const userName = userData?.name || 'Loading...';
+    
+    return (
+      <View style={styles.requestCard}>
+        <View style={styles.requestInfo}>
+          {avatarUrl ? (
+            <Image source={{ uri: avatarUrl }} style={styles.avatar} />
+          ) : (
+            <View style={[styles.avatar, styles.avatarPlaceholder]}>
+              <Text style={styles.avatarPlaceholderText}>
+                {userName.charAt(0).toUpperCase()}
+              </Text>
+            </View>
+          )}
+          
+          <View style={styles.requestDetails}>
+            <Text style={styles.requestName}>{userName}</Text>
+            <Text style={styles.requestType}>
+              {isReceived ? 'Sent you a friend request' : 'Request sent'}
+            </Text>
+            <Text style={styles.requestDate}>
+              {new Date(item.date_created).toLocaleDateString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric'
+              })}
+            </Text>
+          </View>
+        </View>
+        
+        <View style={styles.requestActions}>
+          {isReceived ? (
+            <>
+              <TouchableOpacity
+                style={styles.acceptButton}
+                onPress={() => handleAcceptRequest(item)}
+                disabled={acceptRequestMutation.isPending}
+              >
+                {acceptRequestMutation.isPending ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <>
+                    <Ionicons name="checkmark" size={18} color="#fff" />
+                    <Text style={styles.acceptButtonText}>Accept</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.rejectButton}
+                onPress={() => handleRejectRequest(item)}
+                disabled={rejectRequestMutation.isPending}
+              >
+                {rejectRequestMutation.isPending ? (
+                  <ActivityIndicator size="small" color="#ff4444" />
+                ) : (
+                  <>
+                    <Ionicons name="close" size={18} color="#ff4444" />
+                    <Text style={styles.rejectButtonText}>Reject</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </>
+          ) : (
+            <TouchableOpacity
+              style={styles.cancelButton}
+              onPress={() => handleRejectRequest(item)}
+              disabled={rejectRequestMutation.isPending}
+            >
+              {rejectRequestMutation.isPending ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={styles.cancelButtonText}>Cancel Request</Text>
+              )}
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+    );
+  };
+  
   if (isLoading) {
     return (
       <>
@@ -224,7 +400,7 @@ export default function ConnectionsScreen() {
           <Ionicons name="alert-circle-outline" size={64} color="#ff4444" />
           <Text style={styles.errorText}>Failed to load connections</Text>
           <Text style={styles.errorDetail}>{(error as Error).message}</Text>
-          <TouchableOpacity style={styles.retryButton} onPress={() => refetch()}>
+          <TouchableOpacity style={styles.retryButton} onPress={onRefresh}>
             <Text style={styles.retryButtonText}>Retry</Text>
           </TouchableOpacity>
         </View>
@@ -233,27 +409,33 @@ export default function ConnectionsScreen() {
   }
   
   const friends = friendsData?.friends || [];
+  const requests = pendingRequests || [];
+  const receivedRequests = requests.filter(r => r.friend_id === userId);
+  const sentRequests = requests.filter(r => r.initiator_id === userId);
   
-  // Only show empty state if data has loaded and there are no friends
-  if (friendsData && friends.length === 0) {
-    return (
-      <>
-        <Stack.Screen
-          options={{
-            title: 'Connections',
-            headerBackTitle: 'Profile',
-          }}
-        />
-        <View style={styles.centerContainer}>
+  const renderEmptyState = () => {
+    if (activeTab === 'friends') {
+      return (
+        <View style={styles.emptyContainer}>
           <Ionicons name="people-outline" size={80} color="#ccc" />
-          <Text style={styles.emptyTitle}>No connections yet</Text>
+          <Text style={styles.emptyTitle}>No friends yet</Text>
           <Text style={styles.emptyText}>
             Start connecting with other members to build your network!
           </Text>
         </View>
-      </>
-    );
-  }
+      );
+    } else {
+      return (
+        <View style={styles.emptyContainer}>
+          <Ionicons name="mail-outline" size={80} color="#ccc" />
+          <Text style={styles.emptyTitle}>No friend requests</Text>
+          <Text style={styles.emptyText}>
+            When someone sends you a friend request, it will appear here.
+          </Text>
+        </View>
+      );
+    }
+  };
   
   return (
     <>
@@ -264,26 +446,82 @@ export default function ConnectionsScreen() {
         }}
       />
       <View style={styles.container}>
-        <View style={styles.header}>
-          <View style={styles.headerContent}>
-            <Ionicons name="people" size={24} color="#0066cc" />
-            <Text style={styles.headerTitle}>My Connections</Text>
-          </View>
-          <Text style={styles.headerSubtitle}>
-            {friendsData?.total || 0} {friendsData?.total === 1 ? 'connection' : 'connections'}
-          </Text>
+        {/* Tab Navigation */}
+        <View style={styles.tabContainer}>
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'friends' && styles.activeTab]}
+            onPress={() => setActiveTab('friends')}
+          >
+            <Text style={[styles.tabText, activeTab === 'friends' && styles.activeTabText]}>
+              Friends
+            </Text>
+            {friends.length > 0 && (
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>{friends.length}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+          
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'requests' && styles.activeTab]}
+            onPress={() => setActiveTab('requests')}
+          >
+            <Text style={[styles.tabText, activeTab === 'requests' && styles.activeTabText]}>
+              Requests
+            </Text>
+            {requests.length > 0 && (
+              <View style={[styles.badge, styles.badgeAlert]}>
+                <Text style={styles.badgeText}>{requests.length}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
         </View>
         
-        <FlatList
-          data={friends}
-          renderItem={renderFriendItem}
-          keyExtractor={(item) => item.id.toString()}
-          contentContainerStyle={styles.listContent}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-          }
-          ItemSeparatorComponent={() => <View style={styles.separator} />}
-        />
+        {/* Content */}
+        {activeTab === 'friends' ? (
+          <>
+            {friends.length === 0 ? (
+              renderEmptyState()
+            ) : (
+              <FlatList
+                data={friends}
+                renderItem={renderFriendItem}
+                keyExtractor={(item) => item.id.toString()}
+                contentContainerStyle={styles.listContent}
+                refreshControl={
+                  <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+                }
+                ItemSeparatorComponent={() => <View style={styles.separator} />}
+              />
+            )}
+          </>
+        ) : (
+          <>
+            {requests.length === 0 ? (
+              renderEmptyState()
+            ) : (
+              <FlatList
+                data={requests}
+                renderItem={({ item }) => <FriendRequestItem item={item} />}
+                keyExtractor={(item) => item.id.toString()}
+                contentContainerStyle={styles.listContent}
+                refreshControl={
+                  <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+                }
+                ItemSeparatorComponent={() => <View style={styles.separator} />}
+                ListHeaderComponent={() => (
+                  <View style={styles.requestsHeader}>
+                    {receivedRequests.length > 0 && (
+                      <Text style={styles.requestsHeaderText}>
+                        {receivedRequests.length} Received • {sentRequests.length} Sent
+                      </Text>
+                    )}
+                  </View>
+                )}
+              />
+            )}
+          </>
+        )}
       </View>
       
       {/* Remove Friend Confirmation Modal */}
@@ -310,27 +548,48 @@ const styles = StyleSheet.create({
     padding: 20,
     backgroundColor: '#f5f5f5',
   },
-  header: {
+  tabContainer: {
+    flexDirection: 'row',
     backgroundColor: '#fff',
-    padding: 16,
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
   },
-  headerContent: {
+  tab: {
+    flex: 1,
     flexDirection: 'row',
+    justifyContent: 'center',
     alignItems: 'center',
+    paddingVertical: 16,
     gap: 8,
-    marginBottom: 4,
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
   },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
+  activeTab: {
+    borderBottomColor: '#0066cc',
   },
-  headerSubtitle: {
-    fontSize: 14,
+  tabText: {
+    fontSize: 15,
+    fontWeight: '600',
     color: '#666',
-    marginLeft: 32,
+  },
+  activeTabText: {
+    color: '#0066cc',
+  },
+  badge: {
+    backgroundColor: '#0066cc',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    minWidth: 24,
+    alignItems: 'center',
+  },
+  badgeAlert: {
+    backgroundColor: '#ff4444',
+  },
+  badgeText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
   },
   listContent: {
     padding: 12,
@@ -395,8 +654,108 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  requestCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  requestInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  requestDetails: {
+    flex: 1,
+  },
+  requestName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 4,
+  },
+  requestType: {
+    fontSize: 13,
+    color: '#666',
+    marginBottom: 2,
+  },
+  requestDate: {
+    fontSize: 12,
+    color: '#999',
+  },
+  requestActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  acceptButton: {
+    flex: 1,
+    flexDirection: 'row',
+    backgroundColor: '#0066cc',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 6,
+  },
+  acceptButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  rejectButton: {
+    flex: 1,
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#ff4444',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 6,
+  },
+  rejectButtonText: {
+    color: '#ff4444',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  cancelButton: {
+    flex: 1,
+    backgroundColor: '#666',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  cancelButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  requestsHeader: {
+    paddingVertical: 8,
+    alignItems: 'center',
+  },
+  requestsHeaderText: {
+    fontSize: 13,
+    color: '#666',
+    fontWeight: '500',
+  },
   separator: {
     height: 12,
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 32,
   },
   loadingText: {
     marginTop: 12,

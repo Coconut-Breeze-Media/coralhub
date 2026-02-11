@@ -587,6 +587,119 @@ export async function removeFriend(
   return result;
 }
 
+/**
+ * Get pending friend requests (both received and sent)
+ * @param {number} userId - Current user ID
+ * @param {string} token - JWT authentication token
+ * @returns {Promise<BPFriendship[]>}
+ */
+export async function getPendingFriendRequests(
+  userId: number,
+  token: string
+): Promise<import('../types').BPFriendship[]> {
+  console.log('[getPendingFriendRequests] Fetching pending requests for user:', userId);
+  const result = await authedFetch<import('../types').BPFriendship[]>(
+    `/buddypress/v1/friends?user_id=${userId}&is_confirmed=0`,
+    token
+  );
+  console.log('[getPendingFriendRequests] Found:', result.length, 'pending requests');
+  return result;
+}
+
+/**
+ * Accept a friend request by confirming the existing pending friendship
+ * @param {number} initiatorId - ID of the user who sent the request (from request.initiator_id)
+ * @param {number} friendId - ID of the user who received the request (from request.friend_id)
+ * @param {string} token - JWT authentication token
+ * @returns {Promise<BPFriendship>}
+ */
+export async function acceptFriendRequest(
+  currentUserId: number,
+  otherUserId: number,
+  token: string
+): Promise<import('../types').BPFriendship> {
+  console.log('[acceptFriendRequest] Forcing friendship between', currentUserId, 'and', otherUserId);
+  
+  // POST with force: true to confirm the pending friendship
+  // initiator_id = the user who sent the request (otherUserId)
+  // friend_id = the user accepting (currentUserId)
+  const res = await fetchWithTimeout(`${API}/buddypress/v1/friends`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      initiator_id: otherUserId,
+      friend_id: currentUserId,
+      force: true,
+    }),
+  });
+  
+  await assertOk(res);
+  const result = await res.json();
+  console.log('[acceptFriendRequest] Success:', result);
+  return result;
+}
+
+/**
+ * Reject or cancel a friend request
+ * @param {number} otherUserId - User ID of the other person in the friendship
+ * @param {string} token - JWT authentication token
+ * @returns {Promise<{deleted: boolean; previous: BPFriendship}>}
+ */
+export async function rejectFriendRequest(
+  otherUserId: number,
+  token: string
+): Promise<{ deleted: boolean; previous: import('../types').BPFriendship }> {
+  console.log('[rejectFriendRequest] Rejecting friend request with user:', otherUserId);
+  
+  // DELETE /friends/{user_id} - the id is the OTHER user's ID, not friendship_id
+  const res = await fetchWithTimeout(
+    `${API}/buddypress/v1/friends/${otherUserId}?force=true`,
+    {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+    }
+  );
+  
+  await assertOk(res);
+  const result = await res.json();
+  console.log('[rejectFriendRequest] Success:', result);
+  return result;
+}
+
+/**
+ * Send a friend request to another user
+ * @param {number} currentUserId - Current user's ID (initiator)
+ * @param {number} friendId - ID of the user to send request to
+ * @param {string} token - JWT authentication token
+ * @returns {Promise<BPFriendship>}
+ */
+export async function sendFriendRequest(
+  currentUserId: number,
+  friendId: number,
+  token: string
+): Promise<import('../types').BPFriendship> {
+  const res = await fetchWithTimeout(`${API}/buddypress/v1/friends`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      initiator_id: currentUserId,
+      friend_id: friendId,
+    }),
+  });
+  
+  await assertOk(res);
+  return res.json();
+}
+
 // ---------- BuddyPress Activity API ----------
 
 /**

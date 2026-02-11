@@ -239,3 +239,91 @@ export function useRemoveFriend() {
     },
   });
 }
+
+/**
+ * Hook to fetch pending friend requests (received and sent)
+ * @param userId - Current user ID
+ */
+export function usePendingFriendRequests(userId?: number) {
+  const { token } = useAuth();
+  
+  return useQuery({
+    queryKey: ['friends', 'pending', userId || 0] as const,
+    queryFn: async () => {
+      if (!token || !userId) throw new Error('No authentication token or user ID');
+      const { getPendingFriendRequests } = await import('../lib/api');
+      return getPendingFriendRequests(userId, token);
+    },
+    enabled: !!token && !!userId,
+    staleTime: 30 * 1000, // 30 seconds - refresh frequently for friend requests
+  });
+}
+
+/**
+ * Mutation hook to accept a friend request
+ * Invalidates friends list and pending requests on success
+ */
+export function useAcceptFriendRequest() {
+  const queryClient = useQueryClient();
+  const { token } = useAuth();
+  
+  return useMutation({
+    mutationFn: async ({ currentUserId, otherUserId }: { currentUserId: number; otherUserId: number }) => {
+      if (!token) throw new Error('No authentication token');
+      const { acceptFriendRequest } = await import('../lib/api');
+      return acceptFriendRequest(currentUserId, otherUserId, token);
+    },
+    onSuccess: () => {
+      // Invalidate friends and pending requests to refresh both lists
+      queryClient.invalidateQueries({
+        queryKey: ['friends'],
+      });
+    },
+  });
+}
+
+/**
+ * Mutation hook to reject or cancel a friend request
+ * Invalidates pending requests on success
+ */
+export function useRejectFriendRequest() {
+  const queryClient = useQueryClient();
+  const { token } = useAuth();
+  
+  return useMutation({
+    mutationFn: async (otherUserId: number) => {
+      if (!token) throw new Error('No authentication token');
+      const { rejectFriendRequest } = await import('../lib/api');
+      return rejectFriendRequest(otherUserId, token);
+    },
+    onSuccess: () => {
+      // Invalidate pending requests to refresh the list
+      queryClient.invalidateQueries({
+        queryKey: ['friends', 'pending'],
+      });
+    },
+  });
+}
+
+/**
+ * Mutation hook to send a friend request
+ * Invalidates pending requests on success
+ */
+export function useSendFriendRequest() {
+  const queryClient = useQueryClient();
+  const { token, profile } = useAuth();
+  
+  return useMutation({
+    mutationFn: async (friendId: number) => {
+      if (!token || !profile?.user_id) throw new Error('No authentication token or user ID');
+      const { sendFriendRequest } = await import('../lib/api');
+      return sendFriendRequest(profile.user_id, friendId, token);
+    },
+    onSuccess: () => {
+      // Invalidate pending requests to show the new request
+      queryClient.invalidateQueries({
+        queryKey: ['friends', 'pending'],
+      });
+    },
+  });
+}
