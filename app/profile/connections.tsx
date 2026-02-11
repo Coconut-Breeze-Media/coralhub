@@ -149,23 +149,26 @@ export default function ConnectionsScreen() {
       return;
     }
     
+    // Determine who is the "other" user (who sent the request)
+    const otherUserId = request.initiator_id === userId 
+      ? request.friend_id 
+      : request.initiator_id;
+    
+    console.log('[handleAcceptRequest] Accepting request:', {
+      friendshipId: request.id,
+      otherUserId,
+      currentUserId: userId,
+      request,
+    });
+    
     try {
-      // Determine who is the "other" user (who sent the request)
-      const otherUserId = request.initiator_id === userId 
-        ? request.friend_id 
-        : request.initiator_id;
-      
-      console.log('[handleAcceptRequest] Accepting request:', {
-        friendshipId: request.id,
-        otherUserId,
-        currentUserId: userId,
-        request,
-      });
-      
       // Use PUT on the other user's ID to accept their friendship request
-      await acceptRequestMutation.mutateAsync(otherUserId);
+      // The optimistic update in the mutation will remove it from UI immediately
+      await acceptRequestMutation.mutateAsync({ otherUserId, userId });
       
+      // Force refetch both lists to ensure they're in sync with server
       await Promise.all([refetchRequests(), refetchFriends()]);
+      
       Alert.alert('Success', 'Friend request accepted!');
     } catch (err) {
       console.error('Error accepting friend request:', err);
@@ -409,7 +412,23 @@ export default function ConnectionsScreen() {
   }
   
   const friends = friendsData?.friends || [];
-  const requests = pendingRequests || [];
+  const allRequests = pendingRequests || [];
+  
+  // Get list of friend user IDs to filter out from requests
+  const friendUserIds = new Set(friends.map(f => f.id));
+  
+  // Filter out requests where the other user is already a friend
+  const requests = allRequests.filter(req => {
+    const otherUserId = req.initiator_id === userId ? req.friend_id : req.initiator_id;
+    const isAlreadyFriend = friendUserIds.has(otherUserId);
+    
+    if (isAlreadyFriend) {
+      console.log('[Filtering Requests] Removing request with user', otherUserId, 'because they are already a friend');
+    }
+    
+    return !isAlreadyFriend;
+  });
+  
   const receivedRequests = requests.filter(r => r.friend_id === userId);
   const sentRequests = requests.filter(r => r.initiator_id === userId);
   

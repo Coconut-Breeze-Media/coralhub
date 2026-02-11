@@ -262,22 +262,56 @@ export function usePendingFriendRequests(userId?: number) {
 /**
  * Mutation hook to accept a friend request
  * Invalidates friends list and pending requests on success
+ * Uses optimistic update to remove request from UI immediately
  */
 export function useAcceptFriendRequest() {
   const queryClient = useQueryClient();
   const { token } = useAuth();
   
   return useMutation({
-    mutationFn: async (otherUserId: number) => {
+    mutationFn: async ({ otherUserId, userId }: { otherUserId: number; userId: number }) => {
       if (!token) throw new Error('No authentication token');
       const { acceptFriendRequest } = await import('../lib/api');
       return acceptFriendRequest(otherUserId, token);
     },
-    onSuccess: () => {
-      // Invalidate friends and pending requests to refresh both lists
-      queryClient.invalidateQueries({
-        queryKey: ['friends'],
+    onMutate: async ({ otherUserId, userId }) => {
+      // Cancel any outgoing refetches so they don't overwrite our optimistic update
+      await queryClient.cancelQueries({ queryKey: ['friends', 'pending', userId] });
+      
+      // Snapshot the previous value
+      const previousRequests = queryClient.getQueryData(['friends', 'pending', userId]);
+      
+      // Optimistically remove the accepted request from the list
+      queryClient.setQueryData(['friends', 'pending', userId], (old: any) => {
+        if (!Array.isArray(old)) return old;
+        console.log('[Optimistic Update] Removing request from cache:', { otherUserId, userId, currentRequests: old.length });
+        const filtered = old.filter((req: any) => {
+          // Remove the request where the other user is involved
+          const requestOtherUserId = req.initiator_id === userId ? req.friend_id : req.initiator_id;
+          const shouldKeep = requestOtherUserId !== otherUserId;
+          if (!shouldKeep) {
+            console.log('[Optimistic Update] Removing request:', req.id, 'with otherUserId:', requestOtherUserId);
+          }
+          return shouldKeep;
+        });
+        console.log('[Optimistic Update] Remaining requests:', filtered.length);
+        return filtered;
       });
+      
+      return { previousRequests, userId };
+    },
+    onError: (err, variables, context) => {
+      // Rollback to previous state on error
+      if (context?.previousRequests && context?.userId) {
+        console.log('[Optimistic Update] Rolling back due to error');
+        queryClient.setQueryData(['friends', 'pending', context.userId], context.previousRequests);
+      }
+    },
+    onSettled: (data, error, variables) => {
+      // Always refetch after error or success to ensure sync with server
+      console.log('[Optimistic Update] Settled, invalidating queries');
+      queryClient.invalidateQueries({ queryKey: ['friends', 'pending', variables.userId] });
+      queryClient.invalidateQueries({ queryKey: ['friends'] });
     },
   });
 }
