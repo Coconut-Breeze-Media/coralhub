@@ -227,6 +227,56 @@ export interface ActivityFeedResponse {
 }
 
 // ============================================
+// BuddyPress Groups Types
+// ============================================
+
+/**
+ * BuddyPress group
+ */
+export interface BPGroup {
+  id: number;
+  creator_id: number;
+  name: string;
+  slug: string;
+  description: {
+    raw: string;
+    rendered: string;
+  };
+  link: string;
+  status: 'public' | 'private' | 'hidden';
+  date_created: string;
+  date_created_gmt: string;
+  created_since?: string;
+  enable_forum?: boolean;
+  parent_id?: number;
+  types?: string[];
+  total_member_count: number;
+  last_activity?: string;
+  last_activity_diff?: string;
+  last_activity_gmt?: string;
+  avatar_urls?: {
+    full: string;
+    thumb: string;
+  };
+  cover_image?: string;
+  admins?: Array<{
+    user_id: number;
+    is_admin: boolean;
+    is_mod: boolean;
+    date_modified: string;
+  }>;
+}
+
+/**
+ * Groups response with pagination
+ */
+export interface GroupsResponse {
+  groups: BPGroup[];
+  total: number;
+  pages: number;
+}
+
+// ============================================
 // BuddyPress Friends Types
 // ============================================
 

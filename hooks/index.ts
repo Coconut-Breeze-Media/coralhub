@@ -8,3 +8,4 @@ export * from './useNotifications';
 export * from './useProfile';
 export * from './useActivity';
 export * from './useMembers';
+export * from './useGroups';

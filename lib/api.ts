@@ -870,3 +870,178 @@ export async function deletePost(
     }
   );
 }
+
+// ---------- BuddyPress Groups API ----------
+
+/**
+ * Get current user's groups
+ * @param {string} token - JWT authentication token
+ * @param {object} params - Query parameters
+ * @param {number} params.max - Maximum number of groups to return (0 = all)
+ * @param {'view'|'edit'} params.context - Context for the request
+ * @returns {Promise<import('../types').BPGroup[]>}
+ */
+export async function getMyGroups(
+  token: string,
+  params?: { max?: number; context?: 'view' | 'edit' }
+): Promise<import('../types').BPGroup[]> {
+  const queryParams = new URLSearchParams();
+  
+  if (params?.max) {
+    queryParams.append('max', params.max.toString());
+  }
+  
+  if (params?.context) {
+    queryParams.append('context', params.context);
+  }
+  
+  const queryString = queryParams.toString();
+  const endpoint = `/buddypress/v1/groups/me${queryString ? `?${queryString}` : ''}`;
+  
+  console.log('[getMyGroups] Fetching current user groups');
+  
+  return authedFetch<import('../types').BPGroup[]>(endpoint, token);
+}
+
+/**
+ * Get groups for a specific user
+ * @param {number} userId - User ID
+ * @param {string} token - JWT authentication token
+ * @param {object} params - Query parameters
+ * @param {number} params.per_page - Number of groups per page (default 20)
+ * @param {number} params.page - Page number
+ * @returns {Promise<import('../types').BPGroup[]>}
+ */
+export async function getUserGroups(
+  userId: number,
+  token: string,
+  params?: { per_page?: number; page?: number }
+): Promise<import('../types').BPGroup[]> {
+  const queryParams = new URLSearchParams();
+  
+  queryParams.append('user_id', userId.toString());
+  
+  if (params?.per_page) {
+    queryParams.append('per_page', params.per_page.toString());
+  }
+  
+  if (params?.page) {
+    queryParams.append('page', params.page.toString());
+  }
+  
+  const queryString = queryParams.toString();
+  const endpoint = `/buddypress/v1/groups?${queryString}`;
+  
+  console.log(`[getUserGroups] Fetching groups for user ${userId}`);
+  
+  return authedFetch<import('../types').BPGroup[]>(endpoint, token);
+}
+
+/**
+ * Get group details by ID
+ * @param {number} groupId - Group ID
+ * @param {string} token - JWT authentication token
+ * @param {boolean} populateExtras - Whether to populate extra data like member count, last activity, etc.
+ * @returns {Promise<import('../types').BPGroup>}
+ */
+export async function getGroupById(
+  groupId: number,
+  token: string,
+  populateExtras: boolean = true
+): Promise<import('../types').BPGroup> {
+  const queryParams = populateExtras ? '?populate_extras=true' : '';
+  const endpoint = `/buddypress/v1/groups/${groupId}${queryParams}`;
+  
+  console.log(`[getGroupById] Fetching group ${groupId}`);
+  
+  const response = await authedFetch<any>(endpoint, token);
+  
+  // BuddyPress API returns an array with single group, extract first element
+  if (Array.isArray(response) && response.length > 0) {
+    console.log('[getGroupById] Response is array, extracting first element');
+    return response[0] as import('../types').BPGroup;
+  }
+  
+  return response as import('../types').BPGroup;
+}
+
+/**
+ * Get group activity feed
+ * @param {number} groupId - Group ID
+ * @param {string} token - JWT authentication token
+ * @param {object} params - Query parameters
+ * @param {number} params.per_page - Number of activities per page (default 20)
+ * @param {number} params.page - Page number
+ * @param {'desc'|'asc'} params.order - Sort order (default 'desc')
+ * @returns {Promise<import('../types').ActivityFeedResponse>}
+ */
+export async function getGroupActivity(
+  groupId: number,
+  token: string,
+  params?: { per_page?: number; page?: number; order?: 'desc' | 'asc' }
+): Promise<import('../types').ActivityFeedResponse> {
+  const queryParams = new URLSearchParams();
+  
+  queryParams.append('group_id', groupId.toString());
+  queryParams.append('per_page', (params?.per_page || 20).toString());
+  queryParams.append('order', params?.order || 'desc');
+  
+  if (params?.page) {
+    queryParams.append('page', params.page.toString());
+  }
+  
+  const queryString = queryParams.toString();
+  const endpoint = `/buddypress/v1/activity?${queryString}`;
+  
+  console.log(`[getGroupActivity] Fetching activity for group ${groupId}`);
+  
+  const response = await authedFetch<any>(endpoint, token);
+  
+  // Handle both array response and paginated response format
+  if (Array.isArray(response)) {
+    console.log('[getGroupActivity] Response is array, converting to ActivityFeedResponse');
+    return {
+      activities: response,
+      total: response.length,
+      pages: 1
+    };
+  }
+  
+  return response as import('../types').ActivityFeedResponse;
+}
+
+/**
+ * Get group members
+ * @param {number} groupId - Group ID
+ * @param {string} token - JWT authentication token
+ * @param {object} params - Query parameters
+ * @param {number} params.per_page - Number of members per page (default 20)
+ * @param {number} params.page - Page number
+ * @returns {Promise<import('../types').BPMember[]>}
+ */
+export async function getGroupMembers(
+  groupId: number,
+  token: string,
+  params?: { per_page?: number; page?: number }
+): Promise<import('../types').BPMember[]> {
+  const queryParams = new URLSearchParams();
+  
+  queryParams.append('per_page', (params?.per_page || 50).toString());
+  queryParams.append('exclude_admins', 'false'); // Include admins in the list
+  
+  if (params?.page) {
+    queryParams.append('page', params.page.toString());
+  }
+  
+  const queryString = queryParams.toString();
+  const endpoint = `/buddypress/v1/groups/${groupId}/members?${queryString}`;
+  
+  console.log(`[getGroupMembers] Fetching members for group ${groupId} with exclude_admins=false`);
+  
+  const response = await authedFetch<import('../types').BPMember[]>(endpoint, token);
+  
+  console.log(`[getGroupMembers] Received ${response?.length || 0} members for group ${groupId}`);
+  console.log('[getGroupMembers] Members data:', JSON.stringify(response, null, 2));
+  
+  return response;
+}
