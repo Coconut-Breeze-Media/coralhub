@@ -3,6 +3,8 @@ import { useMutation, useQuery, useQueryClient, useInfiniteQuery } from '@tansta
 import { 
   getActivityFeed, 
   createPost, 
+  createGroupPost,
+  updatePost,
   likePost, 
   unlikePost, 
   sharePost, 
@@ -127,6 +129,53 @@ export function useDeletePost(token: string | null) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['activity'] });
+    },
+  });
+}
+
+/**
+ * Hook to update/edit a post
+ * @param token - JWT authentication token
+ */
+export function useUpdatePost(token: string | null) {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async ({ 
+      activityId, 
+      content, 
+      component, 
+      primary_item_id 
+    }: { 
+      activityId: number; 
+      content: string;
+      component?: string;
+      primary_item_id?: number;
+    }) => {
+      if (!token) throw new Error('No authentication token');
+      return updatePost(activityId, content, token, { component, primary_item_id });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['activity'] });
+    },
+  });
+}
+
+/**
+ * Hook to create a post in a group
+ * @param token - JWT authentication token
+ */
+export function useCreateGroupPost(token: string | null) {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async ({ groupId, content }: { groupId: number; content: string }) => {
+      if (!token) throw new Error('No authentication token');
+      return createGroupPost(groupId, content, token);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['activity'] });
+      queryClient.invalidateQueries({ queryKey: ['groups'] });
     },
   });
 }

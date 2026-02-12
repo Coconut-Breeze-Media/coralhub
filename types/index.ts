@@ -205,6 +205,7 @@ export interface BPActivity {
   user_name?: string;
   favorited?: boolean;
   favorite_count?: number;
+  comment_count?: number;
 }
 
 /**
@@ -330,6 +331,7 @@ export interface UserProfile {
  */
 export interface AuthContextState {
   token: string | null;
+  userId: number | null;
   profile: UserProfile | null;
   isMember: boolean | null;
   refreshMembership: () => Promise<void>;

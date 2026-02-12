@@ -868,6 +868,72 @@ export async function deletePost(
   );
 }
 
+/**
+ * Edit/update an activity post
+ * @param {number} activityId - Activity ID to update
+ * @param {string} content - New content for the post
+ * @param {string} token - JWT authentication token
+ * @param {object} options - Optional fields to maintain context (component, primary_item_id)
+ * @returns {Promise<import('../types').BPActivity>}
+ */
+export async function updatePost(
+  activityId: number,
+  content: string,
+  token: string,
+  options?: { component?: string; primary_item_id?: number }
+): Promise<import('../types').BPActivity> {
+  console.log('[updatePost] Updating activity:', activityId, 'with options:', options);
+  
+  const data: any = {
+    content,
+    type: 'activity_update',
+  };
+  
+  // Preserve group context if provided
+  if (options?.component) {
+    data.component = options.component;
+  }
+  if (options?.primary_item_id) {
+    data.primary_item_id = options.primary_item_id;
+  }
+  
+  return authedFetch<import('../types').BPActivity>(
+    `/buddypress/v1/activity/${activityId}`,
+    token,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }
+  );
+}
+
+/**
+ * Create a post in a group
+ * @param {number} groupId - Group ID
+ * @param {string} content - Post content
+ * @param {string} token - JWT authentication token
+ * @returns {Promise<import('../types').BPActivity>}
+ */
+export async function createGroupPost(
+  groupId: number,
+  content: string,
+  token: string
+): Promise<import('../types').BPActivity> {
+  const data = {
+    content,
+    component: 'groups',
+    type: 'activity_update',
+    primary_item_id: groupId,
+  };
+  
+  console.log('[createGroupPost] Creating post in group:', groupId, data);
+  
+  return authedFetch<import('../types').BPActivity>('/buddypress/v1/activity', token, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
 // ---------- BuddyPress Groups API ----------
 
 /**

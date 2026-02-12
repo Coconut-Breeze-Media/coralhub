@@ -4,11 +4,12 @@
  * Displays detailed information about a group and its activity feed
  */
 
-import { View, Text, ScrollView, ActivityIndicator, RefreshControl, Image, TouchableOpacity } from 'react-native';
+import { View, Text, ScrollView, ActivityIndicator, RefreshControl, Image, TouchableOpacity, TextInput, Alert, Modal } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../lib/auth';
 import { useGroup, useGroupActivity, useGroupMembers } from '../hooks/useGroups';
 import { useMember } from '../hooks/useMembers';
+import { useCreateGroupPost, useLikePost, useUpdatePost, useDeletePost } from '../hooks/useActivity';
 import BackButton from '../components/BackButton';
 import { useState, useEffect } from 'react';
 import { useLocalSearchParams } from 'expo-router';
@@ -32,7 +33,7 @@ const ACTIVITY_TYPE_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
 };
 
 export default function GroupDetailScreen() {
-  const { token } = useAuth();
+  const { token, userId } = useAuth();
   const params = useLocalSearchParams();
   const groupId = params.id ? parseInt(params.id as string) : null;
   
@@ -40,8 +41,12 @@ export default function GroupDetailScreen() {
   const { data: activityData, isLoading: loadingActivity, refetch: refetchActivity } = useGroupActivity(token, groupId);
   const { data: members, isLoading: loadingMembers, refetch: refetchMembers } = useGroupMembers(token, groupId);
   
+  const createGroupPostMutation = useCreateGroupPost(token);
+  
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<TabType>('home');
+  const [newPostContent, setNewPostContent] = useState('');
+  const [isPostingActivity, setIsPostingActivity] = useState(false);
 
   // Log group data when loaded
   useEffect(() => {
@@ -112,6 +117,34 @@ export default function GroupDetailScreen() {
     setRefreshing(true);
     await Promise.all([refetchGroup(), refetchActivity(), refetchMembers()]);
     setRefreshing(false);
+  };
+
+  const handleCreatePost = async () => {
+    if (!newPostContent.trim()) {
+      Alert.alert('Error', 'Please enter some content for your post');
+      return;
+    }
+
+    if (!groupId) {
+      Alert.alert('Error', 'Invalid group ID');
+      return;
+    }
+
+    try {
+      setIsPostingActivity(true);
+      await createGroupPostMutation.mutateAsync({
+        groupId,
+        content: newPostContent.trim(),
+      });
+      setNewPostContent('');
+      await refetchActivity();
+      Alert.alert('Success', 'Post created successfully!');
+    } catch (error: any) {
+      console.error('Error creating post:', error);
+      Alert.alert('Error', error.message || 'Failed to create post');
+    } finally {
+      setIsPostingActivity(false);
+    }
   };
 
   const formatMemberCount = (count: number) => {
@@ -444,6 +477,66 @@ export default function GroupDetailScreen() {
                   </View>
                 )}
 
+                {/* Create Post Section */}
+                <View
+                  style={{
+                    backgroundColor: '#fff',
+                    borderRadius: 12,
+                    padding: 16,
+                    borderWidth: 1,
+                    borderColor: '#e5e7eb',
+                  }}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                    <Ionicons name="create-outline" size={20} color="#2563eb" />
+                    <Text style={{ fontSize: 16, fontWeight: '700', color: '#1f2937' }}>
+                      Create Post
+                    </Text>
+                  </View>
+                  <TextInput
+                    style={{
+                      backgroundColor: '#f9fafb',
+                      borderWidth: 1,
+                      borderColor: '#d1d5db',
+                      borderRadius: 8,
+                      padding: 12,
+                      fontSize: 14,
+                      color: '#1f2937',
+                      minHeight: 80,
+                      textAlignVertical: 'top',
+                    }}
+                    placeholder="What's on your mind?"
+                    placeholderTextColor="#9ca3af"
+                    multiline
+                    value={newPostContent}
+                    onChangeText={setNewPostContent}
+                    editable={!isPostingActivity}
+                  />
+                  <TouchableOpacity
+                    onPress={handleCreatePost}
+                    disabled={isPostingActivity || !newPostContent.trim()}
+                    style={{
+                      backgroundColor: (!newPostContent.trim() || isPostingActivity) ? '#d1d5db' : '#2563eb',
+                      borderRadius: 8,
+                      padding: 12,
+                      alignItems: 'center',
+                      marginTop: 12,
+                      flexDirection: 'row',
+                      justifyContent: 'center',
+                      gap: 8,
+                    }}
+                  >
+                    {isPostingActivity ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Ionicons name="send" size={18} color="#fff" />
+                    )}
+                    <Text style={{ fontSize: 15, fontWeight: '600', color: '#fff' }}>
+                      {isPostingActivity ? 'Posting...' : 'Post'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
                 {/* Activity Feed Section */}
                 <View>
                   <Text style={{ fontSize: 18, fontWeight: '700', color: '#1f2937', marginBottom: 12 }}>
@@ -457,7 +550,14 @@ export default function GroupDetailScreen() {
                   ) : activities.length > 0 ? (
                     <View style={{ gap: 12 }}>
                       {activities.map((activity) => (
-                        <ActivityCard key={activity.id} activity={activity} token={token} />
+                        <ActivityCard 
+                          key={activity.id} 
+                          activity={activity} 
+                          token={token}
+                          currentUserId={userId}
+                          groupCreatorId={group?.creator_id}
+                          onActivityUpdate={refetchActivity}
+                        />
                       ))}
                     </View>
                   ) : (
@@ -693,9 +793,44 @@ export default function GroupDetailScreen() {
 /**
  * Activity Card Component
  */
-function ActivityCard({ activity, token }: { activity: any; token: string | null }) {
+function ActivityCard({ 
+  activity, 
+  token, 
+  currentUserId,
+  groupCreatorId,
+  onActivityUpdate 
+}: { 
+  activity: any; 
+  token: string | null;
+  currentUserId?: number | null;
+  groupCreatorId?: number;
+  onActivityUpdate: () => void;
+}) {
   const userId = activity.user_id;
   const { data: member } = useMember(token, userId);
+  const likePostMutation = useLikePost(token);
+  const updatePostMutation = useUpdatePost(token);
+  const deletePostMutation = useDeletePost(token);
+  
+  const [isLiked, setIsLiked] = useState(activity.favorited || false);
+  const [likeCount, setLikeCount] = useState(activity.favorite_count || 0);
+  const [isEditModalVisible, setIsEditModalVisible] = useState(false);
+  const [isDeleteModalVisible, setIsDeleteModalVisible] = useState(false);
+  const [editContent, setEditContent] = useState('');
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // Check if this is an interactive post (not a system activity)
+  // Only activity_update types can be liked, commented, edited, or deleted
+  const isInteractivePost = activity.type === 'activity_update';
+
+  // Check if current user can edit/delete this post
+  // User can edit/delete if they are the post creator OR the group creator/admin
+  // AND it's an interactive post
+  // Use Number() to ensure type-safe comparison
+  const isPostCreator = currentUserId && activity.user_id && Number(currentUserId) === Number(activity.user_id);
+  const isGroupCreator = currentUserId && groupCreatorId && Number(currentUserId) === Number(groupCreatorId);
+  const canModify = isInteractivePost && (isPostCreator || isGroupCreator);
 
   const getContentText = (content: string | { rendered: string; raw?: string }): string => {
     let text = '';
@@ -736,6 +871,79 @@ function ActivityCard({ activity, token }: { activity: any; token: string | null
     return types[type] || { label: 'posted', icon: 'chatbox-outline' as keyof typeof Ionicons.glyphMap, color: '#6b7280' };
   };
 
+  const handleLike = async () => {
+    try {
+      const newLikedState = !isLiked;
+      setIsLiked(newLikedState);
+      setLikeCount(newLikedState ? likeCount + 1 : Math.max(0, likeCount - 1));
+      
+      await likePostMutation.mutateAsync({
+        activityId: activity.id,
+        isLiked: isLiked,
+      });
+    } catch (error) {
+      console.error('Error toggling like:', error);
+      // Revert on error
+      setIsLiked(!isLiked);
+      setLikeCount(activity.favorite_count || 0);
+      Alert.alert('Error', 'Failed to update like status');
+    }
+  };
+
+  const handleEdit = () => {
+    setEditContent(getContentText(activity.content));
+    setIsEditModalVisible(true);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editContent.trim()) {
+      Alert.alert('Error', 'Post content cannot be empty');
+      return;
+    }
+
+    try {
+      setIsUpdating(true);
+      await updatePostMutation.mutateAsync({
+        activityId: activity.id,
+        content: editContent.trim(),
+        component: activity.component,
+        primary_item_id: activity.primary_item_id,
+      });
+      setIsEditModalVisible(false);
+      onActivityUpdate();
+      Alert.alert('Success', 'Post updated successfully!');
+    } catch (error: any) {
+      console.error('Error updating post:', error);
+      Alert.alert('Error', error.message || 'Failed to update post');
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleDelete = () => {
+    setIsDeleteModalVisible(true);
+  };
+
+  const confirmDelete = async () => {
+    try {
+      setIsDeleting(true);
+      await deletePostMutation.mutateAsync(activity.id);
+      setIsDeleteModalVisible(false);
+      onActivityUpdate();
+      Alert.alert('Success', 'Post deleted successfully!');
+    } catch (error: any) {
+      console.error('Error deleting post:', error);
+      Alert.alert('Error', error.message || 'Failed to delete post');
+      setIsDeleteModalVisible(false);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handleComment = () => {
+    Alert.alert('Coming Soon', 'Comment functionality will be available soon!');
+  };
+
   const activityInfo = getActivityInfo(activity.type);
   const content = getContentText(activity.content);
   
@@ -743,92 +951,310 @@ function ActivityCard({ activity, token }: { activity: any; token: string | null
   const displayText = content || (activity.title ? getContentText(activity.title) : '');
 
   return (
-    <View
-      style={{
-        backgroundColor: '#fff',
-        borderRadius: 12,
-        padding: 16,
-        borderWidth: 1,
-        borderColor: '#e5e7eb',
-      }}
-    >
-      <View style={{ flexDirection: 'row', gap: 12 }}>
-        {/* User Avatar */}
-        {member?.avatar_urls?.thumb ? (
-          <Image
-            source={{ uri: member.avatar_urls.thumb }}
-            style={{
-              width: 40,
-              height: 40,
-              borderRadius: 20,
-              backgroundColor: '#f3f4f6',
-            }}
-          />
-        ) : (
-          <View
-            style={{
-              width: 40,
-              height: 40,
-              borderRadius: 20,
-              backgroundColor: '#eff6ff',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <Ionicons name="person" size={20} color="#3b82f6" />
-          </View>
-        )}
-
-        {/* Content */}
-        <View style={{ flex: 1 }}>
-          {/* User name and time */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-            <Text style={{ fontSize: 15, fontWeight: '600', color: '#1f2937' }}>
-              {member?.name || 'Loading...'}
-            </Text>
-            <Text style={{ fontSize: 13, color: '#9ca3af' }}>
-              {formatDate(activity.date)}
-            </Text>
-          </View>
-
-          {/* Activity type */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-            <Ionicons name={activityInfo.icon} size={14} color={activityInfo.color} />
-            <Text style={{ fontSize: 13, color: activityInfo.color, fontWeight: '600' }}>
-              {activityInfo.label}
-            </Text>
-          </View>
-
-          {/* Content text */}
-          {content && (
-            <Text style={{ fontSize: 14, color: '#4b5563', lineHeight: 20 }}>
-              {content}
-            </Text>
+    <>
+      <View
+        style={{
+          backgroundColor: '#fff',
+          borderRadius: 12,
+          padding: 16,
+          borderWidth: 1,
+          borderColor: '#e5e7eb',
+          opacity: isDeleting ? 0.5 : 1,
+        }}
+      >
+        <View style={{ flexDirection: 'row', gap: 12 }}>
+          {/* User Avatar */}
+          {member?.avatar_urls?.thumb ? (
+            <Image
+              source={{ uri: member.avatar_urls.thumb }}
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 20,
+                backgroundColor: '#f3f4f6',
+              }}
+            />
+          ) : (
+            <View
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 20,
+                backgroundColor: '#eff6ff',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Ionicons name="person" size={20} color="#3b82f6" />
+            </View>
           )}
 
-          {/* Engagement Stats */}
-          {(activity.favorite_count > 0 || activity.comment_count > 0) && (
-            <View style={{ flexDirection: 'row', gap: 16, marginTop: 12 }}>
-              {activity.favorite_count > 0 && (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                  <Ionicons name="heart" size={16} color="#ef4444" />
-                  <Text style={{ fontSize: 13, color: '#6b7280' }}>
-                    {activity.favorite_count}
-                  </Text>
-                </View>
-              )}
-              {activity.comment_count > 0 && (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                  <Ionicons name="chatbubble" size={16} color="#3b82f6" />
-                  <Text style={{ fontSize: 13, color: '#6b7280' }}>
-                    {activity.comment_count}
-                  </Text>
+          {/* Content */}
+          <View style={{ flex: 1 }}>
+            {/* User name, time, and actions */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Text style={{ fontSize: 15, fontWeight: '600', color: '#1f2937' }}>
+                  {member?.name || 'Loading...'}
+                </Text>
+                <Text style={{ fontSize: 13, color: '#9ca3af' }}>
+                  {formatDate(activity.date)}
+                </Text>
+              </View>
+              {canModify && (
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <TouchableOpacity onPress={handleEdit} style={{ padding: 4 }}>
+                    <Ionicons name="pencil" size={18} color="#6b7280" />
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={handleDelete} style={{ padding: 4 }} disabled={isDeleting}>
+                    <Ionicons name="trash" size={18} color="#ef4444" />
+                  </TouchableOpacity>
                 </View>
               )}
             </View>
-          )}
+
+            {/* Activity type */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+              <Ionicons name={activityInfo.icon} size={14} color={activityInfo.color} />
+              <Text style={{ fontSize: 13, color: activityInfo.color, fontWeight: '600' }}>
+                {activityInfo.label}
+              </Text>
+            </View>
+
+            {/* Content text */}
+            {content && (
+              <Text style={{ fontSize: 14, color: '#4b5563', lineHeight: 20, marginBottom: 12 }}>
+                {content}
+              </Text>
+            )}
+
+            {/* Action Buttons - Only show for interactive posts */}
+            {isInteractivePost && (
+              <View style={{ flexDirection: 'row', gap: 16, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#f3f4f6' }}>
+                {/* Like Button */}
+                <TouchableOpacity
+                  onPress={handleLike}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}
+                >
+                  <Ionicons 
+                    name={isLiked ? "heart" : "heart-outline"} 
+                    size={20} 
+                    color={isLiked ? "#ef4444" : "#6b7280"} 
+                  />
+                  <Text style={{ fontSize: 14, color: isLiked ? "#ef4444" : "#6b7280", fontWeight: '600' }}>
+                    {likeCount > 0 ? likeCount : 'Like'}
+                  </Text>
+                </TouchableOpacity>
+
+                {/* Comment Button */}
+                <TouchableOpacity
+                  onPress={handleComment}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}
+                >
+                  <Ionicons name="chatbubble-outline" size={18} color="#6b7280" />
+                  <Text style={{ fontSize: 14, color: '#6b7280', fontWeight: '600' }}>
+                    {activity.comment_count > 0 ? activity.comment_count : 'Comment'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
         </View>
       </View>
-    </View>
+
+      {/* Edit Modal */}
+      <Modal
+        visible={isEditModalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setIsEditModalVisible(false)}
+      >
+        <View style={{ 
+          flex: 1, 
+          backgroundColor: 'rgba(0, 0, 0, 0.5)', 
+          justifyContent: 'center', 
+          padding: 20 
+        }}>
+          <View style={{ 
+            backgroundColor: '#fff', 
+            borderRadius: 16, 
+            padding: 20,
+            maxHeight: '80%',
+          }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+              <Text style={{ fontSize: 18, fontWeight: '700', color: '#1f2937' }}>
+                Edit Post
+              </Text>
+              <TouchableOpacity onPress={() => setIsEditModalVisible(false)}>
+                <Ionicons name="close" size={24} color="#6b7280" />
+              </TouchableOpacity>
+            </View>
+            
+            <TextInput
+              style={{
+                backgroundColor: '#f9fafb',
+                borderWidth: 1,
+                borderColor: '#d1d5db',
+                borderRadius: 8,
+                padding: 12,
+                fontSize: 14,
+                color: '#1f2937',
+                minHeight: 120,
+                textAlignVertical: 'top',
+                marginBottom: 16,
+              }}
+              placeholder="Edit your post..."
+              placeholderTextColor="#9ca3af"
+              multiline
+              value={editContent}
+              onChangeText={setEditContent}
+              editable={!isUpdating}
+            />
+            
+            <View style={{ flexDirection: 'row', gap: 12 }}>
+              <TouchableOpacity
+                onPress={() => setIsEditModalVisible(false)}
+                style={{
+                  flex: 1,
+                  backgroundColor: '#f3f4f6',
+                  borderRadius: 8,
+                  padding: 12,
+                  alignItems: 'center',
+                }}
+                disabled={isUpdating}
+              >
+                <Text style={{ fontSize: 15, fontWeight: '600', color: '#6b7280' }}>
+                  Cancel
+                </Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                onPress={handleSaveEdit}
+                disabled={isUpdating || !editContent.trim()}
+                style={{
+                  flex: 1,
+                  backgroundColor: (!editContent.trim() || isUpdating) ? '#d1d5db' : '#2563eb',
+                  borderRadius: 8,
+                  padding: 12,
+                  alignItems: 'center',
+                  flexDirection: 'row',
+                  justifyContent: 'center',
+                  gap: 8,
+                }}
+              >
+                {isUpdating && <ActivityIndicator size="small" color="#fff" />}
+                <Text style={{ fontSize: 15, fontWeight: '600', color: '#fff' }}>
+                  {isUpdating ? 'Saving...' : 'Save'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        visible={isDeleteModalVisible}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => !isDeleting && setIsDeleteModalVisible(false)}
+      >
+        <View style={{ 
+          flex: 1, 
+          backgroundColor: 'rgba(0, 0, 0, 0.6)', 
+          justifyContent: 'center', 
+          alignItems: 'center',
+          padding: 20 
+        }}>
+          <View style={{ 
+            backgroundColor: '#fff', 
+            borderRadius: 16, 
+            padding: 24,
+            width: '100%',
+            maxWidth: 400,
+          }}>
+            {/* Warning Icon */}
+            <View style={{
+              width: 56,
+              height: 56,
+              borderRadius: 28,
+              backgroundColor: '#fee2e2',
+              alignItems: 'center',
+              justifyContent: 'center',
+              alignSelf: 'center',
+              marginBottom: 16,
+            }}>
+              <Ionicons name="warning" size={32} color="#dc2626" />
+            </View>
+
+            {/* Title */}
+            <Text style={{ 
+              fontSize: 20, 
+              fontWeight: '700', 
+              color: '#1f2937',
+              textAlign: 'center',
+              marginBottom: 8,
+            }}>
+              Delete Post?
+            </Text>
+
+            {/* Description */}
+            <Text style={{ 
+              fontSize: 14, 
+              color: '#6b7280',
+              textAlign: 'center',
+              lineHeight: 20,
+              marginBottom: 24,
+            }}>
+              Are you sure you want to delete this post? This action cannot be undone and the post will be permanently removed.
+            </Text>
+            
+            {/* Buttons */}
+            <View style={{ flexDirection: 'row', gap: 12 }}>
+              <TouchableOpacity
+                onPress={() => setIsDeleteModalVisible(false)}
+                style={{
+                  flex: 1,
+                  backgroundColor: '#f3f4f6',
+                  borderRadius: 8,
+                  padding: 14,
+                  alignItems: 'center',
+                }}
+                disabled={isDeleting}
+              >
+                <Text style={{ fontSize: 15, fontWeight: '600', color: '#6b7280' }}>
+                  Cancel
+                </Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                onPress={confirmDelete}
+                disabled={isDeleting}
+                style={{
+                  flex: 1,
+                  backgroundColor: isDeleting ? '#fca5a5' : '#dc2626',
+                  borderRadius: 8,
+                  padding: 14,
+                  alignItems: 'center',
+                  flexDirection: 'row',
+                  justifyContent: 'center',
+                  gap: 8,
+                }}
+              >
+                {isDeleting ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Ionicons name="trash" size={18} color="#fff" />
+                )}
+                <Text style={{ fontSize: 15, fontWeight: '600', color: '#fff' }}>
+                  {isDeleting ? 'Deleting...' : 'Delete'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </>
   );
 }
+

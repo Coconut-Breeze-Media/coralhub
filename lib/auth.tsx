@@ -2,7 +2,7 @@
 import * as SecureStore from 'expo-secure-store';
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { Platform } from 'react-native';
-import { getMembershipStatus, ApiError } from './api';
+import { getMembershipStatus, getCurrentMember, ApiError } from './api';
 import type { 
   JWTPayload, 
   MembershipResponse, 
@@ -37,6 +37,7 @@ async function deleteStorageItem(key: string): Promise<void> {
 
 const AuthContext = createContext<AuthContextState>({
   token: null,
+  userId: null,
   profile: null,
   isMember: null,
   refreshMembership: async () => {},
@@ -50,6 +51,7 @@ const AuthContext = createContext<AuthContextState>({
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   console.log('[auth] provider mounted'); 
   const [token, setToken] = useState<string | null>(null);
+  const [userId, setUserId] = useState<number | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isMember, setIsMember] = useState<boolean | null>(null);
   const [ready, setReady] = useState(false);
@@ -80,9 +82,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const t = await getStorageItem('jwt');
         const email = await getStorageItem('user_email');
         const name = await getStorageItem('user_display_name');
+        const uid = await getStorageItem('user_id');
         if (t) {
           setToken(t);
-          setProfile(email && name ? { user_email: email, user_display_name: name } : null);
+          if (uid) {
+            setUserId(parseInt(uid, 10));
+          }
+          setProfile(email && name ? { user_email: email, user_display_name: name, user_id: uid ? parseInt(uid, 10) : undefined } : null);
         }
       } catch (e) {
         console.warn('Auth restore failed:', e);
@@ -136,6 +142,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await setStorageItem('user_email', payload.user_email);
     await setStorageItem('user_display_name', payload.user_display_name);
 
+    // Fetch user ID from BuddyPress
+    try {
+      const member = await getCurrentMember(payload.token);
+      if (member?.id) {
+        setUserId(member.id);
+        await setStorageItem('user_id', member.id.toString());
+        setProfile(prev => ({ ...prev!, user_id: member.id }));
+      }
+    } catch (e) {
+      console.warn('Failed to fetch user ID:', e);
+    }
+
     // Immediately check membership after login
     await refreshMembership();
   };
@@ -143,6 +161,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Logout
   const clearAuth = async () => {
     setToken(null);
+    setUserId(null);
     setProfile(null);
     setIsMember(null);
     setLastMembershipCheckAt(undefined);
@@ -150,12 +169,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await deleteStorageItem('jwt');
     await deleteStorageItem('user_email');
     await deleteStorageItem('user_display_name');
+    await deleteStorageItem('user_id');
   };
 
   return (
     <AuthContext.Provider
       value={{
         token,
+        userId,
         profile,
         isMember,
         refreshMembership,
