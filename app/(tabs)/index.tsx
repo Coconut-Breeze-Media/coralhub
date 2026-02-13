@@ -17,8 +17,10 @@ import {
   Modal,
   Dimensions,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../lib/auth';
+import { uploadImage } from '../../lib/api';
 import RequireAuth from '../../components/RequireAuth';
 import { 
   useActivityFeed, 
@@ -396,6 +398,8 @@ function CommunityScreen() {
   const [showFriendDropdown, setShowFriendDropdown] = useState(false);
   const [selectedGroupId, setSelectedGroupId] = useState<number | undefined>(undefined);
   const [showGroupDropdown, setShowGroupDropdown] = useState(false);
+  const [selectedImages, setSelectedImages] = useState<string[]>([]);
+  const [postLink, setPostLink] = useState('');
   
   // Get current user data
   const { data: currentUser } = useMe();
@@ -455,19 +459,64 @@ function CommunityScreen() {
   const deletePostMutation = useDeletePost(token);
   
   const handleCreatePost = async () => {
-    if (!postContent.trim()) {
-      Alert.alert('Error', 'Please enter some content for your post');
+    if (!postContent.trim() && selectedImages.length === 0 && !postLink.trim()) {
+      Alert.alert('Error', 'Please add some content, images, or a link to your post');
       return;
     }
     
     try {
+      // Build post content with text and link
+      let fullContent = postContent;
+      
+      // Add link if provided
+      if (postLink.trim()) {
+        fullContent += `\n\n<a href="${postLink}" target="_blank">${postLink}</a>`;
+      }
+      
+      // Upload images to WordPress first and get public URLs
+      if (selectedImages.length > 0) {
+        console.log('[handleCreatePost] Uploading', selectedImages.length, 'images...');
+        
+        const uploadedUrls: string[] = [];
+        
+        for (let i = 0; i < selectedImages.length; i++) {
+          const imageUri = selectedImages[i];
+          const fileName = `post-image-${Date.now()}-${i}.jpg`;
+          
+          try {
+            console.log(`[handleCreatePost] Uploading image ${i + 1}/${selectedImages.length}...`);
+            const result = await uploadImage(token!, imageUri, fileName);
+            uploadedUrls.push(result.source_url);
+            console.log(`[handleCreatePost] Image ${i + 1} uploaded:`, result.source_url);
+          } catch (error) {
+            console.error(`[handleCreatePost] Failed to upload image ${i + 1}:`, error);
+            throw new Error(`Failed to upload image ${i + 1}`);
+          }
+        }
+        
+        // Add uploaded images to content as HTML
+        if (uploadedUrls.length > 0) {
+          fullContent += '\n<div class="post-attachments">';
+          uploadedUrls.forEach(url => {
+            fullContent += `\n<img src="${url}" alt="Post image" />`;
+          });
+          fullContent += '\n</div>';
+        }
+      }
+      
+      console.log('[handleCreatePost] Creating post with content:', fullContent);
+      
       await createPostMutation.mutateAsync({
-        content: postContent,
+        content: fullContent,
       });
+      
+      // Reset form
       setPostContent('');
+      setSelectedImages([]);
+      setPostLink('');
       Alert.alert('Success', 'Post created successfully!');
     } catch (error) {
-      Alert.alert('Error', 'Failed to create post');
+      Alert.alert('Error', error instanceof Error ? error.message : 'Failed to create post');
       console.error('Create post error:', error);
     }
   };
@@ -476,8 +525,39 @@ function CommunityScreen() {
     setPostContent(postContent + emoji);
   };
   
+  const handlePickImage = async () => {
+    try {
+      // Request permission
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Denied', 'We need camera roll permissions to select images.');
+        return;
+      }
+      
+      // Launch image picker
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsMultipleSelection: true,
+        quality: 0.8,
+        base64: false,
+      });
+      
+      if (!result.canceled && result.assets) {
+        const newImages = result.assets.map(asset => asset.uri);
+        setSelectedImages([...selectedImages, ...newImages]);
+      }
+    } catch (error) {
+      console.error('Image picker error:', error);
+      Alert.alert('Error', 'Failed to select images');
+    }
+  };
+  
+  const handleRemoveImage = (index: number) => {
+    setSelectedImages(selectedImages.filter((_, i) => i !== index));
+  };
+  
   const handleAttachFile = () => {
-    Alert.alert('Attach File', 'File attachment feature coming soon!');
+    handlePickImage();
   };
   
   const handleTagFriend = () => {
@@ -725,6 +805,47 @@ function CommunityScreen() {
             </View>
           </View>
           
+          {/* Selected Images Preview */}
+          {selectedImages.length > 0 && (
+            <View style={styles.selectedImagesContainer}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                {selectedImages.map((imageUri, index) => (
+                  <View key={index} style={styles.selectedImageWrapper}>
+                    <Image
+                      source={{ uri: imageUri }}
+                      style={styles.selectedImagePreview}
+                    />
+                    <TouchableOpacity
+                      style={styles.removeImageButton}
+                      onPress={() => handleRemoveImage(index)}
+                    >
+                      <Text style={styles.removeImageText}>\u2715</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+          
+          {/* Link Input */}
+          <View style={styles.linkInputContainer}>
+            <Text style={styles.linkInputIcon}>🔗</Text>
+            <TextInput
+              style={styles.linkInput}
+              placeholder="Add a link (optional)"
+              placeholderTextColor="#999"
+              value={postLink}
+              onChangeText={setPostLink}
+              autoCapitalize="none"
+              keyboardType="url"
+            />
+            {postLink.length > 0 && (
+              <TouchableOpacity onPress={() => setPostLink('')}>
+                <Text style={styles.clearLinkButton}>✕</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          
           {/* Emoji Picker */}
           {showEmojiPicker && (
             <View style={styles.emojiPickerContainer}>
@@ -773,10 +894,10 @@ function CommunityScreen() {
             <TouchableOpacity
               style={[
                 styles.publishButton,
-                (!postContent.trim() || createPostMutation.isPending) && styles.publishButtonDisabled,
+                (!postContent.trim() && selectedImages.length === 0 && !postLink.trim()) || createPostMutation.isPending ? styles.publishButtonDisabled : {},
               ]}
               onPress={handleCreatePost}
-              disabled={!postContent.trim() || createPostMutation.isPending}
+              disabled={(!postContent.trim() && selectedImages.length === 0 && !postLink.trim()) || createPostMutation.isPending}
             >
               {createPostMutation.isPending ? (
                 <ActivityIndicator color="#fff" size="small" />
@@ -1076,6 +1197,70 @@ const styles = StyleSheet.create({
     color: '#8e8e8e',
     textAlign: 'right',
     marginTop: 4,
+  },
+  selectedImagesContainer: {
+    marginTop: 12,
+    paddingVertical: 8,
+  },
+  selectedImageWrapper: {
+    position: 'relative',
+    marginRight: 8,
+  },
+  selectedImagePreview: {
+    width: 100,
+    height: 100,
+    borderRadius: 8,
+    backgroundColor: '#f0f0f0',
+  },
+  removeImageButton: {
+    position: 'absolute',
+    top: -8,
+    right: -8,
+    backgroundColor: '#ff3b30',
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.25,
+        shadowRadius: 3,
+      },
+      android: {
+        elevation: 4,
+      },
+    }),
+  },
+  removeImageText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  linkInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#efefef',
+    gap: 8,
+  },
+  linkInputIcon: {
+    fontSize: 18,
+  },
+  linkInput: {
+    flex: 1,
+    fontSize: 14,
+    color: '#262626',
+    padding: 0,
+  },
+  clearLinkButton: {
+    fontSize: 16,
+    color: '#8e8e8e',
+    padding: 4,
   },
   
   // Feed List Styles

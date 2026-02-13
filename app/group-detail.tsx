@@ -4,15 +4,17 @@
  * Displays detailed information about a group and its activity feed
  */
 
-import { View, Text, ScrollView, ActivityIndicator, RefreshControl, Image, TouchableOpacity, TextInput, Alert, Modal } from 'react-native';
+import { View, Text, ScrollView, ActivityIndicator, RefreshControl, Image, TouchableOpacity, TextInput, Alert, Modal, Linking } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../lib/auth';
+import { uploadImage } from '../lib/api';
 import { useGroup, useGroupActivity, useGroupMembers } from '../hooks/useGroups';
 import { useMember } from '../hooks/useMembers';
 import { useCreateGroupPost, useLikePost, useUpdatePost, useDeletePost } from '../hooks/useActivity';
 import BackButton from '../components/BackButton';
 import { useState, useEffect } from 'react';
 import { useLocalSearchParams } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
 
 type TabType = 'home' | 'members' | 'media' | 'documents';
 
@@ -32,6 +34,28 @@ const ACTIVITY_TYPE_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   'created_group': 'add-circle-outline',
 };
 
+// Helper function to extract image URLs from HTML content
+const extractImageUrls = (htmlContent: string): string[] => {
+  const imgRegex = /<img[^>]+src="([^">]+)"/g;
+  const urls: string[] = [];
+  let match;
+  while ((match = imgRegex.exec(htmlContent)) !== null) {
+    urls.push(match[1]);
+  }
+  return urls;
+};
+
+// Helper function to extract links from HTML content
+const extractLinks = (htmlContent: string): Array<{ url: string; text: string }> => {
+  const linkRegex = /<a[^>]+href="([^">]+)"[^>]*>([^<]+)<\/a>/g;
+  const links: Array<{ url: string; text: string }> = [];
+  let match;
+  while ((match = linkRegex.exec(htmlContent)) !== null) {
+    links.push({ url: match[1], text: match[2] });
+  }
+  return links;
+};
+
 export default function GroupDetailScreen() {
   const { token, userId } = useAuth();
   const params = useLocalSearchParams();
@@ -47,6 +71,8 @@ export default function GroupDetailScreen() {
   const [activeTab, setActiveTab] = useState<TabType>('home');
   const [newPostContent, setNewPostContent] = useState('');
   const [isPostingActivity, setIsPostingActivity] = useState(false);
+  const [selectedImages, setSelectedImages] = useState<string[]>([]);
+  const [postLink, setPostLink] = useState('');
 
   // Log group data when loaded
   useEffect(() => {
@@ -119,9 +145,36 @@ export default function GroupDetailScreen() {
     setRefreshing(false);
   };
 
+  // Handle image picker
+  const handlePickImage = async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Please grant permission to access your photos');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsMultipleSelection: true,
+        quality: 0.8,
+        selectionLimit: 5,
+      });
+
+      if (!result.canceled && result.assets) {
+        const newImages = result.assets.map(asset => asset.uri);
+        setSelectedImages(prev => [...prev, ...newImages].slice(0, 5)); // Max 5 images
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', 'Failed to pick image');
+    }
+  };
+
   const handleCreatePost = async () => {
-    if (!newPostContent.trim()) {
-      Alert.alert('Error', 'Please enter some content for your post');
+    if (!newPostContent.trim() && selectedImages.length === 0 && !postLink.trim()) {
+      Alert.alert('Error', 'Please enter some content, add an image, or add a link');
       return;
     }
 
@@ -132,11 +185,58 @@ export default function GroupDetailScreen() {
 
     try {
       setIsPostingActivity(true);
+      
+      // Build content with text and link
+      let fullContent = newPostContent.trim();
+      
+      // Add link if provided
+      if (postLink.trim()) {
+        fullContent += `\n\n<a href="${postLink}" target="_blank">${postLink}</a>`;
+      }
+      
+      // Upload images to WordPress first and get public URLs
+      if (selectedImages.length > 0) {
+        console.log('[handleCreatePost] Uploading', selectedImages.length, 'images...');
+        
+        const uploadedUrls: string[] = [];
+        
+        for (let i = 0; i < selectedImages.length; i++) {
+          const imageUri = selectedImages[i];
+          const fileName = `group-post-image-${Date.now()}-${i}.jpg`;
+          
+          try {
+            console.log(`[handleCreatePost] Uploading image ${i + 1}/${selectedImages.length}...`);
+            const result = await uploadImage(token!, imageUri, fileName);
+            uploadedUrls.push(result.source_url);
+            console.log(`[handleCreatePost] Image ${i + 1} uploaded:`, result.source_url);
+          } catch (error) {
+            console.error(`[handleCreatePost] Failed to upload image ${i + 1}:`, error);
+            throw new Error(`Failed to upload image ${i + 1}`);
+          }
+        }
+        
+        // Add uploaded images to content as HTML
+        if (uploadedUrls.length > 0) {
+          fullContent += '\n<div class="post-attachments">';
+          uploadedUrls.forEach(url => {
+            fullContent += `\n<img src="${url}" alt="Post image" />`;
+          });
+          fullContent += '\n</div>';
+        }
+      }
+      
+      console.log('[handleCreatePost] Creating group post with content:', fullContent);
+      
       await createGroupPostMutation.mutateAsync({
         groupId,
-        content: newPostContent.trim(),
+        content: fullContent,
       });
+      
+      // Reset all states
       setNewPostContent('');
+      setSelectedImages([]);
+      setPostLink('');
+      
       await refetchActivity();
       Alert.alert('Success', 'Post created successfully!');
     } catch (error: any) {
@@ -512,11 +612,124 @@ export default function GroupDetailScreen() {
                     onChangeText={setNewPostContent}
                     editable={!isPostingActivity}
                   />
+
+                  {/* Image Picker Button */}
+                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
+                    <TouchableOpacity
+                      onPress={handlePickImage}
+                      disabled={isPostingActivity}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 6,
+                        paddingHorizontal: 12,
+                        paddingVertical: 8,
+                        backgroundColor: '#f3f4f6',
+                        borderRadius: 8,
+                        borderWidth: 1,
+                        borderColor: '#e5e7eb',
+                      }}
+                    >
+                      <Ionicons name="image-outline" size={18} color="#0095f6" />
+                      <Text style={{ fontSize: 13, color: '#374151', fontWeight: '500' }}>
+                        Add Photo
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Selected Images Preview */}
+                  {selectedImages.length > 0 && (
+                    <ScrollView 
+                      horizontal 
+                      showsHorizontalScrollIndicator={false}
+                      style={{ marginTop: 12, borderTopWidth: 1, borderTopColor: '#e5e7eb', paddingTop: 12 }}
+                      contentContainerStyle={{ gap: 8 }}
+                    >
+                      {selectedImages.map((imageUri, index) => (
+                        <View key={index} style={{ position: 'relative' }}>
+                          <Image
+                            source={{ uri: imageUri }}
+                            style={{
+                              width: 100,
+                              height: 100,
+                              borderRadius: 8,
+                              backgroundColor: '#f3f4f6',
+                            }}
+                          />
+                          <TouchableOpacity
+                            onPress={() => setSelectedImages(prev => prev.filter((_, i) => i !== index))}
+                            style={{
+                              position: 'absolute',
+                              top: 4,
+                              right: 4,
+                              backgroundColor: '#ff3b30',
+                              borderRadius: 12,
+                              width: 24,
+                              height: 24,
+                              justifyContent: 'center',
+                              alignItems: 'center',
+                              shadowColor: '#000',
+                              shadowOffset: { width: 0, height: 2 },
+                              shadowOpacity: 0.3,
+                              shadowRadius: 3,
+                              elevation: 5,
+                            }}
+                          >
+                            <Ionicons name="close" size={16} color="#fff" />
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+                    </ScrollView>
+                  )}
+
+                  {/* Link Input */}
+                  <View style={{ marginTop: 12, borderTopWidth: 1, borderTopColor: '#e5e7eb', paddingTop: 12 }}>
+                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                        <Ionicons name="link-outline" size={18} color="#6b7280" />
+                        <TextInput
+                          style={{
+                            flex: 1,
+                            backgroundColor: '#f9fafb',
+                            borderWidth: 1,
+                            borderColor: '#d1d5db',
+                            borderRadius: 8,
+                            padding: 10,
+                            fontSize: 14,
+                            color: '#1f2937',
+                          }}
+                          placeholder="Add a link (optional)"
+                          placeholderTextColor="#9ca3af"
+                          value={postLink}
+                          onChangeText={setPostLink}
+                          editable={!isPostingActivity}
+                          keyboardType="url"
+                          autoCapitalize="none"
+                        />
+                      </View>
+                      {postLink.length > 0 && (
+                        <TouchableOpacity
+                          onPress={() => setPostLink('')}
+                          style={{
+                            justifyContent: 'center',
+                            alignItems: 'center',
+                            width: 36,
+                            height: 36,
+                            backgroundColor: '#f3f4f6',
+                            borderRadius: 8,
+                          }}
+                        >
+                          <Ionicons name="close-circle" size={20} color="#6b7280" />
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  </View>
+
                   <TouchableOpacity
                     onPress={handleCreatePost}
-                    disabled={isPostingActivity || !newPostContent.trim()}
+                    disabled={isPostingActivity || (!newPostContent.trim() && selectedImages.length === 0 && !postLink.trim())}
                     style={{
-                      backgroundColor: (!newPostContent.trim() || isPostingActivity) ? '#d1d5db' : '#2563eb',
+                      backgroundColor: (!newPostContent.trim() && selectedImages.length === 0 && !postLink.trim() || isPostingActivity) ? '#d1d5db' : '#2563eb',
                       borderRadius: 8,
                       padding: 12,
                       alignItems: 'center',
@@ -819,6 +1032,8 @@ function ActivityCard({
   const [editContent, setEditContent] = useState('');
   const [isUpdating, setIsUpdating] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [imageModalVisible, setImageModalVisible] = useState(false);
+  const [selectedImageIndex, setSelectedImageIndex] = useState(0);
 
   // Check if this is an interactive post (not a system activity)
   // Only activity_update types can be liked, commented, edited, or deleted
@@ -950,6 +1165,14 @@ function ActivityCard({
   // Extract text from title if content is empty
   const displayText = content || (activity.title ? getContentText(activity.title) : '');
 
+  // Extract images and links from HTML content
+  const htmlContent = typeof activity.content === 'string' ? activity.content : (activity.content.rendered || '');
+  const imageUrls = extractImageUrls(htmlContent);
+  const links = extractLinks(htmlContent);
+
+  // Filter out image URLs from links (images already shown separately)
+  const textLinks = links.filter(link => !link.url.match(/\.(jpg|jpeg|png|gif|webp)$/i));
+
   return (
     <>
       <View
@@ -1022,10 +1245,79 @@ function ActivityCard({
             </View>
 
             {/* Content text */}
-            {content && (
-              <Text style={{ fontSize: 14, color: '#4b5563', lineHeight: 20, marginBottom: 12 }}>
-                {content}
+            {displayText && (
+              <Text style={{ fontSize: 14, color: '#4b5563', lineHeight: 20, marginBottom: imageUrls.length > 0 || textLinks.length > 0 ? 12 : 0 }}>
+                {displayText}
               </Text>
+            )}
+
+            {/* Post Images */}
+            {imageUrls.length > 0 && (
+              <View style={{ marginBottom: textLinks.length > 0 ? 12 : 0 }}>
+                <ScrollView 
+                  horizontal 
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ gap: 8 }}
+                >
+                  {imageUrls.map((url, index) => (
+                    <TouchableOpacity 
+                      key={index}
+                      onPress={() => {
+                        setSelectedImageIndex(index);
+                        setImageModalVisible(true);
+                      }}
+                    >
+                      <Image
+                        source={{ uri: url }}
+                        style={{
+                          width: imageUrls.length === 1 ? 280 : 200,
+                          minHeight: 200,
+                          maxHeight: 400,
+                          borderRadius: 8,
+                          backgroundColor: '#f3f4f6',
+                        }}
+                        resizeMode="contain"
+                      />
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+
+            {/* Post Links */}
+            {textLinks.length > 0 && (
+              <View style={{ gap: 6, marginBottom: 12 }}>
+                {textLinks.map((link, index) => (
+                  <TouchableOpacity
+                    key={index}
+                    onPress={() => Linking.openURL(link.url)}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: 10,
+                      backgroundColor: '#eff6ff',
+                      borderRadius: 8,
+                      borderWidth: 1,
+                      borderColor: '#bfdbfe',
+                    }}
+                  >
+                    <Ionicons name="link" size={16} color="#0095f6" />
+                    <Text
+                      style={{
+                        flex: 1,
+                        fontSize: 13,
+                        color: '#0095f6',
+                        fontWeight: '500',
+                      }}
+                      numberOfLines={1}
+                    >
+                      {link.text || link.url}
+                    </Text>
+                    <Ionicons name="open-outline" size={14} color="#0095f6" />
+                  </TouchableOpacity>
+                ))}
+              </View>
             )}
 
             {/* Action Buttons - Only show for interactive posts */}
@@ -1252,6 +1544,103 @@ function ActivityCard({
               </TouchableOpacity>
             </View>
           </View>
+        </View>
+      </Modal>
+
+      {/* Image Modal */}
+      <Modal
+        visible={imageModalVisible}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => setImageModalVisible(false)}
+      >
+        <View style={{ 
+          flex: 1, 
+          backgroundColor: 'rgba(0, 0, 0, 0.95)',
+          justifyContent: 'center',
+          alignItems: 'center',
+        }}>
+          {/* Header */}
+          <View style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            flexDirection: 'row',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: 16,
+            paddingTop: 48,
+            zIndex: 10,
+          }}>
+            <Text style={{ color: '#fff', fontSize: 16, fontWeight: '600' }}>
+              {selectedImageIndex + 1} / {imageUrls.length}
+            </Text>
+            <TouchableOpacity
+              onPress={() => setImageModalVisible(false)}
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 20,
+                backgroundColor: 'rgba(0, 0, 0, 0.6)',
+                justifyContent: 'center',
+                alignItems: 'center',
+              }}
+            >
+              <Ionicons name="close" size={24} color="#fff" />
+            </TouchableOpacity>
+          </View>
+
+          {/* Image */}
+          <Image
+            source={{ uri: imageUrls[selectedImageIndex] }}
+            style={{
+              width: '100%',
+              height: '70%',
+            }}
+            resizeMode="contain"
+          />
+
+          {/* Navigation Buttons */}
+          {imageUrls.length > 1 && (
+            <>
+              {selectedImageIndex > 0 && (
+                <TouchableOpacity
+                  onPress={() => setSelectedImageIndex(prev => prev - 1)}
+                  style={{
+                    position: 'absolute',
+                    left: 16,
+                    width: 48,
+                    height: 48,
+                    borderRadius: 24,
+                    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                  }}
+                >
+                  <Ionicons name="chevron-back" size={28} color="#fff" />
+                </TouchableOpacity>
+              )}
+              
+              {selectedImageIndex < imageUrls.length - 1 && (
+                <TouchableOpacity
+                  onPress={() => setSelectedImageIndex(prev => prev + 1)}
+                  style={{
+                    position: 'absolute',
+                    right: 16,
+                    width: 48,
+                    height: 48,
+                    borderRadius: 24,
+                    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                  }}
+                >
+                  <Ionicons name="chevron-forward" size={28} color="#fff" />
+                </TouchableOpacity>
+              )}
+            </>
+          )}
         </View>
       </Modal>
     </>

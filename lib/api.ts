@@ -754,6 +754,84 @@ export async function getActivityFeed(
 }
 
 /**
+ * Upload image to WordPress Media Library
+ * @param {string} token - JWT authentication token
+ * @param {string} imageUri - Local image URI from device or blob URI
+ * @param {string} fileName - Name for the uploaded file
+ * @returns {Promise<{source_url: string, id: number}>} - Returns the public URL and media ID
+ */
+export async function uploadImage(
+  token: string,
+  imageUri: string,
+  fileName: string = 'post-image.jpg'
+): Promise<{ source_url: string; id: number }> {
+  try {
+    console.log('[uploadImage] Starting upload:', { imageUri, fileName });
+
+    // Create FormData for multipart upload
+    const formData = new FormData();
+    
+    // Detect file extension and MIME type
+    const fileExtension = imageUri.split('.').pop()?.toLowerCase() || 'jpg';
+    const mimeType = fileExtension === 'png' ? 'image/png' : 
+                     fileExtension === 'gif' ? 'image/gif' : 
+                     'image/jpeg';
+
+    // Check if it's a blob URI (for web/Expo Web)
+    if (imageUri.startsWith('blob:')) {
+      console.log('[uploadImage] Detected blob URI, converting to Blob...');
+      
+      // Convert blob URI to actual Blob
+      const blobResponse = await fetch(imageUri);
+      const blob = await blobResponse.blob();
+      
+      console.log('[uploadImage] Blob details:', {
+        size: blob.size,
+        type: blob.type || mimeType,
+      });
+      
+      // Append blob to FormData
+      formData.append('file', blob, fileName);
+    } else {
+      // For React Native native (file:// URIs)
+      // @ts-ignore - React Native FormData accepts this format
+      formData.append('file', {
+        uri: imageUri,
+        type: mimeType,
+        name: fileName,
+      });
+    }
+
+    console.log('[uploadImage] Uploading to WordPress media endpoint...');
+
+    const res = await fetchWithTimeout(`${API}/wp/v2/media`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        // Don't set Content-Type - let the browser/RN set it with boundary
+      },
+      body: formData,
+    });
+
+    await assertOk(res);
+    const data = await res.json();
+    
+    console.log('[uploadImage] Upload successful:', {
+      id: data.id,
+      source_url: data.source_url
+    });
+
+    return {
+      source_url: data.source_url,
+      id: data.id,
+    };
+  } catch (error) {
+    console.error('[uploadImage] Upload failed:', error);
+    throw error;
+  }
+}
+
+/**
  * Create a new activity post
  * @param {string} token - JWT authentication token
  * @param {import('../types').CreateActivityPayload} payload - Post content and metadata
