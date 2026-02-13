@@ -25,6 +25,7 @@ import {
   useDeletePost 
 } from '../../hooks/useActivity';
 import { useMember } from '../../hooks/useMembers';
+import { useMe, useFriendsList } from '../../hooks/useQueries';
 import type { BPActivity } from '../../types';
 
 type TabType = 'feed' | 'my-posts';
@@ -180,9 +181,20 @@ function CommunityScreen() {
   const [activeTab, setActiveTab] = useState<TabType>('feed');
   const [postContent, setPostContent] = useState('');
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [selectedFriendId, setSelectedFriendId] = useState<number | undefined>(undefined);
+  const [showFriendDropdown, setShowFriendDropdown] = useState(false);
+  
+  // Get current user data
+  const { data: currentUser } = useMe();
+  const userId = currentUser?.id;
+  
+  // Fetch friends list
+  const { data: friendsData } = useFriendsList(userId, 1, 100);
+  const friends = friendsData?.friends || [];
   
   // Fetch feed based on active tab with infinite scroll
   const scope = activeTab === 'my-posts' ? 'just-me' : undefined;
+  const filterUserId = activeTab === 'feed' ? selectedFriendId : undefined;
   const { 
     data: feedData, 
     isLoading, 
@@ -191,7 +203,7 @@ function CommunityScreen() {
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage
-  } = useActivityFeed(token, scope);
+  } = useActivityFeed(token, scope, filterUserId);
   
   // Flatten all activities from all pages
   const allActivities = feedData?.pages?.flatMap(page => page.activities) || [];
@@ -322,6 +334,69 @@ function CommunityScreen() {
           </Text>
         </TouchableOpacity>
       </View>
+      
+      {/* Friend Filter Dropdown - Only show in News Feed tab */}
+      {activeTab === 'feed' && (
+        <View style={styles.filterContainer}>
+          <TouchableOpacity
+            style={styles.filterButton}
+            onPress={() => setShowFriendDropdown(!showFriendDropdown)}
+          >
+            <Text style={styles.filterButtonText}>
+              {selectedFriendId 
+                ? friends.find(f => f.id === selectedFriendId)?.name || 'Select Friend'
+                : 'Show posts by friend'}
+            </Text>
+            <Text style={styles.filterButtonIcon}>{showFriendDropdown ? '▲' : '▼'}</Text>
+          </TouchableOpacity>
+          
+          {showFriendDropdown && (
+            <View style={styles.dropdownMenu}>
+              <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
+                <TouchableOpacity
+                  style={[styles.dropdownItem, !selectedFriendId && styles.dropdownItemActive]}
+                  onPress={() => {
+                    setSelectedFriendId(undefined);
+                    setShowFriendDropdown(false);
+                  }}
+                >
+                  <Text style={[styles.dropdownItemText, !selectedFriendId && styles.dropdownItemTextActive]}>
+                    All Posts
+                  </Text>
+                </TouchableOpacity>
+                {friends.map((friend) => (
+                  <TouchableOpacity
+                    key={friend.id}
+                    style={[styles.dropdownItem, selectedFriendId === friend.id && styles.dropdownItemActive]}
+                    onPress={() => {
+                      setSelectedFriendId(friend.id);
+                      setShowFriendDropdown(false);
+                    }}
+                  >
+                    <View style={styles.dropdownItemContent}>
+                      {friend.avatar_urls?.thumb ? (
+                        <Image
+                          source={{ uri: friend.avatar_urls.thumb }}
+                          style={styles.dropdownAvatar}
+                        />
+                      ) : (
+                        <View style={[styles.dropdownAvatar, styles.dropdownAvatarPlaceholder]}>
+                          <Text style={styles.dropdownAvatarText}>
+                            {friend.name.charAt(0).toUpperCase()}
+                          </Text>
+                        </View>
+                      )}
+                      <Text style={[styles.dropdownItemText, selectedFriendId === friend.id && styles.dropdownItemTextActive]}>
+                        {friend.name}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+        </View>
+      )}
       
       {/* Create Post Form - Only show in My Posts tab */}
       {activeTab === 'my-posts' && (
@@ -483,6 +558,92 @@ const styles = StyleSheet.create({
   },
   activeTabText: {
     color: '#262626',
+  },
+  
+  // Friend Filter Dropdown Styles
+  filterContainer: {
+    backgroundColor: '#fff',
+    marginHorizontal: 12,
+    marginBottom: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#dbdbdb',
+    alignSelf: 'flex-start',
+    minWidth: 200,
+    maxWidth: '50%',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.1,
+        shadowRadius: 3,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
+  },
+  filterButton: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  filterButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#262626',
+  },
+  filterButtonIcon: {
+    fontSize: 12,
+    color: '#8e8e8e',
+  },
+  dropdownMenu: {
+    borderTopWidth: 1,
+    borderTopColor: '#efefef',
+    maxHeight: 200,
+  },
+  dropdownScroll: {
+    maxHeight: 200,
+  },
+  dropdownItem: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#efefef',
+  },
+  dropdownItemActive: {
+    backgroundColor: '#f0f8ff',
+  },
+  dropdownItemContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  dropdownAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  dropdownAvatarPlaceholder: {
+    backgroundColor: '#0095f6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dropdownAvatarText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  dropdownItemText: {
+    fontSize: 14,
+    color: '#262626',
+  },
+  dropdownItemTextActive: {
+    fontWeight: '600',
+    color: '#0095f6',
   },
   
   // Create Post Styles (Instagram-like)
