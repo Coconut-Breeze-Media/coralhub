@@ -13,6 +13,7 @@ import {
   Image,
   ScrollView,
   Platform,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../lib/auth';
@@ -50,6 +51,80 @@ function getUserNameFromTitle(title: string): string {
   return match ? match[1].trim() : 'Unknown User';
 }
 
+// Helper function to extract image URLs from HTML content
+function extractImageUrls(content: string | { rendered: string; raw?: string }): string[] {
+  let html = '';
+  if (typeof content === 'string') {
+    html = content;
+  } else {
+    html = content.rendered || content.raw || '';
+  }
+  
+  const imageUrls: string[] = [];
+  
+  // Match img tags with src or data-src attributes
+  const imgRegex = /<img[^>]+(?:src|data-src)=["']([^"']+)["'][^>]*>/gi;
+  let match;
+  
+  while ((match = imgRegex.exec(html)) !== null) {
+    const url = match[1];
+    if (url && !url.includes('Please-Upload-Avatar-Image')) {
+      imageUrls.push(url);
+    }
+  }
+  
+  // Also match anchor tags with image links
+  const anchorRegex = /<a[^>]+href=["']([^"']+\.(?:jpg|jpeg|png|gif|webp))["'][^>]*>/gi;
+  while ((match = anchorRegex.exec(html)) !== null) {
+    const url = match[1];
+    if (url && !imageUrls.includes(url) && !url.includes('Please-Upload-Avatar-Image')) {
+      imageUrls.push(url);
+    }
+  }
+  
+  return imageUrls;
+}
+
+// Helper function to extract links from HTML content
+function extractLinks(content: string | { rendered: string; raw?: string }): Array<{ url: string; text: string }> {
+  let html = '';
+  if (typeof content === 'string') {
+    html = content;
+  } else {
+    html = content.rendered || content.raw || '';
+  }
+  
+  const links: Array<{ url: string; text: string }> = [];
+  
+  // Match anchor tags with href attributes
+  const linkRegex = /<a[^>]+href=["']([^"']+)["'][^>]*>([^<]*)<\/a>/gi;
+  let match;
+  
+  while ((match = linkRegex.exec(html)) !== null) {
+    const url = match[1];
+    let text = match[2].trim();
+    
+    // If text is too long (likely a full URL), shorten it
+    if (text.length > 50) {
+      try {
+        const urlObj = new URL(text);
+        text = urlObj.hostname;
+      } catch {
+        text = text.substring(0, 50) + '...';
+      }
+    }
+    
+    if (url && text && !url.includes('Please-Upload-Avatar-Image')) {
+      // Avoid duplicates
+      if (!links.find(link => link.url === url)) {
+        links.push({ url, text: text || url });
+      }
+    }
+  }
+  
+  return links;
+}
+
 // Post Item Component - fetches user data for each post
 function PostItem({ 
   item, 
@@ -77,6 +152,24 @@ function PostItem({
   const userAvatar = memberData?.avatar_urls?.thumb || 
     (typeof item.user_avatar === 'object' ? item.user_avatar.thumb : item.user_avatar) || 
     undefined;
+  
+  // Extract images from content
+  const imageUrls = extractImageUrls(item.content);
+  const links = extractLinks(item.content);
+  
+  const handleLinkPress = async (url: string) => {
+    try {
+      const canOpen = await Linking.canOpenURL(url);
+      if (canOpen) {
+        await Linking.openURL(url);
+      } else {
+        Alert.alert('Error', 'Cannot open this link');
+      }
+    } catch (error) {
+      console.error('Error opening link:', error);
+      Alert.alert('Error', 'Failed to open link');
+    }
+  };
   
   // Log each post being rendered
   console.log('[PostItem] Rendering post:', {
@@ -133,6 +226,38 @@ function PostItem({
       
       {/* Post Content */}
       <Text style={styles.postContent}>{getContentText(item.content)}</Text>
+      
+      {/* Post Images */}
+      {imageUrls.length > 0 && (
+        <View style={styles.postImages}>
+          {imageUrls.map((url, index) => (
+            <Image
+              key={index}
+              source={{ uri: url }}
+              style={styles.postImage}
+              resizeMode="cover"
+            />
+          ))}
+        </View>
+      )}
+      
+      {/* Post Links */}
+      {links.length > 0 && (
+        <View style={styles.postLinks}>
+          {links.map((link, index) => (
+            <TouchableOpacity
+              key={index}
+              style={styles.linkButton}
+              onPress={() => handleLinkPress(link.url)}
+            >
+              <Text style={styles.linkIcon}>🔗</Text>
+              <Text style={styles.linkText} numberOfLines={1}>
+                {link.text}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
       
       {/* Post Stats */}
       <View style={styles.postStats}>
@@ -228,7 +353,7 @@ function CommunityScreen() {
   
   // Filter out unwanted activity types
   allActivities = allActivities.filter(activity => {
-    const unwantedTypes = ['joined_group', 'created_group', 'new_member', 'friendship_created'];
+    const unwantedTypes = ['joined_group', 'created_group', 'new_member', 'friendship_created', 'new_cover'];
     return !unwantedTypes.includes(activity.type);
   });
   
@@ -955,6 +1080,41 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     paddingHorizontal: 16,
     paddingBottom: 12,
+  },
+  postImages: {
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    gap: 8,
+  },
+  postImage: {
+    width: '100%',
+    height: 300,
+    borderRadius: 8,
+    backgroundColor: '#f0f0f0',
+  },
+  postLinks: {
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    gap: 8,
+  },
+  linkButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f0f8ff',
+    borderRadius: 8,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#0095f6',
+    gap: 8,
+  },
+  linkIcon: {
+    fontSize: 16,
+  },
+  linkText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#0095f6',
+    fontWeight: '500',
   },
   postStats: {
     paddingHorizontal: 16,
