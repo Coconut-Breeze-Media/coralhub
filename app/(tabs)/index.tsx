@@ -14,6 +14,8 @@ import {
   ScrollView,
   Platform,
   Linking,
+  Modal,
+  Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../lib/auth';
@@ -157,6 +159,27 @@ function PostItem({
   const imageUrls = extractImageUrls(item.content);
   const links = extractLinks(item.content);
   
+  // State for image viewer modal
+  const [imageModalVisible, setImageModalVisible] = useState(false);
+  const [selectedImageIndex, setSelectedImageIndex] = useState(0);
+  
+  const handleImagePress = (index: number) => {
+    setSelectedImageIndex(index);
+    setImageModalVisible(true);
+  };
+  
+  const handleNextImage = () => {
+    if (selectedImageIndex < imageUrls.length - 1) {
+      setSelectedImageIndex(selectedImageIndex + 1);
+    }
+  };
+  
+  const handlePreviousImage = () => {
+    if (selectedImageIndex > 0) {
+      setSelectedImageIndex(selectedImageIndex - 1);
+    }
+  };
+  
   const handleLinkPress = async (url: string) => {
     try {
       const canOpen = await Linking.canOpenURL(url);
@@ -231,12 +254,17 @@ function PostItem({
       {imageUrls.length > 0 && (
         <View style={styles.postImages}>
           {imageUrls.map((url, index) => (
-            <Image
+            <TouchableOpacity
               key={index}
-              source={{ uri: url }}
-              style={styles.postImage}
-              resizeMode="cover"
-            />
+              onPress={() => handleImagePress(index)}
+              activeOpacity={0.9}
+            >
+              <Image
+                source={{ uri: url }}
+                style={styles.postImage}
+                resizeMode="contain"
+              />
+            </TouchableOpacity>
           ))}
         </View>
       )}
@@ -298,6 +326,63 @@ function PostItem({
           <Text style={styles.actionLabel}>Share</Text>
         </TouchableOpacity>
       </View>
+      
+      {/* Image Viewer Modal */}
+      <Modal
+        visible={imageModalVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setImageModalVisible(false)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalCounter}>
+              {selectedImageIndex + 1} / {imageUrls.length}
+            </Text>
+            <TouchableOpacity
+              onPress={() => setImageModalVisible(false)}
+              style={styles.modalCloseButton}
+            >
+              <Text style={styles.modalCloseText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+          
+          <View style={styles.modalContent}>
+            {imageUrls.length > 0 && (
+              <Image
+                source={{ uri: imageUrls[selectedImageIndex] }}
+                style={styles.modalImage}
+                resizeMode="contain"
+              />
+            )}
+          </View>
+          
+          {imageUrls.length > 1 && (
+            <View style={styles.modalNavigation}>
+              <TouchableOpacity
+                onPress={handlePreviousImage}
+                disabled={selectedImageIndex === 0}
+                style={[
+                  styles.modalNavButton,
+                  selectedImageIndex === 0 && styles.modalNavButtonDisabled,
+                ]}
+              >
+                <Text style={styles.modalNavButtonText}>‹ Previous</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={handleNextImage}
+                disabled={selectedImageIndex === imageUrls.length - 1}
+                style={[
+                  styles.modalNavButton,
+                  selectedImageIndex === imageUrls.length - 1 && styles.modalNavButtonDisabled,
+                ]}
+              >
+                <Text style={styles.modalNavButtonText}>Next ›</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1088,7 +1173,8 @@ const styles = StyleSheet.create({
   },
   postImage: {
     width: '100%',
-    height: 300,
+    minHeight: 200,
+    maxHeight: 400,
     borderRadius: 8,
     backgroundColor: '#f0f0f0',
   },
@@ -1193,6 +1279,64 @@ const styles = StyleSheet.create({
     color: '#8e8e8e',
     textAlign: 'center',
     lineHeight: 22,
+  },
+  
+  // Image Viewer Modal Styles
+  modalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.95)',
+    justifyContent: 'center',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 15,
+    paddingTop: Platform.OS === 'ios' ? 50 : 15,
+  },
+  modalCounter: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  modalCloseButton: {
+    padding: 8,
+  },
+  modalCloseText: {
+    color: '#fff',
+    fontSize: 28,
+    fontWeight: '300',
+  },
+  modalContent: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalImage: {
+    width: Dimensions.get('window').width,
+    height: Dimensions.get('window').height * 0.7,
+  },
+  modalNavigation: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 20,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 20,
+  },
+  modalNavButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  modalNavButtonDisabled: {
+    opacity: 0.3,
+  },
+  modalNavButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
 
