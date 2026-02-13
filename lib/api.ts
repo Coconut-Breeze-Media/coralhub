@@ -712,7 +712,7 @@ export async function sendFriendRequest(
 export async function getActivityFeed(
   token: string,
   options: {
-    scope?: 'just-me' | 'friends';
+    scope?: 'just-me' | 'friends' | 'groups';
     user_id?: number;
     page?: number;
     per_page?: number;

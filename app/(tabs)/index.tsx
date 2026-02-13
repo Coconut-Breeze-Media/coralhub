@@ -26,9 +26,10 @@ import {
 } from '../../hooks/useActivity';
 import { useMember } from '../../hooks/useMembers';
 import { useMe, useFriendsList } from '../../hooks/useQueries';
+import { useMyGroups, useGroupActivity } from '../../hooks/useGroups';
 import type { BPActivity } from '../../types';
 
-type TabType = 'feed' | 'my-posts';
+type TabType = 'feed' | 'my-posts' | 'groups-feed';
 
 // Helper function to extract content text from BuddyPress API response
 function getContentText(content: string | { rendered: string; raw?: string }): string {
@@ -183,6 +184,8 @@ function CommunityScreen() {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [selectedFriendId, setSelectedFriendId] = useState<number | undefined>(undefined);
   const [showFriendDropdown, setShowFriendDropdown] = useState(false);
+  const [selectedGroupId, setSelectedGroupId] = useState<number | undefined>(undefined);
+  const [showGroupDropdown, setShowGroupDropdown] = useState(false);
   
   // Get current user data
   const { data: currentUser } = useMe();
@@ -192,9 +195,19 @@ function CommunityScreen() {
   const { data: friendsData } = useFriendsList(userId, 1, 100);
   const friends = friendsData?.friends || [];
   
+  // Fetch user's groups
+  const { data: userGroups } = useMyGroups(token);
+  const groups = userGroups || [];
+  
+  // Fetch group activity if groups-feed tab is active
+  const { data: groupActivityData, isLoading: isLoadingGroupActivity, refetch: refetchGroupActivity } = useGroupActivity(
+    token,
+    activeTab === 'groups-feed' ? selectedGroupId : undefined
+  );
+  
   // Fetch feed based on active tab with infinite scroll
-  const scope = activeTab === 'my-posts' ? 'just-me' : undefined;
-  const filterUserId = activeTab === 'feed' ? selectedFriendId : undefined;
+  const scope = activeTab === 'groups-feed' ? 'groups' : undefined;
+  const filterUserId = activeTab === 'feed' ? selectedFriendId : (activeTab === 'my-posts' ? userId : undefined);
   const { 
     data: feedData, 
     isLoading, 
@@ -206,7 +219,18 @@ function CommunityScreen() {
   } = useActivityFeed(token, scope, filterUserId);
   
   // Flatten all activities from all pages
-  const allActivities = feedData?.pages?.flatMap(page => page.activities) || [];
+  let allActivities = feedData?.pages?.flatMap(page => page.activities) || [];
+  
+  // For groups feed, use group activity if specific group is selected
+  if (activeTab === 'groups-feed' && selectedGroupId && groupActivityData) {
+    allActivities = groupActivityData.activities || [];
+  }
+  
+  // Filter out unwanted activity types
+  allActivities = allActivities.filter(activity => {
+    const unwantedTypes = ['joined_group', 'created_group', 'new_member', 'friendship_created'];
+    return !unwantedTypes.includes(activity.type);
+  });
   
   // Log posts data for debugging
   console.log('[CommunityScreen] Feed data:', feedData);
@@ -326,6 +350,14 @@ function CommunityScreen() {
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
+          style={[styles.tab, activeTab === 'groups-feed' && styles.activeTab]}
+          onPress={() => setActiveTab('groups-feed')}
+        >
+          <Text style={[styles.tabText, activeTab === 'groups-feed' && styles.activeTabText]}>
+            Groups
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
           style={[styles.tab, activeTab === 'my-posts' && styles.activeTab]}
           onPress={() => setActiveTab('my-posts')}
         >
@@ -388,6 +420,69 @@ function CommunityScreen() {
                       )}
                       <Text style={[styles.dropdownItemText, selectedFriendId === friend.id && styles.dropdownItemTextActive]}>
                         {friend.name}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+        </View>
+      )}
+      
+      {/* Group Filter Dropdown - Only show in Groups Feed tab */}
+      {activeTab === 'groups-feed' && (
+        <View style={styles.filterContainer}>
+          <TouchableOpacity
+            style={styles.filterButton}
+            onPress={() => setShowGroupDropdown(!showGroupDropdown)}
+          >
+            <Text style={styles.filterButtonText}>
+              {selectedGroupId 
+                ? groups.find(g => g.id === selectedGroupId)?.name || 'Select Group'
+                : 'Show posts by group'}
+            </Text>
+            <Text style={styles.filterButtonIcon}>{showGroupDropdown ? '▲' : '▼'}</Text>
+          </TouchableOpacity>
+          
+          {showGroupDropdown && (
+            <View style={styles.dropdownMenu}>
+              <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
+                <TouchableOpacity
+                  style={[styles.dropdownItem, !selectedGroupId && styles.dropdownItemActive]}
+                  onPress={() => {
+                    setSelectedGroupId(undefined);
+                    setShowGroupDropdown(false);
+                  }}
+                >
+                  <Text style={[styles.dropdownItemText, !selectedGroupId && styles.dropdownItemTextActive]}>
+                    All Groups
+                  </Text>
+                </TouchableOpacity>
+                {groups.map((group) => (
+                  <TouchableOpacity
+                    key={group.id}
+                    style={[styles.dropdownItem, selectedGroupId === group.id && styles.dropdownItemActive]}
+                    onPress={() => {
+                      setSelectedGroupId(group.id);
+                      setShowGroupDropdown(false);
+                    }}
+                  >
+                    <View style={styles.dropdownItemContent}>
+                      {group.avatar_urls?.thumb ? (
+                        <Image
+                          source={{ uri: group.avatar_urls.thumb }}
+                          style={styles.dropdownAvatar}
+                        />
+                      ) : (
+                        <View style={[styles.dropdownAvatar, styles.dropdownAvatarPlaceholder]}>
+                          <Text style={styles.dropdownAvatarText}>
+                            {group.name.charAt(0).toUpperCase()}
+                          </Text>
+                        </View>
+                      )}
+                      <Text style={[styles.dropdownItemText, selectedGroupId === group.id && styles.dropdownItemTextActive]}>
+                        {group.name}
                       </Text>
                     </View>
                   </TouchableOpacity>
@@ -490,7 +585,7 @@ function CommunityScreen() {
       )}
       
       {/* Posts Feed */}
-      {isLoading ? (
+      {(isLoading || (activeTab === 'groups-feed' && selectedGroupId && isLoadingGroupActivity)) ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#0066cc" />
           <Text style={styles.loadingText}>Loading posts...</Text>
@@ -502,7 +597,17 @@ function CommunityScreen() {
           renderItem={renderPost}
           contentContainerStyle={styles.feedContainer}
           refreshControl={
-            <RefreshControl refreshing={isRefetching} onRefresh={refetch} colors={['#0066cc']} />
+            <RefreshControl 
+              refreshing={isRefetching || (activeTab === 'groups-feed' && selectedGroupId ? false : false)} 
+              onRefresh={() => {
+                if (activeTab === 'groups-feed' && selectedGroupId) {
+                  refetchGroupActivity();
+                } else {
+                  refetch();
+                }
+              }} 
+              colors={['#0066cc']} 
+            />
           }
           onEndReached={handleLoadMore}
           onEndReachedThreshold={0.5}
@@ -519,6 +624,10 @@ function CommunityScreen() {
               <Text style={styles.emptyText}>
                 {activeTab === 'my-posts'
                   ? 'No posts yet.\nStart sharing your thoughts with the community!'
+                  : activeTab === 'groups-feed'
+                  ? selectedGroupId 
+                    ? 'No posts in this group yet.'
+                    : 'No posts from your groups.\nJoin groups to see their posts!'
                   : 'No posts to show.\nCheck back later for updates!'}
               </Text>
             </View>

@@ -19,12 +19,12 @@ import type {
 /**
  * Hook to fetch activity feed with infinite scroll/pagination
  * @param token - JWT authentication token
- * @param scope - 'just-me' for user's posts, 'friends' for friends' posts, or undefined for all
+ * @param scope - 'just-me' for user's posts, 'friends' for friends' posts, 'groups' for groups posts, or undefined for all
  * @param userId - Filter by specific user ID
  */
 export function useActivityFeed(
   token: string | null,
-  scope?: 'just-me' | 'friends',
+  scope?: 'just-me' | 'friends' | 'groups',
   userId?: number
 ) {
   return useInfiniteQuery({
