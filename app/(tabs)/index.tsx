@@ -23,6 +23,7 @@ import { useAuth } from '../../lib/auth';
 import { uploadImage } from '../../lib/api';
 import RequireAuth from '../../components/RequireAuth';
 import CommentsModal from '../../components/CommentsModal';
+import MentionInput from '../../components/MentionInput';
 import { 
   useActivityFeed, 
   useCreatePost, 
@@ -886,14 +887,17 @@ function CommunityScreen() {
               </Text>
             </View>
             <View style={styles.createPostInputWrapper}>
-              <TextInput
-                style={styles.createPostInput}
-                placeholder="What's on your mind?"
-                placeholderTextColor="#999"
+              <MentionInput
                 value={postContent}
                 onChangeText={setPostContent}
+                token={token}
+                placeholder="What's on your mind?"
+                placeholderTextColor="#999"
                 multiline
                 maxLength={500}
+                maxHeight={120}
+                style={styles.createPostInput}
+                suggestionPosition="below"
               />
             </View>
           </View>

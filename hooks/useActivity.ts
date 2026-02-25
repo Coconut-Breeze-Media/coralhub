@@ -13,7 +13,9 @@ import {
   createComment,
   updateComment,
   deleteComment,
+  searchUsers,
 } from '../lib/api';
+import type { UserSearchResult } from '../lib/api';
 import type {
   BPActivity,
   CreateActivityPayload,
@@ -243,7 +245,7 @@ export function useDeleteComment(token: string | null) {
  */
 export function useCreateGroupPost(token: string | null) {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: async ({ groupId, content }: { groupId: number; content: string }) => {
       if (!token) throw new Error('No authentication token');
@@ -253,5 +255,22 @@ export function useCreateGroupPost(token: string | null) {
       queryClient.invalidateQueries({ queryKey: ['activity'] });
       queryClient.invalidateQueries({ queryKey: ['groups'] });
     },
+  });
+}
+
+/**
+ * Hook to search users by partial name for @mention autocomplete
+ * @param token - JWT authentication token
+ * @param query - Partial name/username to search (null = disabled)
+ */
+export function useSearchUsers(token: string | null, query: string | null) {
+  return useQuery<UserSearchResult[]>({
+    queryKey: ['users', 'search', query],
+    queryFn: async () => {
+      if (!token || !query) return [];
+      return searchUsers(query, token);
+    },
+    enabled: !!token && !!query && query.length >= 1,
+    staleTime: 30000,
   });
 }

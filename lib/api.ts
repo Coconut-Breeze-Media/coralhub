@@ -1253,3 +1253,31 @@ export async function deleteComment(
     { method: 'DELETE' }
   );
 }
+
+// ---------- User Search (for @mention autocomplete) ----------
+
+export interface UserSearchResult {
+  id: number;
+  name: string;
+  mention_name: string;
+  avatar_urls?: { full: string; thumb: string };
+}
+
+/**
+ * Search users by partial name/login for @mention autocomplete
+ * @param query - Partial name or username to search
+ * @param token - JWT authentication token
+ */
+export async function searchUsers(query: string, token: string): Promise<UserSearchResult[]> {
+  const params = new URLSearchParams({ search: query, per_page: '10' });
+  const results = await authedFetch<BPMember[]>(
+    `/buddypress/v1/members?${params}`,
+    token
+  );
+  return results.map((m) => ({
+    id: m.id,
+    name: m.name,
+    mention_name: m.mention_name || m.name,
+    avatar_urls: m.avatar_urls,
+  }));
+}

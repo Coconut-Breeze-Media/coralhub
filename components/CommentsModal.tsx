@@ -21,6 +21,7 @@ import {
   useDeleteComment,
 } from '../hooks/useActivity';
 import type { WPComment } from '../types';
+import MentionInput from './MentionInput';
 
 interface CommentsModalProps {
   visible: boolean;
@@ -302,14 +303,17 @@ export default function CommentsModal({
 
           {/* New comment input */}
           <View style={styles.inputRow}>
-            <TextInput
-              style={styles.input}
+            <MentionInput
               value={newComment}
               onChangeText={setNewComment}
+              token={token}
               placeholder="Write a comment..."
               placeholderTextColor="#9ca3af"
               multiline
               maxLength={500}
+              maxHeight={100}
+              style={styles.input}
+              suggestionPosition="above"
             />
             <TouchableOpacity
               style={[
