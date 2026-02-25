@@ -1220,3 +1220,36 @@ export async function createComment(
     body: JSON.stringify({ post: postId, content }),
   });
 }
+
+/**
+ * Update (edit) an existing comment — requires being the author or admin
+ * @param commentId - The comment ID to update
+ * @param content   - New plain text content
+ * @param token     - JWT authentication token
+ */
+export async function updateComment(
+  commentId: number,
+  content: string,
+  token: string
+): Promise<import('../types').WPComment> {
+  return authedFetch<import('../types').WPComment>(`/wp/v2/comments/${commentId}`, token, {
+    method: 'POST',
+    body: JSON.stringify({ content }),
+  });
+}
+
+/**
+ * Permanently delete a comment — requires being the author or admin
+ * @param commentId - The comment ID to delete
+ * @param token     - JWT authentication token
+ */
+export async function deleteComment(
+  commentId: number,
+  token: string
+): Promise<{ deleted: boolean }> {
+  return authedFetch<{ deleted: boolean }>(
+    `/wp/v2/comments/${commentId}?force=true`,
+    token,
+    { method: 'DELETE' }
+  );
+}

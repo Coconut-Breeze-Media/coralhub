@@ -14,7 +14,12 @@ import {
   Image,
   Alert,
 } from 'react-native';
-import { usePostComments, useCreateComment } from '../hooks/useActivity';
+import {
+  usePostComments,
+  useCreateComment,
+  useUpdateComment,
+  useDeleteComment,
+} from '../hooks/useActivity';
 import type { WPComment } from '../types';
 
 interface CommentsModalProps {
@@ -22,13 +27,35 @@ interface CommentsModalProps {
   onClose: () => void;
   postId: number;
   token: string | null;
+  currentUserId?: number | null;
 }
 
-function CommentItem({ item }: { item: WPComment }) {
+// ─────────────────────────────────────────────
+// Single comment row with inline edit / delete
+// ─────────────────────────────────────────────
+function CommentItem({
+  item,
+  postId,
+  token,
+  canModify,
+}: {
+  item: WPComment;
+  postId: number;
+  token: string | null;
+  canModify: boolean;
+}) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [editText, setEditText] = useState('');
+  const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
+
+  const updateMutation = useUpdateComment(token);
+  const deleteMutation = useDeleteComment(token);
+
   const avatarUrl =
     item.author_avatar_urls?.['48'] ||
     item.author_avatar_urls?.['96'] ||
     item.author_avatar_urls?.['24'];
+
   const content = item.content?.rendered?.replace(/<[^>]+>/g, '').trim() || '';
   const date = new Date(item.date).toLocaleDateString('en-US', {
     month: 'short',
@@ -37,8 +64,76 @@ function CommentItem({ item }: { item: WPComment }) {
     minute: '2-digit',
   });
 
+  const handleEditPress = () => {
+    setEditText(content);
+    setIsEditing(true);
+  };
+
+  const handleSave = async () => {
+    const text = editText.trim();
+    if (!text) return;
+    try {
+      await updateMutation.mutateAsync({ commentId: item.id, content: text });
+      setIsEditing(false);
+    } catch (err: any) {
+      Alert.alert('Error', err?.message || 'Failed to update comment.');
+    }
+  };
+
+  const handleDelete = () => {
+    setDeleteConfirmVisible(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    setDeleteConfirmVisible(false);
+    try {
+      await deleteMutation.mutateAsync({ commentId: item.id, postId });
+    } catch (err: any) {
+      Alert.alert('Error', err?.message || 'Failed to delete comment.');
+    }
+  };
+
   return (
     <View style={styles.commentItem}>
+      {/* Delete confirmation modal */}
+      <Modal
+        visible={deleteConfirmVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setDeleteConfirmVisible(false)}
+      >
+        <View style={styles.confirmOverlay}>
+          <View style={styles.confirmSheet}>
+            <Text style={styles.confirmIcon}>🗑️</Text>
+            <Text style={styles.confirmTitle}>Delete Comment?</Text>
+            <Text style={styles.confirmMessage}>
+              This action cannot be undone. Your comment will be permanently removed.
+            </Text>
+            <View style={styles.confirmActions}>
+              <TouchableOpacity
+                style={styles.confirmCancelBtn}
+                onPress={() => setDeleteConfirmVisible(false)}
+                disabled={deleteMutation.isPending}
+              >
+                <Text style={styles.confirmCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.confirmDeleteBtn, deleteMutation.isPending && styles.confirmDeleteBtnDisabled]}
+                onPress={handleConfirmDelete}
+                disabled={deleteMutation.isPending}
+              >
+                {deleteMutation.isPending ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.confirmDeleteText}>Delete</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Avatar */}
       <View style={styles.commentAvatar}>
         {avatarUrl ? (
           <Image source={{ uri: avatarUrl }} style={styles.commentAvatarImage} />
@@ -48,16 +143,88 @@ function CommentItem({ item }: { item: WPComment }) {
           </Text>
         )}
       </View>
+
+      {/* Bubble */}
       <View style={styles.commentBubble}>
-        <Text style={styles.commentAuthor}>{item.author_name || 'Anonymous'}</Text>
-        <Text style={styles.commentText}>{content}</Text>
+        {/* Header row: author + actions */}
+        <View style={styles.commentHeader}>
+          <Text style={styles.commentAuthor}>{item.author_name || 'Anonymous'}</Text>
+
+          {canModify && !isEditing && (
+            <View style={styles.commentActions}>
+              <TouchableOpacity onPress={handleEditPress} style={styles.actionIconBtn}>
+                <Text style={styles.actionIconText}>✏️</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={handleDelete}
+                style={styles.actionIconBtn}
+                disabled={deleteMutation.isPending}
+              >
+                {deleteMutation.isPending ? (
+                  <ActivityIndicator size="small" color="#ef4444" />
+                ) : (
+                  <Text style={styles.actionIconText}>🗑️</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+
+        {/* Content — normal or edit mode */}
+        {isEditing ? (
+          <>
+            <TextInput
+              style={styles.editInput}
+              value={editText}
+              onChangeText={setEditText}
+              multiline
+              autoFocus
+              maxLength={500}
+            />
+            <View style={styles.editActions}>
+              <TouchableOpacity
+                onPress={() => setIsEditing(false)}
+                style={styles.editCancelBtn}
+                disabled={updateMutation.isPending}
+              >
+                <Text style={styles.editCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={handleSave}
+                style={[
+                  styles.editSaveBtn,
+                  (!editText.trim() || updateMutation.isPending) && styles.editSaveBtnDisabled,
+                ]}
+                disabled={!editText.trim() || updateMutation.isPending}
+              >
+                {updateMutation.isPending ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.editSaveText}>Save</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </>
+        ) : (
+          <Text style={styles.commentText}>{content}</Text>
+        )}
+
         <Text style={styles.commentDate}>{date}</Text>
       </View>
     </View>
   );
 }
 
-export default function CommentsModal({ visible, onClose, postId, token }: CommentsModalProps) {
+// ─────────────────────────────────────────────
+// Main modal
+// ─────────────────────────────────────────────
+export default function CommentsModal({
+  visible,
+  onClose,
+  postId,
+  token,
+  currentUserId,
+}: CommentsModalProps) {
   const [newComment, setNewComment] = useState('');
 
   const { data: comments, isLoading, refetch } = usePostComments(
@@ -69,7 +236,6 @@ export default function CommentsModal({ visible, onClose, postId, token }: Comme
   const handleSubmit = async () => {
     const text = newComment.trim();
     if (!text) return;
-
     try {
       await createCommentMutation.mutateAsync({ postId, content: text });
       setNewComment('');
@@ -110,7 +276,18 @@ export default function CommentsModal({ visible, onClose, postId, token }: Comme
             <FlatList
               data={comments || []}
               keyExtractor={(item) => item.id.toString()}
-              renderItem={({ item }) => <CommentItem item={item} />}
+              renderItem={({ item }) => (
+                <CommentItem
+                  item={item}
+                  postId={postId}
+                  token={token}
+                  canModify={
+                    !!currentUserId &&
+                    !!item.author &&
+                    Number(currentUserId) === Number(item.author)
+                  }
+                />
+              )}
               style={styles.list}
               contentContainerStyle={
                 commentCount === 0 ? styles.emptyContainer : styles.listContent
@@ -123,7 +300,7 @@ export default function CommentsModal({ visible, onClose, postId, token }: Comme
             />
           )}
 
-          {/* Input row */}
+          {/* New comment input */}
           <View style={styles.inputRow}>
             <TextInput
               style={styles.input}
@@ -210,6 +387,7 @@ const styles = StyleSheet.create({
     color: '#9ca3af',
     textAlign: 'center',
   },
+  // Comment row
   commentItem: {
     flexDirection: 'row',
     paddingHorizontal: 16,
@@ -224,6 +402,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
+    flexShrink: 0,
   },
   commentAvatarImage: {
     width: 36,
@@ -241,11 +420,28 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 10,
   },
+  commentHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 2,
+  },
   commentAuthor: {
     fontSize: 13,
     fontWeight: '700',
     color: '#111827',
-    marginBottom: 2,
+    flex: 1,
+  },
+  commentActions: {
+    flexDirection: 'row',
+    gap: 6,
+    marginLeft: 8,
+  },
+  actionIconBtn: {
+    padding: 2,
+  },
+  actionIconText: {
+    fontSize: 14,
   },
   commentText: {
     fontSize: 14,
@@ -257,6 +453,53 @@ const styles = StyleSheet.create({
     color: '#9ca3af',
     marginTop: 4,
   },
+  // Inline edit
+  editInput: {
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderRadius: 8,
+    padding: 8,
+    fontSize: 14,
+    color: '#111827',
+    backgroundColor: '#fff',
+    minHeight: 60,
+    textAlignVertical: 'top',
+    marginBottom: 6,
+  },
+  editActions: {
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'flex-end',
+    marginBottom: 4,
+  },
+  editCancelBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: '#f3f4f6',
+  },
+  editCancelText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#6b7280',
+  },
+  editSaveBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: '#0e7490',
+    minWidth: 50,
+    alignItems: 'center',
+  },
+  editSaveBtnDisabled: {
+    backgroundColor: '#d1d5db',
+  },
+  editSaveText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  // New comment input row
   inputRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
@@ -294,5 +537,70 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 14,
     fontWeight: '700',
+  },
+  // Delete confirmation modal
+  confirmOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+  },
+  confirmSheet: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 24,
+    alignItems: 'center',
+    width: '100%',
+  },
+  confirmIcon: {
+    fontSize: 36,
+    marginBottom: 12,
+  },
+  confirmTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  confirmMessage: {
+    fontSize: 14,
+    color: '#6b7280',
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 24,
+  },
+  confirmActions: {
+    flexDirection: 'row',
+    gap: 12,
+    width: '100%',
+  },
+  confirmCancelBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: '#f3f4f6',
+    alignItems: 'center',
+  },
+  confirmCancelText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  confirmDeleteBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: '#ef4444',
+    alignItems: 'center',
+  },
+  confirmDeleteBtnDisabled: {
+    backgroundColor: '#fca5a5',
+  },
+  confirmDeleteText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#fff',
   },
 });

@@ -11,6 +11,8 @@ import {
   deletePost,
   getPostComments,
   createComment,
+  updateComment,
+  deleteComment,
 } from '../lib/api';
 import type {
   BPActivity,
@@ -192,6 +194,42 @@ export function useCreateComment(token: string | null) {
     mutationFn: async ({ postId, content }: { postId: number; content: string }) => {
       if (!token) throw new Error('No authentication token');
       return createComment(postId, content, token);
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['comments', variables.postId] });
+    },
+  });
+}
+
+/**
+ * Hook to edit an existing comment — user must be author or admin
+ * @param token - JWT authentication token
+ */
+export function useUpdateComment(token: string | null) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ commentId, content }: { commentId: number; content: string }) => {
+      if (!token) throw new Error('No authentication token');
+      return updateComment(commentId, content, token);
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['comments', data.post] });
+    },
+  });
+}
+
+/**
+ * Hook to permanently delete a comment — user must be author or admin
+ * @param token - JWT authentication token
+ */
+export function useDeleteComment(token: string | null) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ commentId, postId: _postId }: { commentId: number; postId: number }) => {
+      if (!token) throw new Error('No authentication token');
+      return deleteComment(commentId, token);
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['comments', variables.postId] });

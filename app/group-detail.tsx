@@ -1362,6 +1362,7 @@ function ActivityCard({
         onClose={() => setCommentModalVisible(false)}
         postId={activity.id}
         token={token}
+        currentUserId={currentUserId}
       />
 
       {/* Edit Modal */}

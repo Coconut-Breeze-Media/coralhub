@@ -344,6 +344,7 @@ function PostItem({
         onClose={() => setCommentModalVisible(false)}
         postId={item.id}
         token={token}
+        currentUserId={profile?.user_id}
       />
 
       {/* Image Viewer Modal */}
@@ -443,7 +444,7 @@ function CommunityScreen() {
     activeTab === 'groups-feed' && selectedGroupId ? selectedGroupId : undefined
   );
 
-  // Fetch posts de todos los grupos cuando está seleccionado 'All Groups'
+  
   useEffect(() => {
     const fetchAllGroupsActivities = async () => {
       if (
