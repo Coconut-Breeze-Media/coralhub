@@ -209,6 +209,23 @@ export interface BPActivity {
 }
 
 /**
+ * WordPress comment object (from /wp/v2/comments endpoint)
+ */
+export interface WPComment {
+  id: number;
+  post: number;
+  parent: number;
+  author: number;
+  author_name: string;
+  author_avatar_urls?: Record<string, string>;
+  date: string;
+  content: {
+    rendered: string;
+  };
+  status: string;
+}
+
+/**
  * Create activity post payload
  */
 export interface CreateActivityPayload {

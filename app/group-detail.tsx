@@ -5,6 +5,7 @@
  */
 
 import { View, Text, ScrollView, ActivityIndicator, RefreshControl, Image, TouchableOpacity, TextInput, Alert, Modal, Linking } from 'react-native';
+import CommentsModal from '../components/CommentsModal';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../lib/auth';
 import { uploadImage } from '../lib/api';
@@ -1027,6 +1028,7 @@ function ActivityCard({
   
   const [isLiked, setIsLiked] = useState(activity.favorited || false);
   const [likeCount, setLikeCount] = useState(activity.favorite_count || 0);
+  const [commentModalVisible, setCommentModalVisible] = useState(false);
   const [isEditModalVisible, setIsEditModalVisible] = useState(false);
   const [isDeleteModalVisible, setIsDeleteModalVisible] = useState(false);
   const [editContent, setEditContent] = useState('');
@@ -1156,7 +1158,7 @@ function ActivityCard({
   };
 
   const handleComment = () => {
-    Alert.alert('Coming Soon', 'Comment functionality will be available soon!');
+    setCommentModalVisible(true);
   };
 
   const activityInfo = getActivityInfo(activity.type);
@@ -1353,6 +1355,14 @@ function ActivityCard({
           </View>
         </View>
       </View>
+
+      {/* Comments Modal */}
+      <CommentsModal
+        visible={commentModalVisible}
+        onClose={() => setCommentModalVisible(false)}
+        postId={activity.id}
+        token={token}
+      />
 
       {/* Edit Modal */}
       <Modal

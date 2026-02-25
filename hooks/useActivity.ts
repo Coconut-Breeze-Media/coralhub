@@ -1,19 +1,22 @@
 // hooks/useActivity.ts
 import { useMutation, useQuery, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
-import { 
-  getActivityFeed, 
-  createPost, 
+import {
+  getActivityFeed,
+  createPost,
   createGroupPost,
   updatePost,
-  likePost, 
-  unlikePost, 
-  sharePost, 
-  deletePost 
+  likePost,
+  unlikePost,
+  sharePost,
+  deletePost,
+  getPostComments,
+  createComment,
 } from '../lib/api';
-import type { 
-  BPActivity, 
-  CreateActivityPayload, 
-  ActivityFeedResponse 
+import type {
+  BPActivity,
+  CreateActivityPayload,
+  ActivityFeedResponse,
+  WPComment,
 } from '../types';
 
 /**
@@ -157,6 +160,41 @@ export function useUpdatePost(token: string | null) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['activity'] });
+    },
+  });
+}
+
+/**
+ * Hook to fetch comments for a post
+ * @param token  - JWT authentication token
+ * @param postId - Post/activity ID to fetch comments for (null = disabled)
+ */
+export function usePostComments(token: string | null, postId: number | null) {
+  return useQuery<WPComment[]>({
+    queryKey: ['comments', postId],
+    queryFn: async () => {
+      if (!token || !postId) throw new Error('Missing token or postId');
+      return getPostComments(postId, token);
+    },
+    enabled: !!token && !!postId,
+    staleTime: 30000,
+  });
+}
+
+/**
+ * Hook to create a comment on a post
+ * @param token - JWT authentication token
+ */
+export function useCreateComment(token: string | null) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ postId, content }: { postId: number; content: string }) => {
+      if (!token) throw new Error('No authentication token');
+      return createComment(postId, content, token);
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['comments', variables.postId] });
     },
   });
 }

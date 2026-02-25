@@ -22,6 +22,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../lib/auth';
 import { uploadImage } from '../../lib/api';
 import RequireAuth from '../../components/RequireAuth';
+import CommentsModal from '../../components/CommentsModal';
 import { 
   useActivityFeed, 
   useCreatePost, 
@@ -165,6 +166,9 @@ function PostItem({
   // State for image viewer modal
   const [imageModalVisible, setImageModalVisible] = useState(false);
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
+
+  // State for comments modal
+  const [commentModalVisible, setCommentModalVisible] = useState(false);
   
   const handleImagePress = (index: number) => {
     setSelectedImageIndex(index);
@@ -314,11 +318,15 @@ function PostItem({
         </TouchableOpacity>
         
         <TouchableOpacity
-          onPress={() => Alert.alert('Comment', 'Comment feature coming soon!')}
+          onPress={() => setCommentModalVisible(true)}
           style={styles.actionButton}
         >
           <Text style={styles.actionIcon}>💬</Text>
-          <Text style={styles.actionLabel}>Comment</Text>
+          <Text style={styles.actionLabel}>
+            {item.comment_count && item.comment_count > 0
+              ? `${item.comment_count}`
+              : 'Comment'}
+          </Text>
         </TouchableOpacity>
         
         <TouchableOpacity
@@ -330,6 +338,14 @@ function PostItem({
         </TouchableOpacity>
       </View>
       
+      {/* Comments Modal */}
+      <CommentsModal
+        visible={commentModalVisible}
+        onClose={() => setCommentModalVisible(false)}
+        postId={item.id}
+        token={token}
+      />
+
       {/* Image Viewer Modal */}
       <Modal
         visible={imageModalVisible}

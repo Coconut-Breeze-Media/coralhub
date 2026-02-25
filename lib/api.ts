@@ -1183,6 +1183,40 @@ export async function getGroupMembers(
   
   console.log(`[getGroupMembers] Received ${response?.length || 0} members for group ${groupId}`);
   console.log('[getGroupMembers] Members data:', JSON.stringify(response, null, 2));
-  
+
   return response;
+}
+
+// ---------- WordPress Comments API ----------
+
+/**
+ * Fetch comments for a given post/activity
+ * @param postId - The WordPress post ID (or BuddyPress activity ID)
+ * @param token  - JWT authentication token
+ */
+export async function getPostComments(
+  postId: number,
+  token: string
+): Promise<import('../types').WPComment[]> {
+  return authedFetch<import('../types').WPComment[]>(
+    `/wp/v2/comments?post=${postId}&per_page=50&orderby=date&order=asc`,
+    token
+  );
+}
+
+/**
+ * Create a comment on a post/activity
+ * @param postId  - The WordPress post ID (or BuddyPress activity ID)
+ * @param content - Plain text content of the comment
+ * @param token   - JWT authentication token
+ */
+export async function createComment(
+  postId: number,
+  content: string,
+  token: string
+): Promise<import('../types').WPComment> {
+  return authedFetch<import('../types').WPComment>('/wp/v2/comments', token, {
+    method: 'POST',
+    body: JSON.stringify({ post: postId, content }),
+  });
 }
