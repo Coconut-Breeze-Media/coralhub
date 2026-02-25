@@ -434,12 +434,24 @@ function CommunityScreen() {
   
   // Flatten all activities from all pages
   let allActivities = feedData?.pages?.flatMap(page => page.activities) || [];
-  
+
   // For groups feed, use group activity if specific group is selected
-  if (activeTab === 'groups-feed' && selectedGroupId && groupActivityData) {
-    allActivities = groupActivityData.activities || [];
+  if (activeTab === 'groups-feed') {
+    if (selectedGroupId && groupActivityData) {
+      allActivities = groupActivityData.activities || [];
+    } else if (!selectedGroupId && groups.length > 0) {
+      // Filtrar solo posts de los grupos donde el usuario es miembro
+      const groupIds = groups.map(g => g.id);
+      allActivities = allActivities.filter(activity => {
+        // activity.component === 'groups' y activity.group_id pertenece a groupIds
+        return (
+          activity.component === 'groups' &&
+          groupIds.includes(activity.group_id)
+        );
+      });
+    }
   }
-  
+
   // Filter out unwanted activity types
   allActivities = allActivities.filter(activity => {
     const unwantedTypes = ['joined_group', 'created_group', 'new_member', 'friendship_created', 'new_cover'];
@@ -656,7 +668,32 @@ function CommunityScreen() {
           </Text>
         </TouchableOpacity>
       </View>
-      
+
+      {/* Mostrar grupos donde el usuario es miembro antes de los posts en la pestaña Groups */}
+      {activeTab === 'groups-feed' && (
+        <View style={{paddingHorizontal: 16, marginBottom: 12}}>
+          <Text style={{fontWeight: 'bold', fontSize: 16, marginBottom: 8}}>Your Groups</Text>
+          {groups.length === 0 ? (
+            <Text style={{color: '#888'}}>You are not a member of any groups.</Text>
+          ) : (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom: 8}}>
+              {groups.map((group) => (
+                <View key={group.id} style={{alignItems: 'center', marginRight: 16}}>
+                  {group.avatar_urls?.thumb ? (
+                    <Image source={{ uri: group.avatar_urls.thumb }} style={{width: 48, height: 48, borderRadius: 24, marginBottom: 4}} />
+                  ) : (
+                    <View style={{width: 48, height: 48, borderRadius: 24, backgroundColor: '#eee', alignItems: 'center', justifyContent: 'center', marginBottom: 4}}>
+                      <Text style={{fontSize: 20, color: '#888'}}>{group.name.charAt(0).toUpperCase()}</Text>
+                    </View>
+                  )}
+                  <Text style={{fontSize: 12, textAlign: 'center', maxWidth: 60}} numberOfLines={2}>{group.name}</Text>
+                </View>
+              ))}
+            </ScrollView>
+          )}
+        </View>
+      )}
+
       {/* Friend Filter Dropdown - Only show in News Feed tab */}
       {activeTab === 'feed' && (
         <View style={styles.filterContainer}>
