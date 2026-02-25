@@ -32,6 +32,7 @@ import {
 import { useMember } from '../../hooks/useMembers';
 import { useMe, useFriendsList } from '../../hooks/useQueries';
 import { useMyGroups, useGroupActivity } from '../../hooks/useGroups';
+import { useEffect, useRef } from 'react';
 import type { BPActivity } from '../../types';
 
 type TabType = 'feed' | 'my-posts' | 'groups-feed';
@@ -412,12 +413,54 @@ function CommunityScreen() {
   // Fetch user's groups
   const { data: userGroups } = useMyGroups(token);
   const groups = userGroups || [];
+  // Mostrar por consola los grupos a los que pertenece el usuario
+  console.log('[CommunityScreen] Grupos del usuario:', groups);
   
-  // Fetch group activity if groups-feed tab is active
+  // Estado para almacenar posts de todos los grupos
+  const [allGroupsActivities, setAllGroupsActivities] = useState([]);
+  const [loadingAllGroups, setLoadingAllGroups] = useState(false);
+  const allGroupsFetchedRef = useRef(false);
+
+  // Fetch group activity si hay grupo seleccionado
   const { data: groupActivityData, isLoading: isLoadingGroupActivity, refetch: refetchGroupActivity } = useGroupActivity(
     token,
-    activeTab === 'groups-feed' ? selectedGroupId : undefined
+    activeTab === 'groups-feed' && selectedGroupId ? selectedGroupId : undefined
   );
+
+  // Fetch posts de todos los grupos cuando está seleccionado 'All Groups'
+  useEffect(() => {
+    const fetchAllGroupsActivities = async () => {
+      if (
+        activeTab === 'groups-feed' &&
+        !selectedGroupId &&
+        groups.length > 0 &&
+        token &&
+        !allGroupsFetchedRef.current
+      ) {
+        setLoadingAllGroups(true);
+        try {
+          const results = await Promise.all(
+            groups.map(async (g) => {
+              // getGroupActivity espera (token, groupId, params)
+              const res = await import('../../lib/api').then(m => m.getGroupActivity(g.id, token, { per_page: 20 }));
+              return res.activities || [];
+            })
+          );
+          setAllGroupsActivities(results.flat());
+          allGroupsFetchedRef.current = true;
+        } catch (e) {
+          setAllGroupsActivities([]);
+        }
+        setLoadingAllGroups(false);
+      }
+      if (activeTab !== 'groups-feed' || selectedGroupId) {
+        setAllGroupsActivities([]);
+        allGroupsFetchedRef.current = false;
+      }
+    };
+    fetchAllGroupsActivities();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, selectedGroupId, groups, token]);
   
   // Fetch feed based on active tab with infinite scroll
   const scope = activeTab === 'groups-feed' ? 'groups' : undefined;
@@ -435,20 +478,12 @@ function CommunityScreen() {
   // Flatten all activities from all pages
   let allActivities = feedData?.pages?.flatMap(page => page.activities) || [];
 
-  // For groups feed, use group activity if specific group is selected
+  // Para pestaña de grupos, usar posts de todos los grupos si está seleccionado 'All Groups'
   if (activeTab === 'groups-feed') {
     if (selectedGroupId && groupActivityData) {
       allActivities = groupActivityData.activities || [];
     } else if (!selectedGroupId && groups.length > 0) {
-      // Filtrar solo posts de los grupos donde el usuario es miembro
-      const groupIds = groups.map(g => g.id);
-      allActivities = allActivities.filter(activity => {
-        // activity.component === 'groups' y activity.group_id pertenece a groupIds
-        return (
-          activity.component === 'groups' &&
-          groupIds.includes(activity.group_id)
-        );
-      });
+      allActivities = allGroupsActivities;
     }
   }
 
@@ -463,6 +498,10 @@ function CommunityScreen() {
   console.log('[CommunityScreen] Total pages:', feedData?.pages?.length || 0);
   console.log('[CommunityScreen] Total activities:', allActivities.length);
   console.log('[CommunityScreen] Has next page:', hasNextPage);
+  if (activeTab === 'groups-feed' && !selectedGroupId) {
+    console.log('[CommunityScreen] All groups activities:', allGroupsActivities);
+    console.log('[CommunityScreen] Loading all groups:', loadingAllGroups);
+  }
   
   // Mutations
   const createPostMutation = useCreatePost(token);
