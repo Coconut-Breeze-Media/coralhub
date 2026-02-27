@@ -128,14 +128,24 @@ export function useSharePost(token: string | null) {
  */
 export function useDeletePost(token: string | null) {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: async (activityId: number) => {
       if (!token) throw new Error('No authentication token');
+      // Delete all comments for this post first, then delete the post itself
+      try {
+        const comments = await getPostComments(activityId, token);
+        if (comments.length > 0) {
+          await Promise.all(comments.map((c) => deleteComment(c.id, token)));
+        }
+      } catch {
+        // If comment cleanup fails (no comments, permissions, etc.) still delete the post
+      }
       return deletePost(activityId, token);
     },
-    onSuccess: () => {
+    onSuccess: (_data, activityId) => {
       queryClient.invalidateQueries({ queryKey: ['activity'] });
+      queryClient.removeQueries({ queryKey: ['comments', activityId] });
     },
   });
 }
