@@ -19,6 +19,7 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { router } from 'expo-router';
 import { useAuth } from '../../lib/auth';
 import { uploadImage } from '../../lib/api';
 import RequireAuth from '../../components/RequireAuth';
@@ -729,7 +730,15 @@ function CommunityScreen() {
       {/* Mostrar grupos donde el usuario es miembro antes de los posts en la pestaña Groups */}
       {activeTab === 'groups-feed' && (
         <View style={{paddingHorizontal: 16, marginBottom: 12}}>
-          <Text style={{fontWeight: 'bold', fontSize: 16, marginBottom: 8}}>Your Groups</Text>
+          <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8}}>
+            <Text style={{fontWeight: 'bold', fontSize: 16}}>Your Groups</Text>
+            <TouchableOpacity
+              onPress={() => router.push('/explore-groups')}
+              style={{flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#eff6ff', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20}}
+            >
+              <Text style={{fontSize: 13, fontWeight: '600', color: '#2563eb'}}>Explore</Text>
+            </TouchableOpacity>
+          </View>
           {groups.length === 0 ? (
             <Text style={{color: '#888'}}>You are not a member of any groups.</Text>
           ) : (

@@ -5,8 +5,29 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
-import { getMyGroups, getUserGroups, getGroupById, getGroupActivity, getGroupMembers } from '../lib/api';
+import { getMyGroups, getUserGroups, getGroupById, getGroupActivity, getGroupMembers, getAllGroups } from '../lib/api';
 import type { BPGroup } from '../types';
+
+/**
+ * Hook to fetch all groups for exploration
+ * @param token - JWT authentication token
+ * @param params - Query parameters (per_page, page, search)
+ */
+export function useAllGroups(
+  token: string | null,
+  params?: { per_page?: number; page?: number; search?: string }
+) {
+  return useQuery({
+    queryKey: ['groups', 'all', params] as const,
+    queryFn: async () => {
+      if (!token) throw new Error('No authentication token');
+      return getAllGroups(token, params);
+    },
+    enabled: !!token,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+  });
+}
 
 /**
  * Hook to fetch current user's groups

@@ -1045,6 +1045,39 @@ export async function getMyGroups(
 }
 
 /**
+ * Get all groups (public exploration)
+ * @param {string} token - JWT authentication token
+ * @param {object} params - Query parameters
+ * @param {number} params.per_page - Number of groups per page (default 20)
+ * @param {number} params.page - Page number
+ * @param {string} params.search - Search term to filter groups by name
+ * @returns {Promise<import('../types').BPGroup[]>}
+ */
+export async function getAllGroups(
+  token: string,
+  params?: { per_page?: number; page?: number; search?: string }
+): Promise<import('../types').BPGroup[]> {
+  const queryParams = new URLSearchParams();
+
+  queryParams.append('per_page', (params?.per_page ?? 20).toString());
+  queryParams.append('populate_extras', 'true');
+
+  if (params?.page) {
+    queryParams.append('page', params.page.toString());
+  }
+
+  if (params?.search) {
+    queryParams.append('search', params.search);
+  }
+
+  const endpoint = `/buddypress/v1/groups?${queryParams.toString()}`;
+
+  console.log('[getAllGroups] Fetching all groups');
+
+  return authedFetch<import('../types').BPGroup[]>(endpoint, token);
+}
+
+/**
  * Get groups for a specific user
  * @param {number} userId - User ID
  * @param {string} token - JWT authentication token
