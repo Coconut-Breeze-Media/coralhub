@@ -89,6 +89,46 @@ export default function RootLayout() {
               headerShown: false,
             }}
           />
+
+          {/* Profile activity screen */}
+          <Stack.Screen
+            name="profile/activity"
+            options={{
+              headerShown: false,
+            }}
+          />
+
+          {/* Profile groups screen */}
+          <Stack.Screen
+            name="profile/groups"
+            options={{
+              headerShown: false,
+            }}
+          />
+
+          {/* Profile connections screen */}
+          <Stack.Screen
+            name="profile/connections"
+            options={{
+              headerShown: false,
+            }}
+          />
+
+          {/* Group detail screen */}
+          <Stack.Screen
+            name="group-detail"
+            options={{
+              headerShown: false,
+            }}
+          />
+
+          {/* Explore groups screen */}
+          <Stack.Screen
+            name="explore-groups"
+            options={{
+              headerShown: false,
+            }}
+          />
         </Stack>
       </AuthProvider>
     </QueryClientProvider>

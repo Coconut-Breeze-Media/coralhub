@@ -17,8 +17,8 @@ import {
   StyleSheet,
   Platform,
 } from 'react-native';
-import { Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import BackButton from '../../components/BackButton';
 import { useAuth } from '../../lib/auth';
 import { 
   useMe, 
@@ -373,43 +373,6 @@ export default function ConnectionsScreen() {
     );
   };
   
-  if (isLoading) {
-    return (
-      <>
-        <Stack.Screen
-          options={{
-            title: 'Connections',
-            headerBackTitle: 'Profile',
-          }}
-        />
-        <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color="#0066cc" />
-          <Text style={styles.loadingText}>Loading connections...</Text>
-        </View>
-      </>
-    );
-  }
-  
-  if (error) {
-    return (
-      <>
-        <Stack.Screen
-          options={{
-            title: 'Connections',
-            headerBackTitle: 'Profile',
-          }}
-        />
-        <View style={styles.centerContainer}>
-          <Ionicons name="alert-circle-outline" size={64} color="#ff4444" />
-          <Text style={styles.errorText}>Failed to load connections</Text>
-          <Text style={styles.errorDetail}>{(error as Error).message}</Text>
-          <TouchableOpacity style={styles.retryButton} onPress={onRefresh}>
-            <Text style={styles.retryButtonText}>Retry</Text>
-          </TouchableOpacity>
-        </View>
-      </>
-    );
-  }
   
   const friends = friendsData?.friends || [];
   const allRequests = pendingRequests || [];
@@ -457,92 +420,121 @@ export default function ConnectionsScreen() {
   };
   
   return (
-    <>
-      <Stack.Screen
-        options={{
-          title: 'Connections',
-          headerBackTitle: 'Profile',
+    <View style={{ flex: 1, backgroundColor: '#f5f5f5' }}>
+      {/* Header */}
+      <View
+        style={{
+          backgroundColor: '#fff',
+          borderBottomWidth: 1,
+          borderBottomColor: '#e5e7eb',
+          paddingHorizontal: 16,
+          paddingTop: 60,
+          paddingBottom: 16,
         }}
-      />
-      <View style={styles.container}>
-        {/* Tab Navigation */}
-        <View style={styles.tabContainer}>
-          <TouchableOpacity
-            style={[styles.tab, activeTab === 'friends' && styles.activeTab]}
-            onPress={() => setActiveTab('friends')}
-          >
-            <Text style={[styles.tabText, activeTab === 'friends' && styles.activeTabText]}>
-              Friends
-            </Text>
-            {friends.length > 0 && (
-              <View style={styles.badge}>
-                <Text style={styles.badgeText}>{friends.length}</Text>
-              </View>
-            )}
-          </TouchableOpacity>
-          
-          <TouchableOpacity
-            style={[styles.tab, activeTab === 'requests' && styles.activeTab]}
-            onPress={() => setActiveTab('requests')}
-          >
-            <Text style={[styles.tabText, activeTab === 'requests' && styles.activeTabText]}>
-              Requests
-            </Text>
-            {requests.length > 0 && (
-              <View style={[styles.badge, styles.badgeAlert]}>
-                <Text style={styles.badgeText}>{requests.length}</Text>
-              </View>
-            )}
+      >
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+          <BackButton />
+          <Text style={{ fontSize: 20, fontWeight: '700', color: '#1f2937', flex: 1 }}>
+            Connections
+          </Text>
+        </View>
+      </View>
+
+      {isLoading ? (
+        <View style={styles.centerContainer}>
+          <ActivityIndicator size="large" color="#0066cc" />
+          <Text style={styles.loadingText}>Loading connections...</Text>
+        </View>
+      ) : error ? (
+        <View style={styles.centerContainer}>
+          <Ionicons name="alert-circle-outline" size={64} color="#ff4444" />
+          <Text style={styles.errorText}>Failed to load connections</Text>
+          <Text style={styles.errorDetail}>{(error as Error).message}</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={onRefresh}>
+            <Text style={styles.retryButtonText}>Retry</Text>
           </TouchableOpacity>
         </View>
-        
-        {/* Content */}
-        {activeTab === 'friends' ? (
-          <>
-            {friends.length === 0 ? (
-              renderEmptyState()
-            ) : (
-              <FlatList
-                data={friends}
-                renderItem={renderFriendItem}
-                keyExtractor={(item) => item.id.toString()}
-                contentContainerStyle={styles.listContent}
-                refreshControl={
-                  <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-                }
-                ItemSeparatorComponent={() => <View style={styles.separator} />}
-              />
-            )}
-          </>
-        ) : (
-          <>
-            {requests.length === 0 ? (
-              renderEmptyState()
-            ) : (
-              <FlatList
-                data={requests}
-                renderItem={({ item }) => <FriendRequestItem item={item} />}
-                keyExtractor={(item) => item.id.toString()}
-                contentContainerStyle={styles.listContent}
-                refreshControl={
-                  <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-                }
-                ItemSeparatorComponent={() => <View style={styles.separator} />}
-                ListHeaderComponent={() => (
-                  <View style={styles.requestsHeader}>
-                    {receivedRequests.length > 0 && (
-                      <Text style={styles.requestsHeaderText}>
-                        {receivedRequests.length} Received • {sentRequests.length} Sent
-                      </Text>
-                    )}
-                  </View>
-                )}
-              />
-            )}
-          </>
-        )}
-      </View>
-      
+      ) : (
+        <View style={styles.container}>
+          {/* Tab Navigation */}
+          <View style={styles.tabContainer}>
+            <TouchableOpacity
+              style={[styles.tab, activeTab === 'friends' && styles.activeTab]}
+              onPress={() => setActiveTab('friends')}
+            >
+              <Text style={[styles.tabText, activeTab === 'friends' && styles.activeTabText]}>
+                Friends
+              </Text>
+              {friends.length > 0 && (
+                <View style={styles.badge}>
+                  <Text style={styles.badgeText}>{friends.length}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.tab, activeTab === 'requests' && styles.activeTab]}
+              onPress={() => setActiveTab('requests')}
+            >
+              <Text style={[styles.tabText, activeTab === 'requests' && styles.activeTabText]}>
+                Requests
+              </Text>
+              {requests.length > 0 && (
+                <View style={[styles.badge, styles.badgeAlert]}>
+                  <Text style={styles.badgeText}>{requests.length}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          </View>
+
+          {/* Content */}
+          {activeTab === 'friends' ? (
+            <>
+              {friends.length === 0 ? (
+                renderEmptyState()
+              ) : (
+                <FlatList
+                  data={friends}
+                  renderItem={renderFriendItem}
+                  keyExtractor={(item) => item.id.toString()}
+                  contentContainerStyle={styles.listContent}
+                  refreshControl={
+                    <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+                  }
+                  ItemSeparatorComponent={() => <View style={styles.separator} />}
+                />
+              )}
+            </>
+          ) : (
+            <>
+              {requests.length === 0 ? (
+                renderEmptyState()
+              ) : (
+                <FlatList
+                  data={requests}
+                  renderItem={({ item }) => <FriendRequestItem item={item} />}
+                  keyExtractor={(item) => item.id.toString()}
+                  contentContainerStyle={styles.listContent}
+                  refreshControl={
+                    <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+                  }
+                  ItemSeparatorComponent={() => <View style={styles.separator} />}
+                  ListHeaderComponent={() => (
+                    <View style={styles.requestsHeader}>
+                      {receivedRequests.length > 0 && (
+                        <Text style={styles.requestsHeaderText}>
+                          {receivedRequests.length} Received • {sentRequests.length} Sent
+                        </Text>
+                      )}
+                    </View>
+                  )}
+                />
+              )}
+            </>
+          )}
+        </View>
+      )}
+
       {/* Remove Friend Confirmation Modal */}
       <RemoveFriendModal
         visible={modalVisible}
@@ -551,7 +543,7 @@ export default function ConnectionsScreen() {
         onConfirm={confirmRemoveFriend}
         onCancel={cancelRemoveFriend}
       />
-    </>
+    </View>
   );
 }
 

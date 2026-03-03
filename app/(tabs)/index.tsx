@@ -1,5 +1,5 @@
 // app/(tabs)/index.tsx
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -431,13 +431,10 @@ function CommunityScreen() {
   
   // Fetch user's groups
   const { data: userGroups } = useMyGroups(token);
-  const groups = userGroups || [];
-  // Mostrar por consola los grupos a los que pertenece el usuario
-  console.log('[CommunityScreen] Grupos del usuario:', groups);
+  const groups = useMemo(() => userGroups || [], [userGroups]);
   
   // Estado para almacenar posts de todos los grupos
   const [allGroupsActivities, setAllGroupsActivities] = useState([]);
-  const [loadingAllGroups, setLoadingAllGroups] = useState(false);
   const allGroupsFetchedRef = useRef(false);
 
   // Fetch group activity si hay grupo seleccionado
@@ -456,7 +453,6 @@ function CommunityScreen() {
         token &&
         !allGroupsFetchedRef.current
       ) {
-        setLoadingAllGroups(true);
         try {
           const results = await Promise.all(
             groups.map(async (g) => {
@@ -470,7 +466,6 @@ function CommunityScreen() {
         } catch (e) {
           setAllGroupsActivities([]);
         }
-        setLoadingAllGroups(false);
       }
       if (activeTab !== 'groups-feed' || selectedGroupId) {
         setAllGroupsActivities([]);
@@ -512,15 +507,6 @@ function CommunityScreen() {
     return !unwantedTypes.includes(activity.type);
   });
   
-  // Log posts data for debugging
-  console.log('[CommunityScreen] Feed data:', feedData);
-  console.log('[CommunityScreen] Total pages:', feedData?.pages?.length || 0);
-  console.log('[CommunityScreen] Total activities:', allActivities.length);
-  console.log('[CommunityScreen] Has next page:', hasNextPage);
-  if (activeTab === 'groups-feed' && !selectedGroupId) {
-    console.log('[CommunityScreen] All groups activities:', allGroupsActivities);
-    console.log('[CommunityScreen] Loading all groups:', loadingAllGroups);
-  }
   
   // Mutations
   const createPostMutation = useCreatePost(token);
@@ -698,7 +684,7 @@ function CommunityScreen() {
   };
   
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={styles.container} edges={[]}>
       {/* Tab Navigation */}
       <View style={styles.tabContainer}>
         <TouchableOpacity
@@ -744,7 +730,12 @@ function CommunityScreen() {
           ) : (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom: 8}}>
               {groups.map((group) => (
-                <View key={group.id} style={{alignItems: 'center', marginRight: 16}}>
+                <TouchableOpacity
+                  key={group.id}
+                  style={{alignItems: 'center', marginRight: 16}}
+                  onPress={() => router.push(`/group-detail?id=${group.id}`)}
+                  activeOpacity={0.7}
+                >
                   {group.avatar_urls?.thumb ? (
                     <Image source={{ uri: group.avatar_urls.thumb }} style={{width: 48, height: 48, borderRadius: 24, marginBottom: 4}} />
                   ) : (
@@ -753,7 +744,7 @@ function CommunityScreen() {
                     </View>
                   )}
                   <Text style={{fontSize: 12, textAlign: 'center', maxWidth: 60}} numberOfLines={2}>{group.name}</Text>
-                </View>
+                </TouchableOpacity>
               ))}
             </ScrollView>
           )}
