@@ -225,6 +225,24 @@ export async function getMemberById(userId: number, token: string): Promise<BPMe
 }
 
 /**
+ * Get a list of BuddyPress members with optional search and pagination
+ * Uses buddypress/v1/members endpoint and populate_extras=true to include friendship_status_slug
+ * @param token - JWT authentication token
+ * @param options - Query options (search, page, perPage)
+ */
+export async function getMembers(
+  token: string,
+  options?: { search?: string; page?: number; perPage?: number }
+): Promise<BPMember[]> {
+  const params = new URLSearchParams();
+  if (options?.search) params.set('search', options.search);
+  params.set('page', String(options?.page ?? 1));
+  params.set('per_page', String(options?.perPage ?? 20));
+  params.set('populate_extras', 'true');
+  return authedFetch<BPMember[]>(`/buddypress/v1/members?${params}`, token);
+}
+
+/**
  * Update current user's profile
  * @param {string} token - JWT authentication token
  * @param {UpdateMemberPayload} payload - Profile update data

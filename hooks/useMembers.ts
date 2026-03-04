@@ -1,6 +1,6 @@
 // hooks/useMembers.ts
 import { useQuery } from '@tanstack/react-query';
-import { getMemberById } from '../lib/api';
+import { getMemberById, getMembers } from '../lib/api';
 import type { BPMember } from '../types';
 
 /**
@@ -19,6 +19,26 @@ export function useMember(token: string | null, userId: number | null | undefine
     enabled: !!token && !!userId,
     staleTime: 5 * 60 * 1000, // 5 minutes - user info doesn't change often
     gcTime: 10 * 60 * 1000, // 10 minutes - keep in cache
+  });
+}
+
+/**
+ * Hook to fetch a paginated/searchable list of BuddyPress members
+ * @param token - JWT authentication token
+ * @param options - Query options (search, page, perPage)
+ */
+export function useMembersList(
+  token: string | null,
+  options?: { search?: string; page?: number; perPage?: number }
+) {
+  return useQuery({
+    queryKey: ['members', 'list', options?.search ?? '', options?.page ?? 1] as const,
+    queryFn: () => {
+      if (!token) throw new Error('No authentication token');
+      return getMembers(token, options);
+    },
+    enabled: !!token,
+    staleTime: 2 * 60 * 1000,
   });
 }
 

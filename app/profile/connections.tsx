@@ -11,6 +11,7 @@ import {
   FlatList,
   Image,
   TouchableOpacity,
+  TextInput,
   RefreshControl,
   Alert,
   ActivityIndicator,
@@ -20,238 +21,70 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import BackButton from '../../components/BackButton';
 import { useAuth } from '../../lib/auth';
-import { 
-  useMe, 
-  useFriendsList, 
+import {
+  useMe,
+  useFriendsList,
   useRemoveFriend,
   usePendingFriendRequests,
   useAcceptFriendRequest,
-  useRejectFriendRequest
+  useRejectFriendRequest,
+  useSendFriendRequest,
 } from '../../hooks/useQueries';
-import { useMember } from '../../hooks/useMembers';
+import { useMember, useMembersList } from '../../hooks/useMembers';
 import RemoveFriendModal from '../../components/RemoveFriendModal';
-import type { FriendWithDetails, BPFriendship } from '../../types';
+import type { FriendWithDetails, BPFriendship, BPMember } from '../../types';
 
-type TabType = 'friends' | 'requests';
+type TabType = 'connect' | 'friends' | 'requests';
 
-export default function ConnectionsScreen() {
-  const [activeTab, setActiveTab] = useState<TabType>('friends');
-  const [page, setPage] = useState(1);
-  const [modalVisible, setModalVisible] = useState(false);
-  const [selectedFriend, setSelectedFriend] = useState<FriendWithDetails | null>(null);
-  
-  // Get current user to retrieve their ID
-  const { data: currentUser, isLoading: isLoadingUser } = useMe();
-  const userId = currentUser?.id;
-  
-  // Fetch friends list for current user
-  const { data: friendsData, isLoading: isLoadingFriends, error: friendsError, refetch: refetchFriends } = useFriendsList(
-    userId,
-    page,
-    20
-  );
-  
-  // Fetch pending friend requests
-  const { data: pendingRequests, isLoading: isLoadingRequests, error: requestsError, refetch: refetchRequests } = usePendingFriendRequests(userId);
-  
-  const removeFriendMutation = useRemoveFriend();
-  const acceptRequestMutation = useAcceptFriendRequest();
-  const rejectRequestMutation = useRejectFriendRequest();
-  
-  const [refreshing, setRefreshing] = useState(false);
-  
-  // Combined loading state - show loader while user or friends are loading
-  const isLoading = isLoadingUser || (activeTab === 'friends' ? isLoadingFriends : isLoadingRequests);
-  const error = activeTab === 'friends' ? friendsError : requestsError;
-  
-  const onRefresh = async () => {
-    setRefreshing(true);
-    if (activeTab === 'friends') {
-      await refetchFriends();
-    } else {
-      await refetchRequests();
-    }
-    setRefreshing(false);
-  };
-  
-  const handleRemoveFriend = (friend: FriendWithDetails) => {
-    console.log('handleRemoveFriend called for:', friend.name);
-    console.log('friend user ID:', friend.id);
-    console.log('friendship_id (for reference):', friend.friendship_id);
-    
-    // Check if friend ID is valid
-    if (!friend.id || friend.id === 0) {
-      console.log('Invalid friend user ID, showing error alert');
-      Alert.alert(
-        'Error',
-        'Cannot remove friend: Invalid user ID. Please refresh and try again.'
-      );
-      return;
-    }
-    
-    // Show confirmation modal
-    setSelectedFriend(friend);
-    setModalVisible(true);
-  };
-  
-  const confirmRemoveFriend = async () => {
-    if (!selectedFriend) return;
-    
+// ─── Connect Tab ────────────────────────────────────────────────────────────
+function ConnectTab() {
+  const { token } = useAuth();
+  const [searchInput, setSearchInput] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sentIds, setSentIds] = useState<Set<number>>(new Set());
+  const [pendingIds, setPendingIds] = useState<Set<number>>(new Set());
+
+  const { data: members, isLoading } = useMembersList(token, {
+    search: searchQuery,
+    perPage: 20,
+  });
+
+  const sendFriendMutation = useSendFriendRequest();
+
+  const handleConnect = async (memberId: number, memberName: string) => {
+    setPendingIds(prev => new Set([...prev, memberId]));
     try {
-      console.log('Removing friend:', {
-        userId: selectedFriend.id,
-        name: selectedFriend.name,
-        friendshipId: selectedFriend.friendship_id
-      });
-      
-      const result = await removeFriendMutation.mutateAsync({
-        friendUserId: selectedFriend.id,
-        friendshipId: selectedFriend.friendship_id,
-      });
-      
-      console.log('Remove friend result:', result);
-      
-      // Close modal
-      setModalVisible(false);
-      setSelectedFriend(null);
-      
-      // Refresh the friends list immediately
-      await refetchFriends();
-      
-      // Show success message
-      Alert.alert(
-        'Friend Removed',
-        `${selectedFriend.name} has been removed from your connections.`
-      );
+      await sendFriendMutation.mutateAsync(memberId);
+      setSentIds(prev => new Set([...prev, memberId]));
+      Alert.alert('Request Sent', `Friend request sent to ${memberName}!`);
     } catch (err) {
-      console.error('Error removing friend:', err);
-      
-      // Close modal
-      setModalVisible(false);
-      setSelectedFriend(null);
-      
-      // Show error message
-      Alert.alert(
-        'Error',
-        `Failed to remove friend: ${err instanceof Error ? err.message : 'Unknown error'}`
-      );
+      Alert.alert('Error', `Failed to send request: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
+      setPendingIds(prev => {
+        const next = new Set(prev);
+        next.delete(memberId);
+        return next;
+      });
     }
   };
-  
-  const cancelRemoveFriend = () => {
-    setModalVisible(false);
-    setSelectedFriend(null);
-  };
-  
-  const handleAcceptRequest = async (request: BPFriendship) => {
-    if (!userId) {
-      Alert.alert('Error', 'User ID not available');
-      return;
-    }
-    
-    // Determine who is the "other" user (who sent the request)
-    const otherUserId = request.initiator_id === userId 
-      ? request.friend_id 
-      : request.initiator_id;
-    
-    console.log('[handleAcceptRequest] Accepting request:', {
-      friendshipId: request.id,
-      otherUserId,
-      currentUserId: userId,
-      request,
-    });
-    
-    try {
-      // Use PUT on the other user's ID to accept their friendship request
-      // The optimistic update in the mutation will remove it from UI immediately
-      await acceptRequestMutation.mutateAsync({ otherUserId, userId });
-      
-      // Force refetch both lists to ensure they're in sync with server
-      await Promise.all([refetchRequests(), refetchFriends()]);
-      
-      Alert.alert('Success', 'Friend request accepted!');
-    } catch (err) {
-      console.error('Error accepting friend request:', err);
-      Alert.alert('Error', `Failed to accept request: ${err instanceof Error ? err.message : 'Unknown error'}`);
-    }
-  };
-  
-  const handleRejectRequest = async (request: BPFriendship) => {
-    if (!userId) {
-      Alert.alert('Error', 'User ID not available');
-      return;
-    }
-    
-    Alert.alert(
-      'Reject Request',
-      'Are you sure you want to reject this friend request?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Reject',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              // Determine who is the "other" user - use their user_id, not friendship_id
-              const otherUserId = request.initiator_id === userId ? request.friend_id : request.initiator_id;
-              
-              console.log('[handleRejectRequest] Rejecting request for user:', otherUserId);
-              
-              // DELETE /friends/{otherUserId} with force: true
-              await rejectRequestMutation.mutateAsync(otherUserId);
-              await refetchRequests();
-              Alert.alert('Success', 'Friend request rejected.');
-            } catch (err) {
-              console.error('Error rejecting friend request:', err);
-              Alert.alert('Error', `Failed to reject request: ${err instanceof Error ? err.message : 'Unknown error'}`);
-            }
-          },
-        },
-      ]
-    );
-  };
-  
-  const calculateFriendshipDuration = (dateString: string): string => {
-    if (!dateString) return 'Unknown';
-    
-    const friendshipDate = new Date(dateString);
-    const now = new Date();
-    const diffMs = now.getTime() - friendshipDate.getTime();
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-    
-    if (diffDays < 1) {
-      return 'Friends since today';
-    } else if (diffDays === 1) {
-      return 'Friends since 1 day ago';
-    } else if (diffDays < 30) {
-      return `Friends for ${diffDays} days`;
-    } else if (diffDays < 365) {
-      const months = Math.floor(diffDays / 30);
-      return months === 1 ? 'Friends for 1 month' : `Friends for ${months} months`;
-    } else {
-      const years = Math.floor(diffDays / 365);
-      return years === 1 ? 'Friends for 1 year' : `Friends for ${years} years`;
-    }
-  };
-  
-  const renderFriendItem = ({ item }: { item: FriendWithDetails }) => {
+
+  const renderMemberItem = ({ item }: { item: BPMember }) => {
     const avatarUrl = item.avatar_urls?.thumb || item.avatar_urls?.full;
-    const friendshipDuration = calculateFriendshipDuration(item.friendship_date);
-    
+    const statusSlug = item.friendship_status_slug;
+    const isPending = pendingIds.has(item.id);
+    const hasSent = sentIds.has(item.id);
+
+    const isAlreadyFriend = statusSlug === 'is_friend';
+    const hasRequest =
+      statusSlug === 'pending' ||
+      statusSlug === 'awaiting_response' ||
+      hasSent;
+
     return (
       <View style={styles.friendCard}>
-        <TouchableOpacity 
-          style={styles.friendInfo}
-          onPress={() => {
-            // TODO: Navigate to friend profile
-            Alert.alert('Profile', `View ${item.name}'s profile`);
-          }}
-        >
+        <View style={styles.friendInfo}>
           {avatarUrl ? (
-            <Image
-              source={{ uri: avatarUrl }}
-              style={styles.avatar}
-            />
+            <Image source={{ uri: avatarUrl }} style={styles.avatar} />
           ) : (
             <View style={[styles.avatar, styles.avatarPlaceholder]}>
               <Text style={styles.avatarPlaceholderText}>
@@ -259,7 +92,236 @@ export default function ConnectionsScreen() {
               </Text>
             </View>
           )}
-          
+          <View style={styles.friendDetails}>
+            <Text style={styles.friendName}>{item.name}</Text>
+            {item.last_activity?.timediff && (
+              <Text style={styles.lastActive}>Active {item.last_activity.timediff}</Text>
+            )}
+          </View>
+        </View>
+
+        {isAlreadyFriend ? (
+          <View style={styles.friendStatusBadge}>
+            <Ionicons name="checkmark-circle" size={16} color="#22c55e" />
+            <Text style={styles.friendStatusText}>Friends</Text>
+          </View>
+        ) : hasRequest ? (
+          <View style={styles.pendingBadge}>
+            <Ionicons name="time-outline" size={16} color="#0066cc" />
+            <Text style={styles.pendingText}>Pending</Text>
+          </View>
+        ) : (
+          <TouchableOpacity
+            style={styles.addFriendButton}
+            onPress={() => handleConnect(item.id, item.name)}
+            disabled={isPending}
+            activeOpacity={0.7}
+          >
+            {isPending ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <>
+                <Ionicons name="person-add-outline" size={15} color="#fff" />
+                <Text style={styles.addFriendText}>Connect</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        )}
+      </View>
+    );
+  };
+
+  return (
+    <View style={{ flex: 1 }}>
+      {/* Search bar */}
+      <View style={styles.searchContainer}>
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Search members..."
+          placeholderTextColor="#999"
+          value={searchInput}
+          onChangeText={setSearchInput}
+          onSubmitEditing={() => setSearchQuery(searchInput)}
+          returnKeyType="search"
+        />
+        <TouchableOpacity
+          style={styles.searchButton}
+          onPress={() => setSearchQuery(searchInput)}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="search" size={18} color="#fff" />
+        </TouchableOpacity>
+      </View>
+
+      {isLoading ? (
+        <View style={styles.centerContainer}>
+          <ActivityIndicator size="large" color="#0066cc" />
+          <Text style={styles.loadingText}>Loading members...</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={members || []}
+          renderItem={renderMemberItem}
+          keyExtractor={(item) => item.id.toString()}
+          contentContainerStyle={styles.listContent}
+          ItemSeparatorComponent={() => <View style={styles.separator} />}
+          ListEmptyComponent={() => (
+            <View style={styles.emptyContainer}>
+              <Ionicons name="people-outline" size={80} color="#ccc" />
+              <Text style={styles.emptyTitle}>
+                {searchQuery ? 'No members found' : 'No members available'}
+              </Text>
+              <Text style={styles.emptyText}>
+                {searchQuery
+                  ? `No results for "${searchQuery}". Try a different search.`
+                  : 'Community members will appear here.'}
+              </Text>
+            </View>
+          )}
+        />
+      )}
+    </View>
+  );
+}
+
+// ─── Main Screen ────────────────────────────────────────────────────────────
+export default function ConnectionsScreen() {
+  const [activeTab, setActiveTab] = useState<TabType>('connect');
+  const [page] = useState(1);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [selectedFriend, setSelectedFriend] = useState<FriendWithDetails | null>(null);
+
+  const { data: currentUser, isLoading: isLoadingUser } = useMe();
+  const userId = currentUser?.id;
+
+  const { data: friendsData, isLoading: isLoadingFriends, error: friendsError, refetch: refetchFriends } = useFriendsList(
+    userId,
+    page,
+    20
+  );
+
+  const { data: pendingRequests, isLoading: isLoadingRequests, error: requestsError, refetch: refetchRequests } = usePendingFriendRequests(userId);
+
+  const removeFriendMutation = useRemoveFriend();
+  const acceptRequestMutation = useAcceptFriendRequest();
+  const rejectRequestMutation = useRejectFriendRequest();
+
+  const [refreshing, setRefreshing] = useState(false);
+
+  const isLoading =
+    isLoadingUser ||
+    (activeTab === 'friends'
+      ? isLoadingFriends
+      : activeTab === 'requests'
+      ? isLoadingRequests
+      : false);
+
+  const error = activeTab === 'friends' ? friendsError : activeTab === 'requests' ? requestsError : null;
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    if (activeTab === 'friends') await refetchFriends();
+    else if (activeTab === 'requests') await refetchRequests();
+    setRefreshing(false);
+  };
+
+  const handleRemoveFriend = (friend: FriendWithDetails) => {
+    if (!friend.id || friend.id === 0) {
+      Alert.alert('Error', 'Cannot remove friend: Invalid user ID. Please refresh and try again.');
+      return;
+    }
+    setSelectedFriend(friend);
+    setModalVisible(true);
+  };
+
+  const confirmRemoveFriend = async () => {
+    if (!selectedFriend) return;
+    try {
+      await removeFriendMutation.mutateAsync({
+        friendUserId: selectedFriend.id,
+        friendshipId: selectedFriend.friendship_id,
+      });
+      setModalVisible(false);
+      setSelectedFriend(null);
+      await refetchFriends();
+      Alert.alert('Friend Removed', `${selectedFriend.name} has been removed from your connections.`);
+    } catch (err) {
+      setModalVisible(false);
+      setSelectedFriend(null);
+      Alert.alert('Error', `Failed to remove friend: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
+  };
+
+  const cancelRemoveFriend = () => {
+    setModalVisible(false);
+    setSelectedFriend(null);
+  };
+
+  const handleAcceptRequest = async (request: BPFriendship) => {
+    if (!userId) { Alert.alert('Error', 'User ID not available'); return; }
+    const otherUserId = request.initiator_id === userId ? request.friend_id : request.initiator_id;
+    try {
+      await acceptRequestMutation.mutateAsync({ otherUserId, userId });
+      await Promise.all([refetchRequests(), refetchFriends()]);
+      Alert.alert('Success', 'Friend request accepted!');
+    } catch (err) {
+      Alert.alert('Error', `Failed to accept request: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
+  };
+
+  const handleRejectRequest = async (request: BPFriendship) => {
+    if (!userId) { Alert.alert('Error', 'User ID not available'); return; }
+    Alert.alert('Reject Request', 'Are you sure you want to reject this friend request?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Reject',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            const otherUserId = request.initiator_id === userId ? request.friend_id : request.initiator_id;
+            await rejectRequestMutation.mutateAsync(otherUserId);
+            await refetchRequests();
+            Alert.alert('Success', 'Friend request rejected.');
+          } catch (err) {
+            Alert.alert('Error', `Failed to reject request: ${err instanceof Error ? err.message : 'Unknown error'}`);
+          }
+        },
+      },
+    ]);
+  };
+
+  const calculateFriendshipDuration = (dateString: string): string => {
+    if (!dateString) return 'Unknown';
+    const friendshipDate = new Date(dateString);
+    const now = new Date();
+    const diffDays = Math.floor((now.getTime() - friendshipDate.getTime()) / (1000 * 60 * 60 * 24));
+    if (diffDays < 1) return 'Friends since today';
+    if (diffDays === 1) return 'Friends since 1 day ago';
+    if (diffDays < 30) return `Friends for ${diffDays} days`;
+    if (diffDays < 365) {
+      const months = Math.floor(diffDays / 30);
+      return months === 1 ? 'Friends for 1 month' : `Friends for ${months} months`;
+    }
+    const years = Math.floor(diffDays / 365);
+    return years === 1 ? 'Friends for 1 year' : `Friends for ${years} years`;
+  };
+
+  const renderFriendItem = ({ item }: { item: FriendWithDetails }) => {
+    const avatarUrl = item.avatar_urls?.thumb || item.avatar_urls?.full;
+    const friendshipDuration = calculateFriendshipDuration(item.friendship_date);
+    return (
+      <View style={styles.friendCard}>
+        <TouchableOpacity
+          style={styles.friendInfo}
+          onPress={() => Alert.alert('Profile', `View ${item.name}'s profile`)}
+        >
+          {avatarUrl ? (
+            <Image source={{ uri: avatarUrl }} style={styles.avatar} />
+          ) : (
+            <View style={[styles.avatar, styles.avatarPlaceholder]}>
+              <Text style={styles.avatarPlaceholderText}>{item.name.charAt(0).toUpperCase()}</Text>
+            </View>
+          )}
           <View style={styles.friendDetails}>
             <Text style={styles.friendName}>{item.name}</Text>
             <Text style={styles.friendshipDuration}>{friendshipDuration}</Text>
@@ -268,13 +330,9 @@ export default function ConnectionsScreen() {
             )}
           </View>
         </TouchableOpacity>
-        
         <TouchableOpacity
           style={styles.removeButton}
-          onPress={() => {
-            console.log('Remove button pressed!');
-            handleRemoveFriend(item);
-          }}
+          onPress={() => handleRemoveFriend(item)}
           disabled={removeFriendMutation.isPending}
           activeOpacity={0.7}
         >
@@ -283,18 +341,14 @@ export default function ConnectionsScreen() {
       </View>
     );
   };
-  
+
   const FriendRequestItem = ({ item }: { item: BPFriendship }) => {
     const isReceived = item.friend_id === userId;
     const otherUserId = isReceived ? item.initiator_id : item.friend_id;
-    
-    // Fetch user data for the other person
     const { token } = useAuth();
     const { data: userData } = useMember(token, otherUserId);
-    
     const avatarUrl = userData?.avatar_urls?.thumb || userData?.avatar_urls?.full;
     const userName = userData?.name || 'Loading...';
-    
     return (
       <View style={styles.requestCard}>
         <View style={styles.requestInfo}>
@@ -302,12 +356,9 @@ export default function ConnectionsScreen() {
             <Image source={{ uri: avatarUrl }} style={styles.avatar} />
           ) : (
             <View style={[styles.avatar, styles.avatarPlaceholder]}>
-              <Text style={styles.avatarPlaceholderText}>
-                {userName.charAt(0).toUpperCase()}
-              </Text>
+              <Text style={styles.avatarPlaceholderText}>{userName.charAt(0).toUpperCase()}</Text>
             </View>
           )}
-          
           <View style={styles.requestDetails}>
             <Text style={styles.requestName}>{userName}</Text>
             <Text style={styles.requestType}>
@@ -315,14 +366,11 @@ export default function ConnectionsScreen() {
             </Text>
             <Text style={styles.requestDate}>
               {new Date(item.date_created).toLocaleDateString('en-US', {
-                month: 'short',
-                day: 'numeric',
-                year: 'numeric'
+                month: 'short', day: 'numeric', year: 'numeric',
               })}
             </Text>
           </View>
         </View>
-        
         <View style={styles.requestActions}>
           {isReceived ? (
             <>
@@ -372,66 +420,48 @@ export default function ConnectionsScreen() {
       </View>
     );
   };
-  
-  
+
   const friends = friendsData?.friends || [];
   const allRequests = pendingRequests || [];
-  
-  // Get list of friend user IDs to filter out from requests
   const friendUserIds = new Set(friends.map(f => f.id));
-  
-  // Filter out requests where the other user is already a friend
   const requests = allRequests.filter(req => {
     const otherUserId = req.initiator_id === userId ? req.friend_id : req.initiator_id;
-    const isAlreadyFriend = friendUserIds.has(otherUserId);
-    
-    if (isAlreadyFriend) {
-      console.log('[Filtering Requests] Removing request with user', otherUserId, 'because they are already a friend');
-    }
-    
-    return !isAlreadyFriend;
+    return !friendUserIds.has(otherUserId);
   });
-  
   const receivedRequests = requests.filter(r => r.friend_id === userId);
   const sentRequests = requests.filter(r => r.initiator_id === userId);
-  
-  const renderEmptyState = () => {
-    if (activeTab === 'friends') {
-      return (
-        <View style={styles.emptyContainer}>
-          <Ionicons name="people-outline" size={80} color="#ccc" />
-          <Text style={styles.emptyTitle}>No friends yet</Text>
-          <Text style={styles.emptyText}>
-            Start connecting with other members to build your network!
-          </Text>
-        </View>
-      );
-    } else {
-      return (
-        <View style={styles.emptyContainer}>
-          <Ionicons name="mail-outline" size={80} color="#ccc" />
-          <Text style={styles.emptyTitle}>No friend requests</Text>
-          <Text style={styles.emptyText}>
-            When someone sends you a friend request, it will appear here.
-          </Text>
-        </View>
-      );
-    }
-  };
-  
+
+  const renderEmptyFriends = () => (
+    <View style={styles.emptyContainer}>
+      <Ionicons name="people-outline" size={80} color="#ccc" />
+      <Text style={styles.emptyTitle}>No friends yet</Text>
+      <Text style={styles.emptyText}>
+        Go to the Connect tab to find and add members!
+      </Text>
+    </View>
+  );
+
+  const renderEmptyRequests = () => (
+    <View style={styles.emptyContainer}>
+      <Ionicons name="mail-outline" size={80} color="#ccc" />
+      <Text style={styles.emptyTitle}>No friend requests</Text>
+      <Text style={styles.emptyText}>
+        When someone sends you a friend request, it will appear here.
+      </Text>
+    </View>
+  );
+
   return (
     <View style={{ flex: 1, backgroundColor: '#f5f5f5' }}>
       {/* Header */}
-      <View
-        style={{
-          backgroundColor: '#fff',
-          borderBottomWidth: 1,
-          borderBottomColor: '#e5e7eb',
-          paddingHorizontal: 16,
-          paddingTop: 60,
-          paddingBottom: 16,
-        }}
-      >
+      <View style={{
+        backgroundColor: '#fff',
+        borderBottomWidth: 1,
+        borderBottomColor: '#e5e7eb',
+        paddingHorizontal: 16,
+        paddingTop: 60,
+        paddingBottom: 16,
+      }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
           <BackButton />
           <Text style={{ fontSize: 20, fontWeight: '700', color: '#1f2937', flex: 1 }}>
@@ -458,6 +488,20 @@ export default function ConnectionsScreen() {
         <View style={styles.container}>
           {/* Tab Navigation */}
           <View style={styles.tabContainer}>
+            <TouchableOpacity
+              style={[styles.tab, activeTab === 'connect' && styles.activeTab]}
+              onPress={() => setActiveTab('connect')}
+            >
+              <Ionicons
+                name="person-add-outline"
+                size={15}
+                color={activeTab === 'connect' ? '#0066cc' : '#666'}
+              />
+              <Text style={[styles.tabText, activeTab === 'connect' && styles.activeTabText]}>
+                Connect
+              </Text>
+            </TouchableOpacity>
+
             <TouchableOpacity
               style={[styles.tab, activeTab === 'friends' && styles.activeTab]}
               onPress={() => setActiveTab('friends')}
@@ -488,54 +532,43 @@ export default function ConnectionsScreen() {
           </View>
 
           {/* Content */}
-          {activeTab === 'friends' ? (
-            <>
-              {friends.length === 0 ? (
-                renderEmptyState()
-              ) : (
-                <FlatList
-                  data={friends}
-                  renderItem={renderFriendItem}
-                  keyExtractor={(item) => item.id.toString()}
-                  contentContainerStyle={styles.listContent}
-                  refreshControl={
-                    <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-                  }
-                  ItemSeparatorComponent={() => <View style={styles.separator} />}
-                />
-              )}
-            </>
+          {activeTab === 'connect' ? (
+            <ConnectTab />
+          ) : activeTab === 'friends' ? (
+            friends.length === 0 ? renderEmptyFriends() : (
+              <FlatList
+                data={friends}
+                renderItem={renderFriendItem}
+                keyExtractor={(item) => item.id.toString()}
+                contentContainerStyle={styles.listContent}
+                refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+                ItemSeparatorComponent={() => <View style={styles.separator} />}
+              />
+            )
           ) : (
-            <>
-              {requests.length === 0 ? (
-                renderEmptyState()
-              ) : (
-                <FlatList
-                  data={requests}
-                  renderItem={({ item }) => <FriendRequestItem item={item} />}
-                  keyExtractor={(item) => item.id.toString()}
-                  contentContainerStyle={styles.listContent}
-                  refreshControl={
-                    <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-                  }
-                  ItemSeparatorComponent={() => <View style={styles.separator} />}
-                  ListHeaderComponent={() => (
-                    <View style={styles.requestsHeader}>
-                      {receivedRequests.length > 0 && (
-                        <Text style={styles.requestsHeaderText}>
-                          {receivedRequests.length} Received • {sentRequests.length} Sent
-                        </Text>
-                      )}
-                    </View>
-                  )}
-                />
-              )}
-            </>
+            requests.length === 0 ? renderEmptyRequests() : (
+              <FlatList
+                data={requests}
+                renderItem={({ item }) => <FriendRequestItem item={item} />}
+                keyExtractor={(item) => item.id.toString()}
+                contentContainerStyle={styles.listContent}
+                refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+                ItemSeparatorComponent={() => <View style={styles.separator} />}
+                ListHeaderComponent={() => (
+                  <View style={styles.requestsHeader}>
+                    {receivedRequests.length > 0 && (
+                      <Text style={styles.requestsHeaderText}>
+                        {receivedRequests.length} Received • {sentRequests.length} Sent
+                      </Text>
+                    )}
+                  </View>
+                )}
+              />
+            )
           )}
         </View>
       )}
 
-      {/* Remove Friend Confirmation Modal */}
       <RemoveFriendModal
         visible={modalVisible}
         friendName={selectedFriend?.name || ''}
@@ -570,8 +603,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 16,
-    gap: 8,
+    paddingVertical: 14,
+    gap: 6,
     borderBottomWidth: 2,
     borderBottomColor: 'transparent',
   },
@@ -579,7 +612,7 @@ const styles = StyleSheet.create({
     borderBottomColor: '#0066cc',
   },
   tabText: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '600',
     color: '#666',
   },
@@ -588,10 +621,10 @@ const styles = StyleSheet.create({
   },
   badge: {
     backgroundColor: '#0066cc',
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 10,
-    minWidth: 24,
+    minWidth: 20,
     alignItems: 'center',
   },
   badgeAlert: {
@@ -599,9 +632,73 @@ const styles = StyleSheet.create({
   },
   badgeText: {
     color: '#fff',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
   },
+  // Search bar (Connect tab)
+  searchContainer: {
+    flexDirection: 'row',
+    padding: 12,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+    gap: 8,
+  },
+  searchInput: {
+    flex: 1,
+    backgroundColor: '#f5f5f5',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: Platform.OS === 'ios' ? 10 : 8,
+    fontSize: 15,
+    color: '#333',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  searchButton: {
+    backgroundColor: '#0066cc',
+    width: 44,
+    height: 44,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  // Connect button states
+  addFriendButton: {
+    backgroundColor: '#0066cc',
+    flexDirection: 'row',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    gap: 4,
+  },
+  addFriendText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  friendStatusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  friendStatusText: {
+    color: '#22c55e',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  pendingBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  pendingText: {
+    color: '#0066cc',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  // Lists
   listContent: {
     padding: 12,
   },
