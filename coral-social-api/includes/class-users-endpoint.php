@@ -185,7 +185,7 @@ class Coral_Users_Endpoint {
             return new WP_Error('user_not_found', 'User not found', array('status' => 404));
         }
         
-        // Actualizar campos básicos de WordPress
+        // Update basic WordPress fields
         $update_data = array('ID' => $user_id);
         
         if ($request->has_param('display_name')) {
@@ -676,7 +676,7 @@ class Coral_Users_Endpoint {
             $profile['website'] = xprofile_get_field_data('Website', $user_id);
         }
         
-        // Estadísticas
+        // Statistics
         if (function_exists('friends_get_total_friend_count')) {
             $profile['friends_count'] = friends_get_total_friend_count($user_id);
         }

@@ -34,7 +34,7 @@ class Coral_Posts_Endpoint {
             ),
         ));
         
-        // Comentario específico
+        // Specific comment
         register_rest_route($this->namespace, '/posts/(?P<post_id>\d+)/comments/(?P<comment_id>\d+)', array(
             array(
                 'methods'             => WP_REST_Server::EDITABLE,
