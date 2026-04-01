@@ -56,7 +56,7 @@ function getContentText(content: string | { rendered: string; raw?: string }): s
 function getUserNameFromTitle(title: string): string {
   // Title format: '<a href="...">User Name</a>'
   const match = title.match(/>([^<]+)</);  
-  return match ? match[1].trim() : 'Unknown User';
+  return match ? match[1].trim() : '';
 }
 
 // Helper function to extract image URLs from HTML content
@@ -155,8 +155,9 @@ function PostItem({
   const isCurrentUserPost = item.user_id === profile?.user_id;
   const isLiked = item.favorited || false;
   
-  // Use member data from API if available, fallback to item data
-  const userName = memberData?.name || item.user_name || getUserNameFromTitle(item.title);
+  // Resolve author name before rendering to avoid showing placeholder text.
+  const userName = memberData?.name?.trim() || item.user_name?.trim() || getUserNameFromTitle(item.title);
+
   const userAvatar = memberData?.avatar_urls?.thumb || 
     (typeof item.user_avatar === 'object' ? item.user_avatar.thumb : item.user_avatar) || 
     undefined;
@@ -171,6 +172,10 @@ function PostItem({
 
   // State for comments modal
   const [commentModalVisible, setCommentModalVisible] = useState(false);
+
+  if (isMemberLoading || !userName) {
+    return null;
+  }
   
   const handleImagePress = (index: number) => {
     setSelectedImageIndex(index);
@@ -434,7 +439,7 @@ function CommunityScreen() {
   const groups = useMemo(() => userGroups || [], [userGroups]);
   
   // Estado para almacenar posts de todos los grupos
-  const [allGroupsActivities, setAllGroupsActivities] = useState([]);
+  const [allGroupsActivities, setAllGroupsActivities] = useState<BPActivity[]>([]);
   const allGroupsFetchedRef = useRef(false);
 
   // Fetch group activity si hay grupo seleccionado
