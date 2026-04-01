@@ -20,7 +20,6 @@ import type {
   BPActivity,
   CreateActivityPayload,
   ActivityFeedResponse,
-  WPComment,
 } from '../types';
 
 /**
@@ -184,7 +183,7 @@ export function useUpdatePost(token: string | null) {
  * @param postId - Post/activity ID to fetch comments for (null = disabled)
  */
 export function usePostComments(token: string | null, postId: number | null) {
-  return useQuery<WPComment[]>({
+  return useQuery<BPActivity[]>({
     queryKey: ['comments', postId],
     queryFn: async () => {
       if (!token || !postId) throw new Error('Missing token or postId');
@@ -221,12 +220,12 @@ export function useUpdateComment(token: string | null) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ commentId, content }: { commentId: number; content: string }) => {
+    mutationFn: async ({ commentId, content, postId }: { commentId: number; content: string; postId: number }) => {
       if (!token) throw new Error('No authentication token');
       return updateComment(commentId, content, token);
     },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['comments', data.post] });
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['comments', variables.postId] });
     },
   });
 }

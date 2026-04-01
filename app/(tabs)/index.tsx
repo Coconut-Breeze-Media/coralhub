@@ -440,11 +440,11 @@ function CommunityScreen() {
   const { data: userGroups } = useMyGroups(token);
   const groups = useMemo(() => userGroups || [], [userGroups]);
   
-  // Estado para almacenar posts de todos los grupos
+  // State to store posts from all groups
   const [allGroupsActivities, setAllGroupsActivities] = useState<BPActivity[]>([]);
   const allGroupsFetchedRef = useRef(false);
 
-  // Fetch group activity si hay grupo seleccionado
+  // Fetch group activity if a group is selected
   const { data: groupActivityData, isLoading: isLoadingGroupActivity, refetch: refetchGroupActivity } = useGroupActivity(
     token,
     activeTab === 'groups-feed' && selectedGroupId ? selectedGroupId : undefined
@@ -463,7 +463,7 @@ function CommunityScreen() {
         try {
           const results = await Promise.all(
             groups.map(async (g) => {
-              // getGroupActivity espera (token, groupId, params)
+              // getGroupActivity expects (token, groupId, params)
               const res = await import('../../lib/api').then(m => m.getGroupActivity(g.id, token, { per_page: 20 }));
               return res.activities || [];
             })
@@ -752,7 +752,7 @@ function CommunityScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Mostrar grupos donde el usuario es miembro antes de los posts en la pestaña Groups */}
+      {/* Show groups where the user is a member before the posts in the Groups tab */}
       {activeTab === 'groups-feed' && (
         <View style={{paddingHorizontal: 16, marginBottom: 12}}>
           <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8}}>

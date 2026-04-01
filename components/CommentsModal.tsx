@@ -20,7 +20,7 @@ import {
   useUpdateComment,
   useDeleteComment,
 } from '../hooks/useActivity';
-import type { WPComment } from '../types';
+import type { BPActivity } from '../types';
 import MentionInput from './MentionInput';
 
 interface CommentsModalProps {
@@ -40,7 +40,7 @@ function CommentItem({
   token,
   canModify,
 }: {
-  item: WPComment;
+  item: BPActivity;
   postId: number;
   token: string | null;
   canModify: boolean;
@@ -53,11 +53,12 @@ function CommentItem({
   const deleteMutation = useDeleteComment(token);
 
   const avatarUrl =
-    item.author_avatar_urls?.['48'] ||
-    item.author_avatar_urls?.['96'] ||
-    item.author_avatar_urls?.['24'];
+    typeof item.user_avatar === 'string'
+      ? item.user_avatar
+      : item.user_avatar?.full || item.user_avatar?.thumb;
 
-  const content = item.content?.rendered?.replace(/<[^>]+>/g, '').trim() || '';
+  const rawContent = typeof item.content === 'string' ? item.content : item.content?.rendered || '';
+  const content = rawContent.replace(/<[^>]+>/g, '').trim();
   const date = new Date(item.date).toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
@@ -74,7 +75,7 @@ function CommentItem({
     const text = editText.trim();
     if (!text) return;
     try {
-      await updateMutation.mutateAsync({ commentId: item.id, content: text });
+      await updateMutation.mutateAsync({ commentId: item.id, content: text, postId });
       setIsEditing(false);
     } catch (err: any) {
       Alert.alert('Error', err?.message || 'Failed to update comment.');
@@ -140,7 +141,7 @@ function CommentItem({
           <Image source={{ uri: avatarUrl }} style={styles.commentAvatarImage} />
         ) : (
           <Text style={styles.commentAvatarText}>
-            {item.author_name?.charAt(0)?.toUpperCase() || '?'}
+            {item.user_name?.charAt(0)?.toUpperCase() || '?'}
           </Text>
         )}
       </View>
@@ -149,7 +150,7 @@ function CommentItem({
       <View style={styles.commentBubble}>
         {/* Header row: author + actions */}
         <View style={styles.commentHeader}>
-          <Text style={styles.commentAuthor}>{item.author_name || 'Anonymous'}</Text>
+          <Text style={styles.commentAuthor}>{item.user_name || 'Anonymous'}</Text>
 
           {canModify && !isEditing && (
             <View style={styles.commentActions}>
@@ -284,8 +285,8 @@ export default function CommentsModal({
                   token={token}
                   canModify={
                     !!currentUserId &&
-                    !!item.author &&
-                    Number(currentUserId) === Number(item.author)
+                    !!item.user_id &&
+                    Number(currentUserId) === Number(item.user_id)
                   }
                 />
               )}

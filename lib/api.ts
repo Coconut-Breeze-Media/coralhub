@@ -1238,43 +1238,57 @@ export async function getGroupMembers(
   return response;
 }
 
-// ---------- WordPress Comments API ----------
+// ---------- BuddyPress Activity Comments API ----------
 
 /**
- * Fetch comments for a given post/activity
- * @param postId - The WordPress post ID (or BuddyPress activity ID)
- * @param token  - JWT authentication token
+ * Fetch activity comments for a BuddyPress activity
+ * @param activityId - The BuddyPress activity ID
+ * @param token      - JWT authentication token
  */
 export async function getPostComments(
-  postId: number,
+  activityId: number,
   token: string
-): Promise<import('../types').WPComment[]> {
-  return authedFetch<import('../types').WPComment[]>(
-    `/wp/v2/comments?post=${postId}&per_page=50&orderby=date&order=asc`,
-    token
-  );
+): Promise<import('../types').BPActivity[]> {
+  const url = `/buddypress/v1/activity/${activityId}?display_comments=threaded`;
+  console.log('[getPostComments] Fetching comments for activityId:', activityId, '| URL:', url);
+  const result = await authedFetch<any>(url, token);
+  console.log('[getPostComments] Raw result:', result);
+  const activity = Array.isArray(result) ? result[0] : result;
+  const rawComments = activity?.comments;
+  const comments: import('../types').BPActivity[] = rawComments
+    ? Array.isArray(rawComments)
+      ? rawComments
+      : Object.values(rawComments)
+    : [];
+  console.log('[getPostComments] Extracted comments:', comments);
+  return comments;
 }
 
 /**
- * Create a comment on a post/activity
- * @param postId  - The WordPress post ID (or BuddyPress activity ID)
- * @param content - Plain text content of the comment
- * @param token   - JWT authentication token
+ * Create a BuddyPress activity comment
+ * @param activityId - The parent activity ID
+ * @param content    - Plain text content of the comment
+ * @param token      - JWT authentication token
  */
 export async function createComment(
-  postId: number,
+  activityId: number,
   content: string,
   token: string
-): Promise<import('../types').WPComment> {
-  return authedFetch<import('../types').WPComment>('/wp/v2/comments', token, {
+): Promise<import('../types').BPActivity> {
+  return authedFetch<import('../types').BPActivity>('/buddypress/v1/activity', token, {
     method: 'POST',
-    body: JSON.stringify({ post: postId, content }),
+    body: JSON.stringify({
+      type: 'activity_comment',
+      primary_item_id: activityId,
+      secondary_item_id: activityId,
+      content,
+    }),
   });
 }
 
 /**
- * Update (edit) an existing comment — requires being the author or admin
- * @param commentId - The comment ID to update
+ * Update (edit) an existing BuddyPress activity comment
+ * @param commentId - The comment activity ID to update
  * @param content   - New plain text content
  * @param token     - JWT authentication token
  */
@@ -1282,16 +1296,16 @@ export async function updateComment(
   commentId: number,
   content: string,
   token: string
-): Promise<import('../types').WPComment> {
-  return authedFetch<import('../types').WPComment>(`/wp/v2/comments/${commentId}`, token, {
-    method: 'POST',
+): Promise<import('../types').BPActivity> {
+  return authedFetch<import('../types').BPActivity>(`/buddypress/v1/activity/${commentId}`, token, {
+    method: 'PUT',
     body: JSON.stringify({ content }),
   });
 }
 
 /**
- * Permanently delete a comment — requires being the author or admin
- * @param commentId - The comment ID to delete
+ * Permanently delete a BuddyPress activity comment
+ * @param commentId - The comment activity ID to delete
  * @param token     - JWT authentication token
  */
 export async function deleteComment(
@@ -1299,7 +1313,7 @@ export async function deleteComment(
   token: string
 ): Promise<{ deleted: boolean }> {
   return authedFetch<{ deleted: boolean }>(
-    `/wp/v2/comments/${commentId}?force=true`,
+    `/buddypress/v1/activity/${commentId}?force=true`,
     token,
     { method: 'DELETE' }
   );
