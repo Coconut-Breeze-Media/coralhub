@@ -721,9 +721,9 @@ function CommunityScreen() {
             <TouchableOpacity
               onPress={() => router.push('/explore-groups')}
               style={{flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#eff6ff', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20}}
-      
-              {/* Show groups where the user is a member before posts in the Groups tab */}
-              {activeTab === 'groups-feed' && (
+            >
+              <Text style={{color: '#2563eb', fontWeight: '600'}}>Explore</Text>
+            </TouchableOpacity>
           </View>
           {groups.length === 0 ? (
             <Text style={{color: '#888'}}>You are not a member of any groups.</Text>
