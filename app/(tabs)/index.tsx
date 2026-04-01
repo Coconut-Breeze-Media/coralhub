@@ -33,6 +33,8 @@ import {
   useDeletePost 
 } from '../../hooks/useActivity';
 import { useMember } from '../../hooks/useMembers';
+import { useQueryClient } from '@tanstack/react-query';
+import { getMemberById } from '../../lib/api';
 import { useMe, useFriendsList } from '../../hooks/useQueries';
 import { useMyGroups, useGroupActivity } from '../../hooks/useGroups';
 import { useEffect, useRef } from 'react';
@@ -511,8 +513,36 @@ function CommunityScreen() {
     const unwantedTypes = ['joined_group', 'created_group', 'new_member', 'friendship_created', 'new_cover'];
     return !unwantedTypes.includes(activity.type);
   });
-  
-  
+
+  // Pre-populate individual member cache keys so PostItems render without loading state
+  const queryClient = useQueryClient();
+  const [membersReady, setMembersReady] = useState(false);
+  const prefetchKeyRef = useRef('');
+
+  useEffect(() => {
+    if (isLoading || allActivities.length === 0) {
+      setMembersReady(false);
+      return;
+    }
+    const uniqueIds = Array.from(new Set(allActivities.map(a => a.user_id).filter(Boolean))) as number[];
+    const key = uniqueIds.slice().sort().join(',');
+    if (key === prefetchKeyRef.current) {
+      setMembersReady(true);
+      return;
+    }
+    setMembersReady(false);
+    prefetchKeyRef.current = key;
+    Promise.all(
+      uniqueIds.map(userId =>
+        queryClient.prefetchQuery({
+          queryKey: ['member', userId],
+          queryFn: () => getMemberById(userId, token!),
+          staleTime: 5 * 60 * 1000,
+        })
+      )
+    ).then(() => setMembersReady(true));
+  }, [isLoading, allActivities.length, token]);
+
   // Mutations
   const createPostMutation = useCreatePost(token);
   const likePostMutation = useLikePost(token);
@@ -1018,7 +1048,7 @@ function CommunityScreen() {
       )}
       
       {/* Posts Feed */}
-      {(isLoading || (activeTab === 'groups-feed' && selectedGroupId && isLoadingGroupActivity)) ? (
+      {(isLoading || !membersReady || (activeTab === 'groups-feed' && selectedGroupId && isLoadingGroupActivity)) ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#0066cc" />
           <Text style={styles.loadingText}>Loading posts...</Text>
