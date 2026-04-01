@@ -520,8 +520,12 @@ function CommunityScreen() {
   const prefetchKeyRef = useRef('');
 
   useEffect(() => {
-    if (isLoading || allActivities.length === 0) {
+    if (isLoading) {
       setMembersReady(false);
+      return;
+    }
+    if (allActivities.length === 0) {
+      setMembersReady(true);
       return;
     }
     const uniqueIds = Array.from(new Set(allActivities.map(a => a.user_id).filter(Boolean))) as number[];
