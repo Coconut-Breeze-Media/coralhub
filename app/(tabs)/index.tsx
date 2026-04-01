@@ -491,8 +491,8 @@ function CommunityScreen() {
   
   // Flatten all activities from all pages
   let allActivities = feedData?.pages?.flatMap(page => page.activities) || [];
-
-  // Para pestaña de grupos, usar posts de todos los grupos si está seleccionado 'All Groups'
+  
+  // For the groups tab, use posts from all groups if 'All Groups' is selected
   if (activeTab === 'groups-feed') {
     if (selectedGroupId && groupActivityData) {
       allActivities = groupActivityData.activities || [];
@@ -721,9 +721,9 @@ function CommunityScreen() {
             <TouchableOpacity
               onPress={() => router.push('/explore-groups')}
               style={{flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#eff6ff', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20}}
-            >
-              <Text style={{fontSize: 13, fontWeight: '600', color: '#2563eb'}}>Explore</Text>
-            </TouchableOpacity>
+      
+              {/* Show groups where the user is a member before posts in the Groups tab */}
+              {activeTab === 'groups-feed' && (
           </View>
           {groups.length === 0 ? (
             <Text style={{color: '#888'}}>You are not a member of any groups.</Text>
