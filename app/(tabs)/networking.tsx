@@ -451,11 +451,6 @@ export default function NetworkingScreen() {
           <Text style={[styles.tabText, activeTab === 'friends' && styles.activeTabText]}>
             Friends
           </Text>
-          {friends.length > 0 && (
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>{friends.length}</Text>
-            </View>
-          )}
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -505,6 +500,11 @@ export default function NetworkingScreen() {
             contentContainerStyle={styles.listContent}
             refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
             ItemSeparatorComponent={() => <View style={styles.separator} />}
+            ListHeaderComponent={() => (
+              <View style={styles.friendsListHeader}>
+                <Text style={styles.friendsListHeaderText}>Total friends: {friends.length}</Text>
+              </View>
+            )}
           />
         )
       ) : (
@@ -820,6 +820,16 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#666',
     fontWeight: '500',
+  },
+  friendsListHeader: {
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    marginBottom: 4,
+  },
+  friendsListHeaderText: {
+    fontSize: 13,
+    color: '#666',
+    fontWeight: '600',
   },
   separator: {
     height: 12,
