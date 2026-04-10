@@ -12,8 +12,10 @@ import {
   ActivityIndicator,
   StyleSheet,
   Platform,
+  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import { useAuth } from '../../lib/auth';
 import {
   useMe,
@@ -25,12 +27,22 @@ import {
   useSendFriendRequest,
 } from '../../hooks/useQueries';
 import { useMember, useMembersList } from '../../hooks/useMembers';
+import { useAllGroups, useMyGroups } from '../../hooks/useGroups';
 import RemoveFriendModal from '../../components/RemoveFriendModal';
-import type { FriendWithDetails, BPFriendship, BPMember } from '../../types';
+import type { FriendWithDetails, BPFriendship, BPMember, BPGroup } from '../../types';
 
-type TabType = 'connect' | 'friends' | 'requests';
+type SectionType = 'members' | 'groups';
+type MembersTab = 'connect' | 'friends' | 'requests';
+type GroupsTab = 'explore' | 'mygroups';
 
-// ─── Connect Tab ────────────────────────────────────────────────────────────
+// ─── Status badge config ─────────────────────────────────────────────────────
+const STATUS_COLORS: Record<string, { bg: string; text: string; icon: string }> = {
+  public:  { bg: '#dcfce7', text: '#15803d', icon: 'earth-outline' },
+  private: { bg: '#fef3c7', text: '#a16207', icon: 'lock-closed-outline' },
+  hidden:  { bg: '#f3f4f6', text: '#4b5563', icon: 'eye-off-outline' },
+};
+
+// ─── Connect Tab ─────────────────────────────────────────────────────────────
 function ConnectTab() {
   const { token } = useAuth();
   const [searchInput, setSearchInput] = useState('');
@@ -38,11 +50,7 @@ function ConnectTab() {
   const [sentIds, setSentIds] = useState<Set<number>>(new Set());
   const [pendingIds, setPendingIds] = useState<Set<number>>(new Set());
 
-  const { data: members, isLoading } = useMembersList(token, {
-    search: searchQuery,
-    perPage: 20,
-  });
-
+  const { data: members, isLoading } = useMembersList(token, { search: searchQuery, perPage: 20 });
   const sendFriendMutation = useSendFriendRequest();
 
   const handleConnect = async (memberId: number, memberName: string) => {
@@ -54,11 +62,7 @@ function ConnectTab() {
     } catch (err) {
       Alert.alert('Error', `Failed to send request: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
-      setPendingIds(prev => {
-        const next = new Set(prev);
-        next.delete(memberId);
-        return next;
-      });
+      setPendingIds(prev => { const n = new Set(prev); n.delete(memberId); return n; });
     }
   };
 
@@ -67,12 +71,8 @@ function ConnectTab() {
     const statusSlug = item.friendship_status_slug;
     const isPending = pendingIds.has(item.id);
     const hasSent = sentIds.has(item.id);
-
     const isAlreadyFriend = statusSlug === 'is_friend';
-    const hasRequest =
-      statusSlug === 'pending' ||
-      statusSlug === 'awaiting_response' ||
-      hasSent;
+    const hasRequest = statusSlug === 'pending' || statusSlug === 'awaiting_response' || hasSent;
 
     return (
       <View style={styles.friendCard}>
@@ -81,9 +81,7 @@ function ConnectTab() {
             <Image source={{ uri: avatarUrl }} style={styles.avatar} />
           ) : (
             <View style={[styles.avatar, styles.avatarPlaceholder]}>
-              <Text style={styles.avatarPlaceholderText}>
-                {item.name.charAt(0).toUpperCase()}
-              </Text>
+              <Text style={styles.avatarPlaceholderText}>{item.name.charAt(0).toUpperCase()}</Text>
             </View>
           )}
           <View style={styles.friendDetails}>
@@ -93,7 +91,6 @@ function ConnectTab() {
             )}
           </View>
         </View>
-
         {isAlreadyFriend ? (
           <View style={styles.friendStatusBadge}>
             <Ionicons name="checkmark-circle" size={16} color="#22c55e" />
@@ -137,15 +134,10 @@ function ConnectTab() {
           onSubmitEditing={() => setSearchQuery(searchInput)}
           returnKeyType="search"
         />
-        <TouchableOpacity
-          style={styles.searchButton}
-          onPress={() => setSearchQuery(searchInput)}
-          activeOpacity={0.8}
-        >
+        <TouchableOpacity style={styles.searchButton} onPress={() => setSearchQuery(searchInput)} activeOpacity={0.8}>
           <Ionicons name="search" size={18} color="#fff" />
         </TouchableOpacity>
       </View>
-
       {isLoading ? (
         <View style={styles.centerContainer}>
           <ActivityIndicator size="large" color="#0066cc" />
@@ -161,13 +153,9 @@ function ConnectTab() {
           ListEmptyComponent={() => (
             <View style={styles.emptyContainer}>
               <Ionicons name="people-outline" size={80} color="#ccc" />
-              <Text style={styles.emptyTitle}>
-                {searchQuery ? 'No members found' : 'No members available'}
-              </Text>
+              <Text style={styles.emptyTitle}>{searchQuery ? 'No members found' : 'No members available'}</Text>
               <Text style={styles.emptyText}>
-                {searchQuery
-                  ? `No results for "${searchQuery}". Try a different search.`
-                  : 'Community members will appear here.'}
+                {searchQuery ? `No results for "${searchQuery}".` : 'Community members will appear here.'}
               </Text>
             </View>
           )}
@@ -177,9 +165,201 @@ function ConnectTab() {
   );
 }
 
-// ─── Main Screen ────────────────────────────────────────────────────────────
+// ─── Explore Groups Tab ───────────────────────────────────────────────────────
+function ExploreGroupsTab() {
+  const { token } = useAuth();
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+  const debounceRef = useState<ReturnType<typeof setTimeout> | null>(null);
+
+  const { data: groups, isLoading, refetch } = useAllGroups(token, {
+    per_page: 50,
+    search: debouncedSearch || undefined,
+  });
+
+  const handleSearchChange = (text: string) => {
+    setSearch(text);
+    if (debounceRef[0]) clearTimeout(debounceRef[0]);
+    debounceRef[1](setTimeout(() => setDebouncedSearch(text), 400));
+  };
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await refetch();
+    setRefreshing(false);
+  };
+
+  const renderGroup = ({ item }: { item: BPGroup }) => {
+    const statusConfig = STATUS_COLORS[item.status] || STATUS_COLORS.public;
+    return (
+      <TouchableOpacity
+        activeOpacity={0.7}
+        onPress={() => router.push(`/group-detail?id=${item.id}`)}
+        style={styles.groupCard}
+      >
+        {item.avatar_urls?.thumb ? (
+          <Image source={{ uri: item.avatar_urls.thumb }} style={styles.groupAvatar} />
+        ) : (
+          <View style={[styles.groupAvatar, styles.groupAvatarPlaceholder]}>
+            <Ionicons name="people" size={22} color="#3b82f6" />
+          </View>
+        )}
+        <View style={{ flex: 1 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+            <Text style={styles.groupName} numberOfLines={1}>{item.name}</Text>
+            <View style={{ backgroundColor: statusConfig.bg, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8 }}>
+              <Text style={{ fontSize: 11, fontWeight: '600', color: statusConfig.text, textTransform: 'uppercase' }}>
+                {item.status}
+              </Text>
+            </View>
+          </View>
+          {item.description?.rendered ? (
+            <Text style={styles.groupDescription} numberOfLines={2}>
+              {item.description.rendered.replace(/<[^>]+>/g, '').trim()}
+            </Text>
+          ) : null}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 }}>
+            <Ionicons name="people-outline" size={13} color="#9ca3af" />
+            <Text style={{ fontSize: 12, color: '#9ca3af' }}>
+              {item.total_member_count ?? 0} members
+            </Text>
+          </View>
+        </View>
+        <Ionicons name="chevron-forward" size={18} color="#d1d5db" />
+      </TouchableOpacity>
+    );
+  };
+
+  return (
+    <View style={{ flex: 1 }}>
+      <View style={styles.searchContainer}>
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Search groups..."
+          placeholderTextColor="#999"
+          value={search}
+          onChangeText={handleSearchChange}
+          returnKeyType="search"
+        />
+        <TouchableOpacity style={styles.searchButton} onPress={() => setDebouncedSearch(search)} activeOpacity={0.8}>
+          <Ionicons name="search" size={18} color="#fff" />
+        </TouchableOpacity>
+      </View>
+      {isLoading ? (
+        <View style={styles.centerContainer}>
+          <ActivityIndicator size="large" color="#0066cc" />
+          <Text style={styles.loadingText}>Loading groups...</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={groups || []}
+          renderItem={renderGroup}
+          keyExtractor={(item) => item.id.toString()}
+          contentContainerStyle={styles.listContent}
+          ItemSeparatorComponent={() => <View style={styles.separator} />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#0066cc']} />}
+          ListEmptyComponent={() => (
+            <View style={styles.emptyContainer}>
+              <Ionicons name="people-circle-outline" size={80} color="#ccc" />
+              <Text style={styles.emptyTitle}>{debouncedSearch ? 'No groups found' : 'No groups available'}</Text>
+              <Text style={styles.emptyText}>
+                {debouncedSearch ? `No results for "${debouncedSearch}".` : 'Groups will appear here.'}
+              </Text>
+            </View>
+          )}
+        />
+      )}
+    </View>
+  );
+}
+
+// ─── My Groups Tab ────────────────────────────────────────────────────────────
+function MyGroupsTab() {
+  const { token } = useAuth();
+  const [refreshing, setRefreshing] = useState(false);
+  const { data: groups, isLoading, refetch } = useMyGroups(token);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await refetch();
+    setRefreshing(false);
+  };
+
+  const renderGroup = ({ item }: { item: BPGroup }) => {
+    const statusConfig = STATUS_COLORS[item.status] || STATUS_COLORS.public;
+    return (
+      <TouchableOpacity
+        activeOpacity={0.7}
+        onPress={() => router.push(`/group-detail?id=${item.id}`)}
+        style={styles.groupCard}
+      >
+        {item.avatar_urls?.thumb ? (
+          <Image source={{ uri: item.avatar_urls.thumb }} style={styles.groupAvatar} />
+        ) : (
+          <View style={[styles.groupAvatar, styles.groupAvatarPlaceholder]}>
+            <Ionicons name="people" size={22} color="#3b82f6" />
+          </View>
+        )}
+        <View style={{ flex: 1 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+            <Text style={styles.groupName} numberOfLines={1}>{item.name}</Text>
+            <View style={{ backgroundColor: statusConfig.bg, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8 }}>
+              <Text style={{ fontSize: 11, fontWeight: '600', color: statusConfig.text, textTransform: 'uppercase' }}>
+                {item.status}
+              </Text>
+            </View>
+          </View>
+          {item.description?.rendered ? (
+            <Text style={styles.groupDescription} numberOfLines={2}>
+              {item.description.rendered.replace(/<[^>]+>/g, '').trim()}
+            </Text>
+          ) : null}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 }}>
+            <Ionicons name="people-outline" size={13} color="#9ca3af" />
+            <Text style={{ fontSize: 12, color: '#9ca3af' }}>
+              {item.total_member_count ?? 0} members
+            </Text>
+          </View>
+        </View>
+        <Ionicons name="chevron-forward" size={18} color="#d1d5db" />
+      </TouchableOpacity>
+    );
+  };
+
+  if (isLoading) {
+    return (
+      <View style={styles.centerContainer}>
+        <ActivityIndicator size="large" color="#0066cc" />
+        <Text style={styles.loadingText}>Loading your groups...</Text>
+      </View>
+    );
+  }
+
+  return (
+    <FlatList
+      data={groups || []}
+      renderItem={renderGroup}
+      keyExtractor={(item) => item.id.toString()}
+      contentContainerStyle={styles.listContent}
+      ItemSeparatorComponent={() => <View style={styles.separator} />}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#0066cc']} />}
+      ListEmptyComponent={() => (
+        <View style={styles.emptyContainer}>
+          <Ionicons name="people-circle-outline" size={80} color="#ccc" />
+          <Text style={styles.emptyTitle}>No groups yet</Text>
+          <Text style={styles.emptyText}>Go to Explore to find and join groups!</Text>
+        </View>
+      )}
+    />
+  );
+}
+
+// ─── Main Screen ─────────────────────────────────────────────────────────────
 export default function NetworkingScreen() {
-  const [activeTab, setActiveTab] = useState<TabType>('connect');
+  const [activeSection, setActiveSection] = useState<SectionType>('members');
+  const [activeMembersTab, setActiveMembersTab] = useState<MembersTab>('connect');
+  const [activeGroupsTab, setActiveGroupsTab] = useState<GroupsTab>('explore');
   const [page] = useState(1);
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedFriend, setSelectedFriend] = useState<FriendWithDetails | null>(null);
@@ -187,13 +367,10 @@ export default function NetworkingScreen() {
   const { data: currentUser, isLoading: isLoadingUser } = useMe();
   const userId = currentUser?.id;
 
-  const { data: friendsData, isLoading: isLoadingFriends, error: friendsError, refetch: refetchFriends } = useFriendsList(
-    userId,
-    page,
-    20
-  );
-
-  const { data: pendingRequests, isLoading: isLoadingRequests, error: requestsError, refetch: refetchRequests } = usePendingFriendRequests(userId);
+  const { data: friendsData, isLoading: isLoadingFriends, error: friendsError, refetch: refetchFriends } =
+    useFriendsList(userId, page, 20);
+  const { data: pendingRequests, isLoading: isLoadingRequests, error: requestsError, refetch: refetchRequests } =
+    usePendingFriendRequests(userId);
 
   const removeFriendMutation = useRemoveFriend();
   const acceptRequestMutation = useAcceptFriendRequest();
@@ -203,20 +380,16 @@ export default function NetworkingScreen() {
 
   const isLoading =
     isLoadingUser ||
-    (activeTab === 'friends'
-      ? isLoadingFriends
-      : activeTab === 'requests'
-      ? isLoadingRequests
-      : false);
+    (activeMembersTab === 'friends' ? isLoadingFriends : activeMembersTab === 'requests' ? isLoadingRequests : false);
 
   const error =
-    activeTab === 'friends' ? friendsError :
-    activeTab === 'requests' ? requestsError : null;
+    activeMembersTab === 'friends' ? friendsError :
+    activeMembersTab === 'requests' ? requestsError : null;
 
   const onRefresh = async () => {
     setRefreshing(true);
-    if (activeTab === 'friends') await refetchFriends();
-    else if (activeTab === 'requests') await refetchRequests();
+    if (activeMembersTab === 'friends') await refetchFriends();
+    else if (activeMembersTab === 'requests') await refetchRequests();
     setRefreshing(false);
   };
 
@@ -245,11 +418,6 @@ export default function NetworkingScreen() {
       setSelectedFriend(null);
       Alert.alert('Error', `Failed to remove friend: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
-  };
-
-  const cancelRemoveFriend = () => {
-    setModalVisible(false);
-    setSelectedFriend(null);
   };
 
   const handleAcceptRequest = async (request: BPFriendship) => {
@@ -287,29 +455,20 @@ export default function NetworkingScreen() {
 
   const calculateFriendshipDuration = (dateString: string): string => {
     if (!dateString) return 'Unknown';
-    const friendshipDate = new Date(dateString);
-    const now = new Date();
-    const diffDays = Math.floor((now.getTime() - friendshipDate.getTime()) / (1000 * 60 * 60 * 24));
+    const diffDays = Math.floor((Date.now() - new Date(dateString).getTime()) / 86400000);
     if (diffDays < 1) return 'Friends since today';
     if (diffDays === 1) return 'Friends since 1 day ago';
     if (diffDays < 30) return `Friends for ${diffDays} days`;
-    if (diffDays < 365) {
-      const months = Math.floor(diffDays / 30);
-      return months === 1 ? 'Friends for 1 month' : `Friends for ${months} months`;
-    }
-    const years = Math.floor(diffDays / 365);
-    return years === 1 ? 'Friends for 1 year' : `Friends for ${years} years`;
+    if (diffDays < 365) { const m = Math.floor(diffDays / 30); return m === 1 ? 'Friends for 1 month' : `Friends for ${m} months`; }
+    const y = Math.floor(diffDays / 365);
+    return y === 1 ? 'Friends for 1 year' : `Friends for ${y} years`;
   };
 
   const renderFriendItem = ({ item }: { item: FriendWithDetails }) => {
     const avatarUrl = item.avatar_urls?.thumb || item.avatar_urls?.full;
-    const friendshipDuration = calculateFriendshipDuration(item.friendship_date);
     return (
       <View style={styles.friendCard}>
-        <TouchableOpacity
-          style={styles.friendInfo}
-          onPress={() => Alert.alert('Profile', `View ${item.name}'s profile`)}
-        >
+        <TouchableOpacity style={styles.friendInfo} onPress={() => Alert.alert('Profile', `View ${item.name}'s profile`)}>
           {avatarUrl ? (
             <Image source={{ uri: avatarUrl }} style={styles.avatar} />
           ) : (
@@ -319,10 +478,8 @@ export default function NetworkingScreen() {
           )}
           <View style={styles.friendDetails}>
             <Text style={styles.friendName}>{item.name}</Text>
-            <Text style={styles.friendshipDuration}>{friendshipDuration}</Text>
-            {item.last_activity?.timediff && (
-              <Text style={styles.lastActive}>Active {item.last_activity.timediff}</Text>
-            )}
+            <Text style={styles.friendshipDuration}>{calculateFriendshipDuration(item.friendship_date)}</Text>
+            {item.last_activity?.timediff && <Text style={styles.lastActive}>Active {item.last_activity.timediff}</Text>}
           </View>
         </TouchableOpacity>
         <TouchableOpacity
@@ -356,57 +513,29 @@ export default function NetworkingScreen() {
           )}
           <View style={styles.requestDetails}>
             <Text style={styles.requestName}>{userName}</Text>
-            <Text style={styles.requestType}>
-              {isReceived ? 'Sent you a friend request' : 'Request sent'}
-            </Text>
+            <Text style={styles.requestType}>{isReceived ? 'Sent you a friend request' : 'Request sent'}</Text>
             <Text style={styles.requestDate}>
-              {new Date(item.date_created).toLocaleDateString('en-US', {
-                month: 'short', day: 'numeric', year: 'numeric',
-              })}
+              {new Date(item.date_created).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
             </Text>
           </View>
         </View>
         <View style={styles.requestActions}>
           {isReceived ? (
             <>
-              <TouchableOpacity
-                style={styles.acceptButton}
-                onPress={() => handleAcceptRequest(item)}
-                disabled={acceptRequestMutation.isPending}
-              >
-                {acceptRequestMutation.isPending ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <>
-                    <Ionicons name="checkmark" size={18} color="#fff" />
-                    <Text style={styles.acceptButtonText}>Accept</Text>
-                  </>
+              <TouchableOpacity style={styles.acceptButton} onPress={() => handleAcceptRequest(item)} disabled={acceptRequestMutation.isPending}>
+                {acceptRequestMutation.isPending ? <ActivityIndicator size="small" color="#fff" /> : (
+                  <><Ionicons name="checkmark" size={18} color="#fff" /><Text style={styles.acceptButtonText}>Accept</Text></>
                 )}
               </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.rejectButton}
-                onPress={() => handleRejectRequest(item)}
-                disabled={rejectRequestMutation.isPending}
-              >
-                {rejectRequestMutation.isPending ? (
-                  <ActivityIndicator size="small" color="#ff4444" />
-                ) : (
-                  <>
-                    <Ionicons name="close" size={18} color="#ff4444" />
-                    <Text style={styles.rejectButtonText}>Reject</Text>
-                  </>
+              <TouchableOpacity style={styles.rejectButton} onPress={() => handleRejectRequest(item)} disabled={rejectRequestMutation.isPending}>
+                {rejectRequestMutation.isPending ? <ActivityIndicator size="small" color="#ff4444" /> : (
+                  <><Ionicons name="close" size={18} color="#ff4444" /><Text style={styles.rejectButtonText}>Reject</Text></>
                 )}
               </TouchableOpacity>
             </>
           ) : (
-            <TouchableOpacity
-              style={styles.cancelButton}
-              onPress={() => handleRejectRequest(item)}
-              disabled={rejectRequestMutation.isPending}
-            >
-              {rejectRequestMutation.isPending ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
+            <TouchableOpacity style={styles.cancelButton} onPress={() => handleRejectRequest(item)} disabled={rejectRequestMutation.isPending}>
+              {rejectRequestMutation.isPending ? <ActivityIndicator size="small" color="#fff" /> : (
                 <Text style={styles.cancelButtonText}>Cancel Request</Text>
               )}
             </TouchableOpacity>
@@ -428,113 +557,161 @@ export default function NetworkingScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Tab Navigation */}
-      <View style={styles.tabContainer}>
+
+      {/* ── Top Section Selector ── */}
+      <View style={styles.sectionSelector}>
         <TouchableOpacity
-          style={[styles.tab, activeTab === 'connect' && styles.activeTab]}
-          onPress={() => setActiveTab('connect')}
+          style={[styles.sectionBtn, activeSection === 'members' && styles.sectionBtnActive]}
+          onPress={() => setActiveSection('members')}
+          activeOpacity={0.8}
         >
-          <Ionicons
-            name="person-add-outline"
-            size={15}
-            color={activeTab === 'connect' ? '#0066cc' : '#666'}
-          />
-          <Text style={[styles.tabText, activeTab === 'connect' && styles.activeTabText]}>
-            Connect
+          <Ionicons name="people" size={16} color={activeSection === 'members' ? '#fff' : '#6b7280'} />
+          <Text style={[styles.sectionBtnText, activeSection === 'members' && styles.sectionBtnTextActive]}>
+            Members
           </Text>
         </TouchableOpacity>
-
         <TouchableOpacity
-          style={[styles.tab, activeTab === 'friends' && styles.activeTab]}
-          onPress={() => setActiveTab('friends')}
+          style={[styles.sectionBtn, activeSection === 'groups' && styles.sectionBtnActive]}
+          onPress={() => setActiveSection('groups')}
+          activeOpacity={0.8}
         >
-          <Text style={[styles.tabText, activeTab === 'friends' && styles.activeTabText]}>
-            Friends
+          <Ionicons name="grid" size={16} color={activeSection === 'groups' ? '#fff' : '#6b7280'} />
+          <Text style={[styles.sectionBtnText, activeSection === 'groups' && styles.sectionBtnTextActive]}>
+            Groups
           </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'requests' && styles.activeTab]}
-          onPress={() => setActiveTab('requests')}
-        >
-          <Text style={[styles.tabText, activeTab === 'requests' && styles.activeTabText]}>
-            Requests
-          </Text>
-          {requests.length > 0 && (
-            <View style={[styles.badge, styles.badgeAlert]}>
-              <Text style={styles.badgeText}>{requests.length}</Text>
-            </View>
-          )}
         </TouchableOpacity>
       </View>
 
-      {/* Content */}
-      {activeTab === 'connect' ? (
-        <ConnectTab />
-      ) : isLoading ? (
-        <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color="#0066cc" />
-          <Text style={styles.loadingText}>Loading...</Text>
-        </View>
-      ) : error ? (
-        <View style={styles.centerContainer}>
-          <Ionicons name="alert-circle-outline" size={64} color="#ff4444" />
-          <Text style={styles.errorText}>Failed to load</Text>
-          <Text style={styles.errorDetail}>{(error as Error).message}</Text>
-          <TouchableOpacity style={styles.retryButton} onPress={onRefresh}>
-            <Text style={styles.retryButtonText}>Retry</Text>
-          </TouchableOpacity>
-        </View>
-      ) : activeTab === 'friends' ? (
-        friends.length === 0 ? (
-          <View style={styles.emptyContainer}>
-            <Ionicons name="people-outline" size={80} color="#ccc" />
-            <Text style={styles.emptyTitle}>No friends yet</Text>
-            <Text style={styles.emptyText}>Go to Connect to find and add members!</Text>
+      {/* ── Members Directory ── */}
+      {activeSection === 'members' && (
+        <>
+          <View style={styles.tabContainer}>
+            <TouchableOpacity
+              style={[styles.tab, activeMembersTab === 'connect' && styles.activeTab]}
+              onPress={() => setActiveMembersTab('connect')}
+            >
+              <Ionicons name="person-add-outline" size={15} color={activeMembersTab === 'connect' ? '#0066cc' : '#666'} />
+              <Text style={[styles.tabText, activeMembersTab === 'connect' && styles.activeTabText]}>Connect</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.tab, activeMembersTab === 'friends' && styles.activeTab]}
+              onPress={() => setActiveMembersTab('friends')}
+            >
+              <Ionicons name="heart-outline" size={15} color={activeMembersTab === 'friends' ? '#0066cc' : '#666'} />
+              <Text style={[styles.tabText, activeMembersTab === 'friends' && styles.activeTabText]}>Friends</Text>
+              {friends.length > 0 && (
+                <View style={styles.badge}>
+                  <Text style={styles.badgeText}>{friends.length}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.tab, activeMembersTab === 'requests' && styles.activeTab]}
+              onPress={() => setActiveMembersTab('requests')}
+            >
+              <Ionicons name="mail-outline" size={15} color={activeMembersTab === 'requests' ? '#0066cc' : '#666'} />
+              <Text style={[styles.tabText, activeMembersTab === 'requests' && styles.activeTabText]}>Requests</Text>
+              {requests.length > 0 && (
+                <View style={[styles.badge, styles.badgeAlert]}>
+                  <Text style={styles.badgeText}>{requests.length}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
           </View>
-        ) : (
-          <FlatList
-            data={friends}
-            renderItem={renderFriendItem}
-            keyExtractor={(item) => item.id.toString()}
-            contentContainerStyle={styles.listContent}
-            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-            ItemSeparatorComponent={() => <View style={styles.separator} />}
-            ListHeaderComponent={() => (
-              <View style={styles.friendsListHeader}>
-                <Text style={styles.friendsListHeaderText}>Total friends: {friends.length}</Text>
+
+          {activeMembersTab === 'connect' ? (
+            <ConnectTab />
+          ) : isLoading ? (
+            <View style={styles.centerContainer}>
+              <ActivityIndicator size="large" color="#0066cc" />
+              <Text style={styles.loadingText}>Loading...</Text>
+            </View>
+          ) : error ? (
+            <View style={styles.centerContainer}>
+              <Ionicons name="alert-circle-outline" size={64} color="#ff4444" />
+              <Text style={styles.errorText}>Failed to load</Text>
+              <Text style={styles.errorDetail}>{(error as Error).message}</Text>
+              <TouchableOpacity style={styles.retryButton} onPress={onRefresh}>
+                <Text style={styles.retryButtonText}>Retry</Text>
+              </TouchableOpacity>
+            </View>
+          ) : activeMembersTab === 'friends' ? (
+            friends.length === 0 ? (
+              <View style={styles.emptyContainer}>
+                <Ionicons name="people-outline" size={80} color="#ccc" />
+                <Text style={styles.emptyTitle}>No friends yet</Text>
+                <Text style={styles.emptyText}>Go to Connect to find and add members!</Text>
               </View>
-            )}
-          />
-        )
-      ) : (
-        requests.length === 0 ? (
-          <View style={styles.emptyContainer}>
-            <Ionicons name="mail-outline" size={80} color="#ccc" />
-            <Text style={styles.emptyTitle}>No friend requests</Text>
-            <Text style={styles.emptyText}>
-              When someone sends you a friend request, it will appear here.
-            </Text>
-          </View>
-        ) : (
-          <FlatList
-            data={requests}
-            renderItem={({ item }) => <FriendRequestItem item={item} />}
-            keyExtractor={(item) => item.id.toString()}
-            contentContainerStyle={styles.listContent}
-            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-            ItemSeparatorComponent={() => <View style={styles.separator} />}
-            ListHeaderComponent={() => (
-              <View style={styles.requestsHeader}>
-                {receivedRequests.length > 0 && (
-                  <Text style={styles.requestsHeaderText}>
-                    {receivedRequests.length} Received • {sentRequests.length} Sent
-                  </Text>
+            ) : (
+              <FlatList
+                data={friends}
+                renderItem={renderFriendItem}
+                keyExtractor={(item) => item.id.toString()}
+                contentContainerStyle={styles.listContent}
+                refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+                ItemSeparatorComponent={() => <View style={styles.separator} />}
+                ListHeaderComponent={() => (
+                  <View style={styles.friendsListHeader}>
+                    <Text style={styles.friendsListHeaderText}>Total friends: {friends.length}</Text>
+                  </View>
                 )}
+              />
+            )
+          ) : (
+            requests.length === 0 ? (
+              <View style={styles.emptyContainer}>
+                <Ionicons name="mail-outline" size={80} color="#ccc" />
+                <Text style={styles.emptyTitle}>No friend requests</Text>
+                <Text style={styles.emptyText}>When someone sends you a friend request, it will appear here.</Text>
               </View>
-            )}
-          />
-        )
+            ) : (
+              <FlatList
+                data={requests}
+                renderItem={({ item }) => <FriendRequestItem item={item} />}
+                keyExtractor={(item) => item.id.toString()}
+                contentContainerStyle={styles.listContent}
+                refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+                ItemSeparatorComponent={() => <View style={styles.separator} />}
+                ListHeaderComponent={() => (
+                  <View style={styles.requestsHeader}>
+                    {receivedRequests.length > 0 && (
+                      <Text style={styles.requestsHeaderText}>
+                        {receivedRequests.length} Received · {sentRequests.length} Sent
+                      </Text>
+                    )}
+                  </View>
+                )}
+              />
+            )
+          )}
+        </>
+      )}
+
+      {/* ── Groups Directory ── */}
+      {activeSection === 'groups' && (
+        <>
+          <View style={styles.tabContainer}>
+            <TouchableOpacity
+              style={[styles.tab, activeGroupsTab === 'explore' && styles.activeTab]}
+              onPress={() => setActiveGroupsTab('explore')}
+            >
+              <Ionicons name="compass-outline" size={15} color={activeGroupsTab === 'explore' ? '#0066cc' : '#666'} />
+              <Text style={[styles.tabText, activeGroupsTab === 'explore' && styles.activeTabText]}>Explore</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.tab, activeGroupsTab === 'mygroups' && styles.activeTab]}
+              onPress={() => setActiveGroupsTab('mygroups')}
+            >
+              <Ionicons name="bookmark-outline" size={15} color={activeGroupsTab === 'mygroups' ? '#0066cc' : '#666'} />
+              <Text style={[styles.tabText, activeGroupsTab === 'mygroups' && styles.activeTabText]}>My Groups</Text>
+            </TouchableOpacity>
+          </View>
+
+          {activeGroupsTab === 'explore' ? <ExploreGroupsTab /> : <MyGroupsTab />}
+        </>
       )}
 
       <RemoveFriendModal
@@ -542,24 +719,49 @@ export default function NetworkingScreen() {
         friendName={selectedFriend?.name || ''}
         isRemoving={removeFriendMutation.isPending}
         onConfirm={confirmRemoveFriend}
-        onCancel={cancelRemoveFriend}
+        onCancel={() => { setModalVisible(false); setSelectedFriend(null); }}
       />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f5f5f5',
+  container: { flex: 1, backgroundColor: '#f5f5f5' },
+  centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, backgroundColor: '#f5f5f5' },
+
+  // ── Section selector (Members / Groups pill) ──
+  sectionSelector: {
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
   },
-  centerContainer: {
+  sectionBtn: {
     flex: 1,
-    justifyContent: 'center',
+    flexDirection: 'row',
     alignItems: 'center',
-    padding: 20,
-    backgroundColor: '#f5f5f5',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: '#f3f4f6',
   },
+  sectionBtnActive: {
+    backgroundColor: '#0066cc',
+  },
+  sectionBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#6b7280',
+  },
+  sectionBtnTextActive: {
+    color: '#fff',
+  },
+
+  // ── Sub-tab bar ──
   tabContainer: {
     flexDirection: 'row',
     backgroundColor: '#fff',
@@ -571,22 +773,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 14,
-    gap: 6,
+    paddingVertical: 13,
+    gap: 5,
     borderBottomWidth: 2,
     borderBottomColor: 'transparent',
   },
-  activeTab: {
-    borderBottomColor: '#0066cc',
-  },
-  tabText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#666',
-  },
-  activeTabText: {
-    color: '#0066cc',
-  },
+  activeTab: { borderBottomColor: '#0066cc' },
+  tabText: { fontSize: 13, fontWeight: '600', color: '#666' },
+  activeTabText: { color: '#0066cc' },
+
   badge: {
     backgroundColor: '#0066cc',
     paddingHorizontal: 6,
@@ -595,14 +790,10 @@ const styles = StyleSheet.create({
     minWidth: 20,
     alignItems: 'center',
   },
-  badgeAlert: {
-    backgroundColor: '#ff4444',
-  },
-  badgeText: {
-    color: '#fff',
-    fontSize: 11,
-    fontWeight: '600',
-  },
+  badgeAlert: { backgroundColor: '#ff4444' },
+  badgeText: { color: '#fff', fontSize: 11, fontWeight: '600' },
+
+  // ── Search ──
   searchContainer: {
     flexDirection: 'row',
     padding: 12,
@@ -630,43 +821,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  addFriendButton: {
-    backgroundColor: '#0066cc',
-    flexDirection: 'row',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-    gap: 4,
-  },
-  addFriendText: {
-    color: '#fff',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  friendStatusBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  friendStatusText: {
-    color: '#22c55e',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  pendingBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  pendingText: {
-    color: '#0066cc',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  listContent: {
-    padding: 12,
-  },
+
+  // ── Friend / Member cards ──
+  listContent: { padding: 12 },
+  separator: { height: 12 },
   friendCard: {
     backgroundColor: '#fff',
     borderRadius: 12,
@@ -676,211 +834,91 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.08,
     shadowRadius: 4,
     elevation: 3,
   },
-  friendInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
+  friendInfo: { flexDirection: 'row', alignItems: 'center', flex: 1 },
+  avatar: { width: 56, height: 56, borderRadius: 28, marginRight: 12 },
+  avatarPlaceholder: { backgroundColor: '#0066cc', justifyContent: 'center', alignItems: 'center' },
+  avatarPlaceholderText: { color: '#fff', fontSize: 24, fontWeight: 'bold' },
+  friendDetails: { flex: 1 },
+  friendName: { fontSize: 16, fontWeight: '600', color: '#333', marginBottom: 4 },
+  friendshipDuration: { fontSize: 13, color: '#666', marginBottom: 2 },
+  lastActive: { fontSize: 12, color: '#999' },
+  addFriendButton: {
+    backgroundColor: '#0066cc', flexDirection: 'row',
+    paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, alignItems: 'center', gap: 4,
   },
-  avatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    marginRight: 12,
-  },
-  avatarPlaceholder: {
-    backgroundColor: '#0066cc',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  avatarPlaceholderText: {
-    color: '#fff',
-    fontSize: 24,
-    fontWeight: 'bold',
-  },
-  friendDetails: {
-    flex: 1,
-  },
-  friendName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 4,
-  },
-  friendshipDuration: {
-    fontSize: 13,
-    color: '#666',
-    marginBottom: 2,
-  },
-  lastActive: {
-    fontSize: 12,
-    color: '#999',
-  },
+  addFriendText: { color: '#fff', fontSize: 13, fontWeight: '600' },
+  friendStatusBadge: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  friendStatusText: { color: '#22c55e', fontSize: 13, fontWeight: '600' },
+  pendingBadge: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  pendingText: { color: '#0066cc', fontSize: 13, fontWeight: '600' },
   removeButton: {
-    backgroundColor: '#ff4444',
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: '#ff4444', width: 40, height: 40,
+    borderRadius: 20, justifyContent: 'center', alignItems: 'center',
   },
-  requestCard: {
+
+  // ── Group cards ──
+  groupCard: {
     backgroundColor: '#fff',
     borderRadius: 12,
-    padding: 12,
+    padding: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.08,
     shadowRadius: 4,
     elevation: 3,
   },
-  requestInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
+  groupAvatar: { width: 52, height: 52, borderRadius: 10 },
+  groupAvatarPlaceholder: { backgroundColor: '#eff6ff', justifyContent: 'center', alignItems: 'center' },
+  groupName: { fontSize: 15, fontWeight: '700', color: '#111827', flex: 1 },
+  groupDescription: { fontSize: 13, color: '#6b7280', lineHeight: 18 },
+
+  // ── Request cards ──
+  requestCard: {
+    backgroundColor: '#fff', borderRadius: 12, padding: 12,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 4, elevation: 3,
   },
-  requestDetails: {
-    flex: 1,
-  },
-  requestName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 4,
-  },
-  requestType: {
-    fontSize: 13,
-    color: '#666',
-    marginBottom: 2,
-  },
-  requestDate: {
-    fontSize: 12,
-    color: '#999',
-  },
-  requestActions: {
-    flexDirection: 'row',
-    gap: 8,
-  },
+  requestInfo: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
+  requestDetails: { flex: 1 },
+  requestName: { fontSize: 16, fontWeight: '600', color: '#333', marginBottom: 4 },
+  requestType: { fontSize: 13, color: '#666', marginBottom: 2 },
+  requestDate: { fontSize: 12, color: '#999' },
+  requestActions: { flexDirection: 'row', gap: 8 },
   acceptButton: {
-    flex: 1,
-    flexDirection: 'row',
-    backgroundColor: '#0066cc',
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 6,
+    flex: 1, flexDirection: 'row', backgroundColor: '#0066cc',
+    paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8,
+    justifyContent: 'center', alignItems: 'center', gap: 6,
   },
-  acceptButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-  },
+  acceptButtonText: { color: '#fff', fontSize: 14, fontWeight: '600' },
   rejectButton: {
-    flex: 1,
-    flexDirection: 'row',
-    backgroundColor: '#fff',
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#ff4444',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 6,
+    flex: 1, flexDirection: 'row', backgroundColor: '#fff',
+    paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8,
+    borderWidth: 1, borderColor: '#ff4444', justifyContent: 'center', alignItems: 'center', gap: 6,
   },
-  rejectButtonText: {
-    color: '#ff4444',
-    fontSize: 14,
-    fontWeight: '600',
-  },
+  rejectButtonText: { color: '#ff4444', fontSize: 14, fontWeight: '600' },
   cancelButton: {
-    flex: 1,
-    backgroundColor: '#666',
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
+    flex: 1, backgroundColor: '#666', paddingVertical: 10,
+    paddingHorizontal: 16, borderRadius: 8, justifyContent: 'center', alignItems: 'center',
   },
-  cancelButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  requestsHeader: {
-    paddingVertical: 8,
-    alignItems: 'center',
-  },
-  requestsHeaderText: {
-    fontSize: 13,
-    color: '#666',
-    fontWeight: '500',
-  },
-  friendsListHeader: {
-    paddingVertical: 8,
-    paddingHorizontal: 4,
-    marginBottom: 4,
-  },
-  friendsListHeaderText: {
-    fontSize: 13,
-    color: '#666',
-    fontWeight: '600',
-  },
-  separator: {
-    height: 12,
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 32,
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 16,
-    color: '#666',
-  },
-  errorText: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#ff4444',
-    marginTop: 12,
-    marginBottom: 8,
-  },
-  errorDetail: {
-    fontSize: 14,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 16,
-    paddingHorizontal: 20,
-  },
-  retryButton: {
-    backgroundColor: '#0066cc',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 8,
-  },
-  retryButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  emptyTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  emptyText: {
-    fontSize: 14,
-    color: '#666',
-    textAlign: 'center',
-    paddingHorizontal: 32,
-  },
+  cancelButtonText: { color: '#fff', fontSize: 14, fontWeight: '600' },
+  requestsHeader: { paddingVertical: 8, alignItems: 'center' },
+  requestsHeaderText: { fontSize: 13, color: '#666', fontWeight: '500' },
+  friendsListHeader: { paddingVertical: 8, paddingHorizontal: 4, marginBottom: 4 },
+  friendsListHeaderText: { fontSize: 13, color: '#666', fontWeight: '600' },
+
+  // ── Empty / error states ──
+  emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32 },
+  emptyTitle: { fontSize: 20, fontWeight: 'bold', color: '#333', marginTop: 16, marginBottom: 8 },
+  emptyText: { fontSize: 14, color: '#666', textAlign: 'center', paddingHorizontal: 32 },
+  loadingText: { marginTop: 12, fontSize: 16, color: '#666' },
+  errorText: { fontSize: 18, fontWeight: '600', color: '#ff4444', marginTop: 12, marginBottom: 8 },
+  errorDetail: { fontSize: 14, color: '#666', textAlign: 'center', marginBottom: 16, paddingHorizontal: 20 },
+  retryButton: { backgroundColor: '#0066cc', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 8 },
+  retryButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
 });
