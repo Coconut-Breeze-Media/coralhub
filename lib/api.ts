@@ -1073,7 +1073,7 @@ export async function getMyGroups(
  */
 export async function getAllGroups(
   token: string,
-  params?: { per_page?: number; page?: number; search?: string }
+  params?: { per_page?: number; page?: number; search?: string; user_id?: number }
 ): Promise<import('../types').BPGroup[]> {
   const queryParams = new URLSearchParams();
 
@@ -1086,6 +1086,10 @@ export async function getAllGroups(
 
   if (params?.search) {
     queryParams.append('search', params.search);
+  }
+
+  if (params?.user_id) {
+    queryParams.append('user_id', params.user_id.toString());
   }
 
   const endpoint = `/buddypress/v1/groups?${queryParams.toString()}`;

@@ -15,7 +15,7 @@ import type { BPGroup } from '../types';
  */
 export function useAllGroups(
   token: string | null,
-  params?: { per_page?: number; page?: number; search?: string }
+  params?: { per_page?: number; page?: number; search?: string; user_id?: number }
 ) {
   return useQuery({
     queryKey: ['groups', 'all', params] as const,

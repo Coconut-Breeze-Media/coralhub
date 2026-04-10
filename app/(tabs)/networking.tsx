@@ -27,7 +27,7 @@ import {
   useSendFriendRequest,
 } from '../../hooks/useQueries';
 import { useMember, useMembersList } from '../../hooks/useMembers';
-import { useAllGroups, useMyGroups } from '../../hooks/useGroups';
+import { useAllGroups } from '../../hooks/useGroups';
 import RemoveFriendModal from '../../components/RemoveFriendModal';
 import type { FriendWithDetails, BPFriendship, BPMember, BPGroup } from '../../types';
 
@@ -276,9 +276,12 @@ function ExploreGroupsTab() {
 
 // ─── My Groups Tab ────────────────────────────────────────────────────────────
 function MyGroupsTab() {
-  const { token } = useAuth();
+  const { token, userId } = useAuth();
   const [refreshing, setRefreshing] = useState(false);
-  const { data: groups, isLoading, refetch } = useMyGroups(token);
+  const { data: groups, isLoading, refetch } = useAllGroups(token, {
+    per_page: 50,
+    user_id: userId ?? undefined,
+  });
 
   const onRefresh = async () => {
     setRefreshing(true);
