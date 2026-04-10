@@ -5,7 +5,12 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getMyGroups, getUserGroups, getGroupById, getGroupActivity, getGroupMembers, getAllGroups, joinGroup, leaveGroup } from '../lib/api';
+import {
+  getMyGroups, getUserGroups, getGroupById, getGroupActivity, getGroupMembers, getAllGroups,
+  joinGroup, leaveGroup,
+  requestGroupMembership, getGroupMembershipRequests, getMyMembershipRequest,
+  acceptMembershipRequest, rejectMembershipRequest,
+} from '../lib/api';
 import type { BPGroup } from '../types';
 
 /**
@@ -138,8 +143,13 @@ export function useGroupMembers(
       return getGroupMembers(groupId, token, { per_page: perPage });
     },
     enabled: !!token && !!groupId,
-    staleTime: 5 * 60 * 1000, // 5 minutes - members don't change frequently
-    gcTime: 10 * 60 * 1000, // 10 minutes
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    // Don't retry on 403 — private group non-member access is intentionally denied
+    retry: (count, error: any) => {
+      if (error?.status === 403) return false;
+      return count < 3;
+    },
   });
 }
 
@@ -177,6 +187,86 @@ export function useLeaveGroup(token: string | null) {
       queryClient.invalidateQueries({ queryKey: ['groups', 'members', groupId] });
       queryClient.invalidateQueries({ queryKey: ['groups', 'detail', groupId] });
       queryClient.invalidateQueries({ queryKey: ['groups', 'me'] });
+    },
+  });
+}
+
+// ─── Membership Requests ─────────────────────────────────────────────────────
+
+/** Send a join request to a private group */
+export function useRequestMembership(token: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ groupId, userId }: { groupId: number; userId: number }) => {
+      if (!token) throw new Error('Not authenticated');
+      return requestGroupMembership(groupId, userId, token);
+    },
+    onSuccess: (_data, { groupId, userId }) => {
+      queryClient.invalidateQueries({ queryKey: ['groups', 'membership-request', groupId, userId] });
+    },
+  });
+}
+
+/** Check if the current user already has a pending request for this group */
+export function useMyMembershipRequest(
+  token: string | null,
+  userId: number | null | undefined,
+  groupId: number | null | undefined
+) {
+  return useQuery({
+    queryKey: ['groups', 'membership-request', groupId, userId] as const,
+    queryFn: async () => {
+      if (!token || !userId || !groupId) return [];
+      return getMyMembershipRequest(userId, groupId, token);
+    },
+    enabled: !!token && !!userId && !!groupId,
+    staleTime: 30 * 1000,
+  });
+}
+
+/** Get all pending membership requests for a group (admin/creator only) */
+export function useGroupMembershipRequests(
+  token: string | null,
+  groupId: number | null | undefined
+) {
+  return useQuery({
+    queryKey: ['groups', 'membership-requests', groupId] as const,
+    queryFn: async () => {
+      if (!token || !groupId) return [];
+      return getGroupMembershipRequests(groupId, token);
+    },
+    enabled: !!token && !!groupId,
+    staleTime: 30 * 1000,
+  });
+}
+
+/** Accept a membership request (admin/creator only) */
+export function useAcceptMembershipRequest(token: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ groupId, requestId }: { groupId: number; requestId: number }) => {
+      if (!token) throw new Error('Not authenticated');
+      return acceptMembershipRequest(groupId, requestId, token);
+    },
+    onSuccess: (_data, { groupId }) => {
+      queryClient.invalidateQueries({ queryKey: ['groups', 'membership-requests', groupId] });
+      queryClient.invalidateQueries({ queryKey: ['groups', 'members', groupId] });
+      queryClient.invalidateQueries({ queryKey: ['groups', 'detail', groupId] });
+    },
+  });
+}
+
+/** Reject a membership request or cancel your own pending request */
+export function useRejectMembershipRequest(token: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ groupId, requestId }: { groupId: number; requestId: number }) => {
+      if (!token) throw new Error('Not authenticated');
+      return rejectMembershipRequest(groupId, requestId, token);
+    },
+    onSuccess: (_data, { groupId }) => {
+      queryClient.invalidateQueries({ queryKey: ['groups', 'membership-requests', groupId] });
+      queryClient.invalidateQueries({ queryKey: ['groups', 'membership-request', groupId] });
     },
   });
 }

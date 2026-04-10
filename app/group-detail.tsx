@@ -9,7 +9,12 @@ import CommentsModal from '../components/CommentsModal';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../lib/auth';
 import { uploadImage } from '../lib/api';
-import { useGroup, useGroupActivity, useGroupMembers, useJoinGroup, useLeaveGroup } from '../hooks/useGroups';
+import {
+  useGroup, useGroupActivity, useGroupMembers,
+  useJoinGroup, useLeaveGroup,
+  useRequestMembership, useMyMembershipRequest,
+  useGroupMembershipRequests, useAcceptMembershipRequest, useRejectMembershipRequest,
+} from '../hooks/useGroups';
 import { useMember } from '../hooks/useMembers';
 import { useCreateGroupPost, useLikePost, useUpdatePost, useDeletePost } from '../hooks/useActivity';
 import BackButton from '../components/BackButton';
@@ -17,7 +22,7 @@ import { useState, useEffect } from 'react';
 import { useLocalSearchParams } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 
-type TabType = 'home' | 'members' | 'media' | 'documents';
+type TabType = 'home' | 'members' | 'media' | 'documents' | 'requests';
 
 // Group status badge colors
 const STATUS_COLORS: Record<string, { bg: string; text: string; icon: string }> = {
@@ -64,14 +69,32 @@ export default function GroupDetailScreen() {
   
   const { data: group, isLoading: loadingGroup, refetch: refetchGroup } = useGroup(token, groupId);
   const { data: activityData, isLoading: loadingActivity, refetch: refetchActivity } = useGroupActivity(token, groupId);
-  const { data: members, isLoading: loadingMembers, refetch: refetchMembers } = useGroupMembers(token, groupId);
+  const { data: members, isLoading: loadingMembers, error: membersError, refetch: refetchMembers } = useGroupMembers(token, groupId);
+  // 403 = private group, non-member — API intentionally denies access. Treat as "not a member, done loading".
+  const membersAccessDenied = !!(membersError && (membersError as any)?.status === 403);
+  const membersDoneLoading = !loadingMembers || membersAccessDenied;
   
   const createGroupPostMutation = useCreateGroupPost(token);
   const joinGroupMutation = useJoinGroup(token);
   const leaveGroupMutation = useLeaveGroup(token);
+  const requestMembershipMutation = useRequestMembership(token);
+  const acceptRequestMutation = useAcceptMembershipRequest(token);
+  const rejectRequestMutation = useRejectMembershipRequest(token);
 
   const isMember = !!(userId && members?.some((m) => m.id === userId));
   const isGroupCreator = !!(userId && group?.creator_id === userId);
+  const isAdmin = !!(userId && members?.some((m) => m.id === userId && m.roles?.includes('admin')));
+  const canManageRequests = isGroupCreator || isAdmin;
+
+  // Always check for a pending request when we have IDs — lets the query run regardless of group status
+  const { data: myRequest } = useMyMembershipRequest(token, userId, groupId);
+  const apiHasPendingRequest = !!(myRequest && myRequest.length > 0);
+  const myPendingRequestId = apiHasPendingRequest ? myRequest![0].id : null;
+  // Combine API result with local mutation state: if the mutation just succeeded this session, treat as pending
+  const hasPendingRequest = apiHasPendingRequest || requestMembershipMutation.isSuccess;
+
+  const { data: membershipRequests, refetch: refetchMembershipRequests } =
+    useGroupMembershipRequests(canManageRequests ? token : null, canManageRequests ? groupId : null);
   
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<TabType>('home');
@@ -148,7 +171,10 @@ export default function GroupDetailScreen() {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await Promise.all([refetchGroup(), refetchActivity(), refetchMembers()]);
+    await Promise.all([
+      refetchGroup(), refetchActivity(), refetchMembers(),
+      canManageRequests ? refetchMembershipRequests() : Promise.resolve(),
+    ]);
     setRefreshing(false);
   };
 
@@ -446,7 +472,7 @@ export default function GroupDetailScreen() {
               </View>
               
               {/* Join / Leave Button — only for public groups, not the creator */}
-              {group.status === 'public' && !isGroupCreator && !loadingMembers && (
+              {!isGroupCreator && membersDoneLoading && (isMember || group.status === 'public' || group.status === 'private') && (
                 <View style={{ marginTop: 16 }}>
                   {isMember ? (
                     <TouchableOpacity
@@ -474,10 +500,98 @@ export default function GroupDetailScreen() {
                         {leaveGroupMutation.isPending ? 'Leaving...' : 'Leave Group'}
                       </Text>
                     </TouchableOpacity>
+                  ) : group.status === 'private' ? (
+                    /* ── PRIVATE GROUP: Request / Pending / Cancel ── */
+                    hasPendingRequest ? (
+                      /* Already sent a request — show pending state */
+                      <View style={{
+                        flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+                      }}>
+                        {/* Pending badge */}
+                        <View style={{
+                          flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+                          backgroundColor: 'rgba(234,179,8,0.12)', borderWidth: 1.5, borderColor: '#ca8a04',
+                          borderRadius: 8, paddingVertical: 10, paddingHorizontal: 12,
+                        }}>
+                          <Ionicons name="time-outline" size={18} color="#ca8a04" />
+                          <Text style={{ fontSize: 14, fontWeight: '700', color: '#ca8a04' }}>
+                            Request Pending
+                          </Text>
+                        </View>
+                        {/* Cancel button — only if we have the request ID from the API */}
+                        {myPendingRequestId && (
+                          <TouchableOpacity
+                            onPress={() => {
+                              console.log('[CancelRequest] requestId:', myPendingRequestId);
+                              rejectRequestMutation.mutate(
+                                { groupId: groupId!, requestId: myPendingRequestId },
+                                {
+                                  onSuccess: () => {
+                                    console.log('[CancelRequest] ✅ Cancelled');
+                                    Alert.alert('Cancelled', 'Your membership request has been cancelled.');
+                                  },
+                                  onError: (err: any) => {
+                                    console.log('[CancelRequest] ❌ Error:', err?.message);
+                                    Alert.alert('Error', err.message || 'Could not cancel the request.');
+                                  },
+                                }
+                              );
+                            }}
+                            disabled={rejectRequestMutation.isPending}
+                            style={{
+                              flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4,
+                              backgroundColor: 'rgba(239,68,68,0.1)', borderWidth: 1.5, borderColor: '#ef4444',
+                              borderRadius: 8, paddingVertical: 10, paddingHorizontal: 14,
+                              opacity: rejectRequestMutation.isPending ? 0.6 : 1,
+                            }}
+                          >
+                            {rejectRequestMutation.isPending
+                              ? <ActivityIndicator size="small" color="#ef4444" />
+                              : <><Ionicons name="close" size={16} color="#ef4444" /><Text style={{ fontSize: 13, fontWeight: '700', color: '#ef4444' }}>Cancel</Text></>
+                            }
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    ) : (
+                      <TouchableOpacity
+                        onPress={() => {
+                          console.log('[RequestMembership] groupId:', groupId, '| userId:', userId);
+                          requestMembershipMutation.mutate(
+                            { groupId: groupId!, userId: userId! },
+                            {
+                              onSuccess: () => {
+                                console.log('[RequestMembership] ✅ Request sent');
+                                Alert.alert('Request Sent', 'Your membership request is pending approval by an admin.');
+                              },
+                              onError: (err: any) => {
+                                console.log('[RequestMembership] ❌ Error:', err?.message, err);
+                                Alert.alert('Error', err.message || 'Could not send the request.');
+                              },
+                            }
+                          );
+                        }}
+                        disabled={requestMembershipMutation.isPending || requestMembershipMutation.isSuccess}
+                        style={{
+                          flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+                          backgroundColor: '#2563eb', borderRadius: 8,
+                          paddingVertical: 10, paddingHorizontal: 20,
+                          opacity: (requestMembershipMutation.isPending || requestMembershipMutation.isSuccess) ? 0.6 : 1,
+                        }}
+                      >
+                        {requestMembershipMutation.isPending
+                          ? <ActivityIndicator size="small" color="#fff" />
+                          : <Ionicons name="send-outline" size={18} color="#fff" />
+                        }
+                        <Text style={{ fontSize: 14, fontWeight: '700', color: '#fff' }}>
+                          {requestMembershipMutation.isPending ? 'Sending...' : 'Request to Join'}
+                        </Text>
+                      </TouchableOpacity>
+                    )
                   ) : (
+                    /* ── PUBLIC GROUP: Join directly ── */
                     <TouchableOpacity
                       onPress={() => {
-                        console.log('[JoinGroup] Button pressed — groupId:', groupId, '| userId:', userId);
+                        console.log('[JoinGroup] groupId:', groupId, '| userId:', userId);
                         joinGroupMutation.mutate(
                           { groupId: groupId!, userId: userId! },
                           {
@@ -494,14 +608,9 @@ export default function GroupDetailScreen() {
                       }}
                       disabled={joinGroupMutation.isPending}
                       style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: 6,
-                        backgroundColor: '#2563eb',
-                        borderRadius: 8,
-                        paddingVertical: 10,
-                        paddingHorizontal: 20,
+                        flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+                        backgroundColor: '#2563eb', borderRadius: 8,
+                        paddingVertical: 10, paddingHorizontal: 20,
                         opacity: joinGroupMutation.isPending ? 0.6 : 1,
                       }}
                     >
@@ -627,12 +736,45 @@ export default function GroupDetailScreen() {
                     </Text>
                   </View>
                 </TouchableOpacity>
+
+                {/* Requests tab — admin / creator only, only for private groups */}
+                {canManageRequests && group.status === 'private' && (
+                  <TouchableOpacity
+                    onPress={() => setActiveTab('requests')}
+                    style={{
+                      paddingVertical: 12,
+                      paddingHorizontal: 16,
+                      borderBottomWidth: 3,
+                      borderBottomColor: activeTab === 'requests' ? '#2563eb' : 'transparent',
+                    }}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Ionicons name="mail-unread" size={18} color={activeTab === 'requests' ? '#2563eb' : '#6b7280'} />
+                      <Text style={{
+                        fontSize: 14, fontWeight: '600',
+                        color: activeTab === 'requests' ? '#2563eb' : '#6b7280',
+                      }}>
+                        REQUESTS
+                      </Text>
+                      {membershipRequests && membershipRequests.length > 0 && (
+                        <View style={{
+                          backgroundColor: '#ef4444', borderRadius: 10,
+                          paddingHorizontal: 6, paddingVertical: 2, minWidth: 20, alignItems: 'center',
+                        }}>
+                          <Text style={{ fontSize: 11, fontWeight: '600', color: '#fff' }}>
+                            {membershipRequests.length}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  </TouchableOpacity>
+                )}
               </ScrollView>
             </View>
             )}
 
             {/* ── NON-MEMBER VIEW: description + locked notice + members only ── */}
-            {!isMember && !isGroupCreator && !loadingMembers && (
+            {!isMember && !isGroupCreator && membersDoneLoading && (
               <View style={{ padding: 16, gap: 16 }}>
                 {/* Description */}
                 {group.description?.rendered && getContentText(group.description.rendered).length > 0 && (
@@ -1184,6 +1326,34 @@ export default function GroupDetailScreen() {
                 </Text>
               </View>
             )}
+
+            {/* ── REQUESTS TAB (admin / creator only) ── */}
+            {canManageRequests && activeTab === 'requests' && (
+              <View style={{ padding: 16, gap: 12 }}>
+                {!membershipRequests || membershipRequests.length === 0 ? (
+                  <View style={{ paddingVertical: 48, alignItems: 'center' }}>
+                    <Ionicons name="checkmark-circle-outline" size={52} color="#9ca3af" />
+                    <Text style={{ fontSize: 16, fontWeight: '600', color: '#374151', marginTop: 12 }}>
+                      No pending requests
+                    </Text>
+                    <Text style={{ fontSize: 13, color: '#6b7280', marginTop: 4 }}>
+                      All membership requests will appear here.
+                    </Text>
+                  </View>
+                ) : (
+                  membershipRequests.map((req) => (
+                    <MembershipRequestCard
+                      key={req.id}
+                      request={req}
+                      token={token}
+                      groupId={groupId!}
+                      acceptMutation={acceptRequestMutation}
+                      rejectMutation={rejectRequestMutation}
+                    />
+                  ))
+                )}
+              </View>
+            )}
           </>
         ) : (
           <View style={{ padding: 40, alignItems: 'center' }}>
@@ -1293,6 +1463,93 @@ export default function GroupDetailScreen() {
           </View>
         </View>
       </Modal>
+    </View>
+  );
+}
+
+/**
+ * Membership Request Card — shown in the Requests tab (admin/creator only)
+ */
+function MembershipRequestCard({
+  request, token, groupId, acceptMutation, rejectMutation,
+}: {
+  request: { id: number; user_id: number; group_id: number; status: string; date_modified: string };
+  token: string | null;
+  groupId: number;
+  acceptMutation: ReturnType<typeof import('../hooks/useGroups').useAcceptMembershipRequest>;
+  rejectMutation: ReturnType<typeof import('../hooks/useGroups').useRejectMembershipRequest>;
+}) {
+  const { data: member } = useMember(token, request.user_id);
+  const avatarUrl = member?.avatar_urls?.thumb || member?.avatar_urls?.full;
+  const name = member?.name || 'Loading...';
+  const isPending = acceptMutation.isPending || rejectMutation.isPending;
+
+  return (
+    <View style={{
+      backgroundColor: '#fff', borderRadius: 12, padding: 14,
+      borderWidth: 1, borderColor: '#e5e7eb',
+      shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 3, elevation: 2,
+    }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+        {avatarUrl ? (
+          <Image source={{ uri: avatarUrl }} style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: '#f3f4f6' }} />
+        ) : (
+          <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: '#eff6ff', alignItems: 'center', justifyContent: 'center' }}>
+            <Ionicons name="person" size={22} color="#3b82f6" />
+          </View>
+        )}
+        <View style={{ flex: 1 }}>
+          <Text style={{ fontSize: 15, fontWeight: '700', color: '#111827' }}>{name}</Text>
+          <Text style={{ fontSize: 12, color: '#9ca3af', marginTop: 2 }}>
+            Requested {request.date_modified ? new Date(request.date_modified).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}
+          </Text>
+        </View>
+      </View>
+      <View style={{ flexDirection: 'row', gap: 10 }}>
+        <TouchableOpacity
+          onPress={() => {
+            console.log('[AcceptRequest] requestId:', request.id, 'userId:', request.user_id);
+            acceptMutation.mutate(
+              { groupId, requestId: request.id },
+              {
+                onSuccess: () => { console.log('[AcceptRequest] ✅ Accepted'); Alert.alert('Accepted', `${name} is now a member.`); },
+                onError: (err: any) => { console.log('[AcceptRequest] ❌ Error:', err?.message); Alert.alert('Error', err.message || 'Could not accept.'); },
+              }
+            );
+          }}
+          disabled={isPending}
+          style={{
+            flex: 1, flexDirection: 'row', backgroundColor: '#2563eb',
+            borderRadius: 8, paddingVertical: 10, alignItems: 'center', justifyContent: 'center', gap: 6,
+            opacity: isPending ? 0.6 : 1,
+          }}
+        >
+          <Ionicons name="checkmark" size={16} color="#fff" />
+          <Text style={{ fontSize: 14, fontWeight: '700', color: '#fff' }}>Accept</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => {
+            console.log('[RejectRequest] requestId:', request.id);
+            rejectMutation.mutate(
+              { groupId, requestId: request.id },
+              {
+                onSuccess: () => { console.log('[RejectRequest] ✅ Rejected'); Alert.alert('Rejected', 'Membership request rejected.'); },
+                onError: (err: any) => { console.log('[RejectRequest] ❌ Error:', err?.message); Alert.alert('Error', err.message || 'Could not reject.'); },
+              }
+            );
+          }}
+          disabled={isPending}
+          style={{
+            flex: 1, flexDirection: 'row', backgroundColor: '#fff',
+            borderWidth: 1.5, borderColor: '#ef4444',
+            borderRadius: 8, paddingVertical: 10, alignItems: 'center', justifyContent: 'center', gap: 6,
+            opacity: isPending ? 0.6 : 1,
+          }}
+        >
+          <Ionicons name="close" size={16} color="#ef4444" />
+          <Text style={{ fontSize: 14, fontWeight: '700', color: '#ef4444' }}>Reject</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }

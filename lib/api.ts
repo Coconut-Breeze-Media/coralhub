@@ -1242,6 +1242,76 @@ export async function getGroupMembers(
   return response;
 }
 
+// ---------- BuddyPress Group Membership Requests ----------
+
+/**
+ * Send a membership request for a private group
+ */
+export async function requestGroupMembership(
+  groupId: number,
+  userId: number,
+  token: string
+): Promise<{ id: number; user_id: number; group_id: number; status: string }> {
+  return authedFetch('/buddypress/v1/groups/membership-requests', token, {
+    method: 'POST',
+    body: JSON.stringify({ group_id: groupId, user_id: userId }),
+  });
+}
+
+/**
+ * Get pending membership requests for a group (admin/creator only)
+ */
+export async function getGroupMembershipRequests(
+  groupId: number,
+  token: string
+): Promise<Array<{ id: number; user_id: number; group_id: number; status: string; date_modified: string }>> {
+  return authedFetch(`/buddypress/v1/groups/${groupId}/membership-requests`, token);
+}
+
+/**
+ * Check if the current user has a pending request for a specific group
+ */
+export async function getMyMembershipRequest(
+  userId: number,
+  groupId: number,
+  token: string
+): Promise<Array<{ id: number; user_id: number; group_id: number; status: string }>> {
+  return authedFetch(
+    `/buddypress/v1/groups/membership-requests?user_id=${userId}&group_id=${groupId}`,
+    token
+  );
+}
+
+/**
+ * Accept a membership request (admin/creator only)
+ */
+export async function acceptMembershipRequest(
+  groupId: number,
+  requestId: number,
+  token: string
+): Promise<void> {
+  return authedFetch(
+    `/buddypress/v1/groups/${groupId}/membership-requests/${requestId}`,
+    token,
+    { method: 'PUT' }
+  );
+}
+
+/**
+ * Reject or cancel a membership request
+ */
+export async function rejectMembershipRequest(
+  groupId: number,
+  requestId: number,
+  token: string
+): Promise<void> {
+  return authedFetch(
+    `/buddypress/v1/groups/${groupId}/membership-requests/${requestId}`,
+    token,
+    { method: 'DELETE' }
+  );
+}
+
 // ---------- BuddyPress Group Membership ----------
 
 /**
