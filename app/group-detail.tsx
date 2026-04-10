@@ -9,7 +9,7 @@ import CommentsModal from '../components/CommentsModal';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../lib/auth';
 import { uploadImage } from '../lib/api';
-import { useGroup, useGroupActivity, useGroupMembers } from '../hooks/useGroups';
+import { useGroup, useGroupActivity, useGroupMembers, useJoinGroup, useLeaveGroup } from '../hooks/useGroups';
 import { useMember } from '../hooks/useMembers';
 import { useCreateGroupPost, useLikePost, useUpdatePost, useDeletePost } from '../hooks/useActivity';
 import BackButton from '../components/BackButton';
@@ -67,6 +67,11 @@ export default function GroupDetailScreen() {
   const { data: members, isLoading: loadingMembers, refetch: refetchMembers } = useGroupMembers(token, groupId);
   
   const createGroupPostMutation = useCreateGroupPost(token);
+  const joinGroupMutation = useJoinGroup(token);
+  const leaveGroupMutation = useLeaveGroup(token);
+
+  const isMember = !!(userId && members?.some((m) => m.id === userId));
+  const isGroupCreator = !!(userId && group?.creator_id === userId);
   
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<TabType>('home');
@@ -74,6 +79,7 @@ export default function GroupDetailScreen() {
   const [isPostingActivity, setIsPostingActivity] = useState(false);
   const [selectedImages, setSelectedImages] = useState<string[]>([]);
   const [postLink, setPostLink] = useState('');
+  const [showLeaveModal, setShowLeaveModal] = useState(false);
 
   // Log group data when loaded
   useEffect(() => {
@@ -439,6 +445,75 @@ export default function GroupDetailScreen() {
                 </View>
               </View>
               
+              {/* Join / Leave Button — only for public groups, not the creator */}
+              {group.status === 'public' && !isGroupCreator && !loadingMembers && (
+                <View style={{ marginTop: 16 }}>
+                  {isMember ? (
+                    <TouchableOpacity
+                      onPress={() => {
+                        console.log('[LeaveGroup] Button pressed — opening confirmation modal');
+                        setShowLeaveModal(true);
+                      }}
+                      disabled={leaveGroupMutation.isPending}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 6,
+                        backgroundColor: 'rgba(239,68,68,0.15)',
+                        borderWidth: 1.5,
+                        borderColor: '#ef4444',
+                        borderRadius: 8,
+                        paddingVertical: 10,
+                        paddingHorizontal: 20,
+                        opacity: leaveGroupMutation.isPending ? 0.6 : 1,
+                      }}
+                    >
+                      <Ionicons name="exit-outline" size={18} color="#ef4444" />
+                      <Text style={{ fontSize: 14, fontWeight: '700', color: '#ef4444' }}>
+                        {leaveGroupMutation.isPending ? 'Leaving...' : 'Leave Group'}
+                      </Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <TouchableOpacity
+                      onPress={() => {
+                        console.log('[JoinGroup] Button pressed — groupId:', groupId, '| userId:', userId);
+                        joinGroupMutation.mutate(
+                          { groupId: groupId!, userId: userId! },
+                          {
+                            onSuccess: (data) => {
+                              console.log('[JoinGroup] ✅ Success:', data);
+                              Alert.alert('Welcome!', `You joined "${group.name}".`);
+                            },
+                            onError: (err: any) => {
+                              console.log('[JoinGroup] ❌ Error:', err?.message, err);
+                              Alert.alert('Error', err.message || 'Could not join the group.');
+                            },
+                          }
+                        );
+                      }}
+                      disabled={joinGroupMutation.isPending}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 6,
+                        backgroundColor: '#2563eb',
+                        borderRadius: 8,
+                        paddingVertical: 10,
+                        paddingHorizontal: 20,
+                        opacity: joinGroupMutation.isPending ? 0.6 : 1,
+                      }}
+                    >
+                      <Ionicons name="person-add-outline" size={18} color="#fff" />
+                      <Text style={{ fontSize: 14, fontWeight: '700', color: '#fff' }}>
+                        {joinGroupMutation.isPending ? 'Joining...' : 'Join Group'}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
+
               {/* Additional Info */}
               {group.last_activity_diff && (
                 <View style={{ marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.1)' }}>
@@ -449,10 +524,11 @@ export default function GroupDetailScreen() {
               )}
             </View>
 
-            {/* Tab Navigation */}
+            {/* Tab Navigation — only for members / group creator */}
+            {(isMember || isGroupCreator) && (
             <View style={{ backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#e5e7eb' }}>
-              <ScrollView 
-                horizontal 
+              <ScrollView
+                horizontal
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={{ paddingHorizontal: 8 }}
               >
@@ -553,9 +629,124 @@ export default function GroupDetailScreen() {
                 </TouchableOpacity>
               </ScrollView>
             </View>
+            )}
 
-            {/* Tab Content */}
-            {activeTab === 'home' && (
+            {/* ── NON-MEMBER VIEW: description + locked notice + members only ── */}
+            {!isMember && !isGroupCreator && !loadingMembers && (
+              <View style={{ padding: 16, gap: 16 }}>
+                {/* Description */}
+                {group.description?.rendered && getContentText(group.description.rendered).length > 0 && (
+                  <View style={{
+                    backgroundColor: '#fff',
+                    borderRadius: 12,
+                    padding: 16,
+                    borderWidth: 1,
+                    borderColor: '#e5e7eb',
+                  }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                      <Ionicons name="information-circle" size={20} color="#2563eb" />
+                      <Text style={{ fontSize: 16, fontWeight: '700', color: '#1f2937' }}>Description</Text>
+                    </View>
+                    <Text style={{ fontSize: 14, color: '#4b5563', lineHeight: 22 }}>
+                      {getContentText(group.description.rendered)}
+                    </Text>
+                  </View>
+                )}
+
+                {/* Members-only notice */}
+                <View style={{
+                  backgroundColor: '#eff6ff',
+                  borderRadius: 12,
+                  padding: 16,
+                  borderWidth: 1,
+                  borderColor: '#bfdbfe',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 12,
+                }}>
+                  <Ionicons name="lock-closed" size={22} color="#2563eb" />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 14, fontWeight: '700', color: '#1e40af', marginBottom: 2 }}>
+                      Members only
+                    </Text>
+                    <Text style={{ fontSize: 13, color: '#3b82f6' }}>
+                      Join this group to see posts, activity, media, and documents.
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Members list */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4, marginBottom: 4 }}>
+                  <Ionicons name="people" size={18} color="#6b7280" />
+                  <Text style={{ fontSize: 15, fontWeight: '700', color: '#1f2937' }}>
+                    Members · {group.total_member_count}
+                  </Text>
+                </View>
+                {loadingMembers ? (
+                  <View style={{ paddingVertical: 24, alignItems: 'center' }}>
+                    <ActivityIndicator size="large" color="#2563eb" />
+                  </View>
+                ) : members && members.length > 0 ? (
+                  <View style={{ gap: 12 }}>
+                    {members.map((member) => (
+                      <View
+                        key={member.id}
+                        style={{
+                          backgroundColor: '#fff',
+                          borderRadius: 12,
+                          padding: 16,
+                          borderWidth: 1,
+                          borderColor: '#e5e7eb',
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          gap: 12,
+                        }}
+                      >
+                        {member.avatar_urls?.thumb ? (
+                          <Image
+                            source={{ uri: member.avatar_urls.thumb }}
+                            style={{ width: 50, height: 50, borderRadius: 25, backgroundColor: '#f3f4f6' }}
+                          />
+                        ) : (
+                          <View style={{
+                            width: 50, height: 50, borderRadius: 25,
+                            backgroundColor: '#eff6ff', alignItems: 'center', justifyContent: 'center',
+                          }}>
+                            <Ionicons name="person" size={24} color="#3b82f6" />
+                          </View>
+                        )}
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ fontSize: 15, fontWeight: '600', color: '#1f2937' }}>{member.name}</Text>
+                          {member.roles && member.roles.length > 0 && (() => {
+                            const roleInfo = getMemberRole(member.roles);
+                            if (!roleInfo) return null;
+                            return (
+                              <View style={{
+                                alignSelf: 'flex-start',
+                                backgroundColor: roleInfo.bgColor,
+                                paddingHorizontal: 8, paddingVertical: 2,
+                                borderRadius: 10, marginTop: 4,
+                              }}>
+                                <Text style={{ fontSize: 11, fontWeight: '700', color: roleInfo.color, textTransform: 'uppercase' }}>
+                                  {roleInfo.label}
+                                </Text>
+                              </View>
+                            );
+                          })()}
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                ) : (
+                  <View style={{ paddingVertical: 24, alignItems: 'center' }}>
+                    <Text style={{ fontSize: 14, color: '#6b7280' }}>No members found.</Text>
+                  </View>
+                )}
+              </View>
+            )}
+
+            {/* ── MEMBER / CREATOR FULL TAB CONTENT ── */}
+            {(isMember || isGroupCreator) && activeTab === 'home' && (
               <View style={{ padding: 16, gap: 16 }}>
                 {/* Description Card */}
                 {group.description?.rendered && getContentText(group.description.rendered).length > 0 && (
@@ -810,7 +1001,7 @@ export default function GroupDetailScreen() {
               </View>
             )}
 
-            {activeTab === 'members' && (
+            {(isMember || isGroupCreator) && activeTab === 'members' && (
               <View style={{ padding: 16 }}>
                 {loadingMembers ? (
                   <View style={{ paddingVertical: 40, alignItems: 'center' }}>
@@ -978,7 +1169,7 @@ export default function GroupDetailScreen() {
               </View>
             )}
 
-            {activeTab === 'media' && (
+            {(isMember || isGroupCreator) && activeTab === 'media' && (
               <View style={{ padding: 16 }}>
                 <Text style={{ fontSize: 16, fontWeight: '600', color: '#6b7280', textAlign: 'center', paddingVertical: 32 }}>
                   Media gallery coming soon
@@ -986,7 +1177,7 @@ export default function GroupDetailScreen() {
               </View>
             )}
 
-            {activeTab === 'documents' && (
+            {(isMember || isGroupCreator) && activeTab === 'documents' && (
               <View style={{ padding: 16 }}>
                 <Text style={{ fontSize: 16, fontWeight: '600', color: '#6b7280', textAlign: 'center', paddingVertical: 32 }}>
                   Documents coming soon
@@ -1000,6 +1191,108 @@ export default function GroupDetailScreen() {
           </View>
         )}
       </ScrollView>
+
+      {/* Leave Group Confirmation Modal */}
+      <Modal
+        visible={showLeaveModal}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => {
+          if (!leaveGroupMutation.isPending) setShowLeaveModal(false);
+        }}
+      >
+        <View style={{
+          flex: 1,
+          backgroundColor: 'rgba(0,0,0,0.6)',
+          justifyContent: 'center',
+          alignItems: 'center',
+          padding: 24,
+        }}>
+          <View style={{
+            backgroundColor: '#fff',
+            borderRadius: 16,
+            padding: 24,
+            width: '100%',
+            maxWidth: 360,
+          }}>
+            <View style={{ alignItems: 'center', marginBottom: 16 }}>
+              <View style={{
+                width: 56,
+                height: 56,
+                borderRadius: 28,
+                backgroundColor: '#fee2e2',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}>
+                <Ionicons name="exit-outline" size={28} color="#ef4444" />
+              </View>
+            </View>
+
+            <Text style={{ fontSize: 18, fontWeight: '700', color: '#111827', textAlign: 'center', marginBottom: 8 }}>
+              Leave Group
+            </Text>
+            <Text style={{ fontSize: 14, color: '#6b7280', textAlign: 'center', marginBottom: 24 }}>
+              Are you sure you want to leave{'\n'}
+              <Text style={{ fontWeight: '600', color: '#374151' }}>{group?.name}</Text>?
+            </Text>
+
+            <View style={{ flexDirection: 'row', gap: 12 }}>
+              <TouchableOpacity
+                onPress={() => {
+                  console.log('[LeaveGroup] Modal — cancelled');
+                  setShowLeaveModal(false);
+                }}
+                disabled={leaveGroupMutation.isPending}
+                style={{
+                  flex: 1,
+                  backgroundColor: '#f3f4f6',
+                  borderRadius: 8,
+                  paddingVertical: 14,
+                  alignItems: 'center',
+                }}
+              >
+                <Text style={{ fontSize: 15, fontWeight: '600', color: '#6b7280' }}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => {
+                  console.log('[LeaveGroup] Confirmed — groupId:', groupId, '| userId:', userId);
+                  leaveGroupMutation.mutate(
+                    { groupId: groupId!, userId: userId! },
+                    {
+                      onSuccess: (data) => {
+                        console.log('[LeaveGroup] ✅ Success — left group', groupId, data);
+                        setShowLeaveModal(false);
+                        Alert.alert('Done', 'You have left the group.');
+                      },
+                      onError: (err: any) => {
+                        console.log('[LeaveGroup] ❌ Error:', err?.message, err);
+                        setShowLeaveModal(false);
+                        Alert.alert('Error', err.message || 'Could not leave the group.');
+                      },
+                    }
+                  );
+                }}
+                disabled={leaveGroupMutation.isPending}
+                style={{
+                  flex: 1,
+                  backgroundColor: '#ef4444',
+                  borderRadius: 8,
+                  paddingVertical: 14,
+                  alignItems: 'center',
+                  opacity: leaveGroupMutation.isPending ? 0.6 : 1,
+                }}
+              >
+                {leaveGroupMutation.isPending ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={{ fontSize: 15, fontWeight: '700', color: '#fff' }}>Leave</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1654,6 +1947,7 @@ function ActivityCard({
           )}
         </View>
       </Modal>
+
     </>
   );
 }

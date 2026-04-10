@@ -4,8 +4,8 @@
  * Provides hooks for fetching user groups with caching and automatic refetching
  */
 
-import { useQuery } from '@tanstack/react-query';
-import { getMyGroups, getUserGroups, getGroupById, getGroupActivity, getGroupMembers, getAllGroups } from '../lib/api';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { getMyGroups, getUserGroups, getGroupById, getGroupActivity, getGroupMembers, getAllGroups, joinGroup, leaveGroup } from '../lib/api';
 import type { BPGroup } from '../types';
 
 /**
@@ -140,5 +140,43 @@ export function useGroupMembers(
     enabled: !!token && !!groupId,
     staleTime: 5 * 60 * 1000, // 5 minutes - members don't change frequently
     gcTime: 10 * 60 * 1000, // 10 minutes
+  });
+}
+
+/**
+ * Mutation hook to join a group
+ * Invalidates the group members and group detail cache on success
+ */
+export function useJoinGroup(token: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ groupId, userId }: { groupId: number; userId: number }) => {
+      if (!token) throw new Error('Not authenticated');
+      return joinGroup(groupId, userId, token);
+    },
+    onSuccess: (_data, { groupId }) => {
+      queryClient.invalidateQueries({ queryKey: ['groups', 'members', groupId] });
+      queryClient.invalidateQueries({ queryKey: ['groups', 'detail', groupId] });
+      queryClient.invalidateQueries({ queryKey: ['groups', 'me'] });
+    },
+  });
+}
+
+/**
+ * Mutation hook to leave a group
+ * Invalidates the group members and group detail cache on success
+ */
+export function useLeaveGroup(token: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ groupId, userId }: { groupId: number; userId: number }) => {
+      if (!token) throw new Error('Not authenticated');
+      return leaveGroup(groupId, userId, token);
+    },
+    onSuccess: (_data, { groupId }) => {
+      queryClient.invalidateQueries({ queryKey: ['groups', 'members', groupId] });
+      queryClient.invalidateQueries({ queryKey: ['groups', 'detail', groupId] });
+      queryClient.invalidateQueries({ queryKey: ['groups', 'me'] });
+    },
   });
 }

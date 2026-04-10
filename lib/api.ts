@@ -1238,6 +1238,41 @@ export async function getGroupMembers(
   return response;
 }
 
+// ---------- BuddyPress Group Membership ----------
+
+/**
+ * Join a BuddyPress group
+ * @param groupId - Group ID to join
+ * @param userId  - User ID joining the group
+ * @param token   - JWT authentication token
+ */
+export async function joinGroup(
+  groupId: number,
+  userId: number,
+  token: string
+): Promise<{ id: number; user_id: number; roles: string[] }> {
+  return authedFetch(`/buddypress/v1/groups/${groupId}/members`, token, {
+    method: 'POST',
+    body: JSON.stringify({ user_id: userId, role: 'member' }),
+  });
+}
+
+/**
+ * Leave a BuddyPress group
+ * @param groupId - Group ID to leave
+ * @param userId  - User ID leaving the group
+ * @param token   - JWT authentication token
+ */
+export async function leaveGroup(
+  groupId: number,
+  userId: number,
+  token: string
+): Promise<void> {
+  return authedFetch(`/buddypress/v1/groups/${groupId}/members/${userId}`, token, {
+    method: 'DELETE',
+  });
+}
+
 // ---------- BuddyPress Activity Comments API ----------
 
 /**
