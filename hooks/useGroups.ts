@@ -237,6 +237,10 @@ export function useGroupMembershipRequests(
     },
     enabled: !!token && !!groupId,
     staleTime: 30 * 1000,
+    retry: (count, error: any) => {
+      if (error?.status === 404 || error?.status === 403) return false;
+      return count < 3;
+    },
   });
 }
 

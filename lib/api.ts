@@ -1265,7 +1265,7 @@ export async function getGroupMembershipRequests(
   groupId: number,
   token: string
 ): Promise<Array<{ id: number; user_id: number; group_id: number; status: string; date_modified: string }>> {
-  return authedFetch(`/buddypress/v1/groups/${groupId}/membership-requests`, token);
+  return authedFetch(`/buddypress/v1/groups/membership-requests?group_id=${groupId}&per_page=50`, token);
 }
 
 /**
@@ -1286,14 +1286,14 @@ export async function getMyMembershipRequest(
  * Accept a membership request (admin/creator only)
  */
 export async function acceptMembershipRequest(
-  groupId: number,
+  _groupId: number,
   requestId: number,
   token: string
 ): Promise<void> {
   return authedFetch(
-    `/buddypress/v1/groups/${groupId}/membership-requests/${requestId}`,
+    `/buddypress/v1/groups/membership-requests/${requestId}`,
     token,
-    { method: 'PUT' }
+    { method: 'POST', body: JSON.stringify({ action: 'accept' }) }
   );
 }
 
@@ -1301,14 +1301,14 @@ export async function acceptMembershipRequest(
  * Reject or cancel a membership request
  */
 export async function rejectMembershipRequest(
-  groupId: number,
+  _groupId: number,
   requestId: number,
   token: string
 ): Promise<void> {
   return authedFetch(
-    `/buddypress/v1/groups/${groupId}/membership-requests/${requestId}`,
+    `/buddypress/v1/groups/membership-requests/${requestId}`,
     token,
-    { method: 'DELETE' }
+    { method: 'POST', body: JSON.stringify({ action: 'reject' }) }
   );
 }
 
