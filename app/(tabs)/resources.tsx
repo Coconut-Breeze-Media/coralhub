@@ -348,6 +348,51 @@ export default function ResourcesScreen() {
           </Pressable>
         </View>
       </View>
+
+      <HeroBackground
+        paddingVertical={isWide ? 64 : 36}
+        paddingHorizontal={isWide ? 48 : 16}
+        backgroundImage={require('../../assets/sea1.png')}
+      >
+        <View style={[styles.upgradeSection, { maxWidth: 1180 }]}> 
+          <Text style={[styles.upgradeTitle, {
+            fontSize:   isWide ? 78 : 44,
+            lineHeight: isWide ? 88 : 52,
+          }]}> 
+            Upgrade Your{"\n"}Membership
+          </Text>
+
+          <Text style={[styles.upgradeText, {
+            marginTop:  isWide ? 28 : 18,
+            fontSize:   isWide ? 20 : 15,
+            lineHeight: isWide ? 38 : 29,
+            maxWidth:   1040,
+          }]}> 
+            Did you know that different membership levels provide different benefits? Did you also know that with the launch of our app on the horizon, increases in both services we provide and out-going expenses mean that we will soon have to put our prices up to cover our costs? This means there has never been a better time to upgrade your membership level and lock in the price you pay forever!!
+          </Text>
+
+          <Text style={[styles.upgradeText, {
+            marginTop:  isWide ? 24 : 16,
+            fontSize:   isWide ? 20 : 15,
+            lineHeight: isWide ? 38 : 29,
+            maxWidth:   1040,
+          }]}> 
+            Also, as part of this restructuring we will soon be changing the benefits you get from each membership tier. In line with this, our mentorship program will soon only be available for annual and institutional members. This decision has been made to deter hit-and-run sign ups, where a monthly member joins us, heavily uses our resources, and then leaves, never to be seen again!
+          </Text>
+
+          <Pressable
+            style={[styles.upgradeBtn, {
+              marginTop:        isWide ? 38 : 24,
+              paddingVertical:  isWide ? 16 : 12,
+              paddingHorizontal: isWide ? 46 : 28,
+            }]}
+          >
+            <Text style={[styles.upgradeBtnText, { fontSize: isWide ? 18 : 15 }]}> 
+              VIEW MEMBERSHIP LEVELS
+            </Text>
+          </Pressable>
+        </View>
+      </HeroBackground>
     </Animated.ScrollView>
   );
 }
@@ -409,5 +454,35 @@ const styles = StyleSheet.create({
   },
   archiveLink: {
     color: '#2f6eb3',
+  },
+  upgradeSection: {
+    width: '100%',
+    alignSelf: 'center',
+    alignItems: 'center',
+  },
+  upgradeTitle: {
+    color: '#ffffff',
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    textAlign: 'center',
+  },
+  upgradeText: {
+    color: '#ffffff',
+    fontWeight: '700',
+    textAlign: 'center',
+    alignSelf: 'center',
+  },
+  upgradeBtn: {
+    alignSelf: 'center',
+    borderRadius: 999,
+    backgroundColor: '#000000',
+    borderWidth: 8,
+    borderColor: '#ffffff',
+  },
+  upgradeBtnText: {
+    color: '#ffffff',
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
 });

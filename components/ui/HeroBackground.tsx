@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Animated, LayoutChangeEvent, View } from 'react-native';
+import { Animated, Image, LayoutChangeEvent, View, type ImageSourcePropType } from 'react-native';
 import type { ReactNode } from 'react';
 
 // ─── Bubble particles ──────────────────────────────────────────────────────────
@@ -103,12 +103,14 @@ interface HeroBackgroundProps {
   children: ReactNode;
   paddingVertical?: number;
   paddingHorizontal?: number;
+  backgroundImage?: ImageSourcePropType;
 }
 
 export default function HeroBackground({
   children,
   paddingVertical  = 32,
   paddingHorizontal = 20,
+  backgroundImage,
 }: HeroBackgroundProps) {
   const [size, setSize] = useState({ w: 0, h: 0 });
 
@@ -124,6 +126,16 @@ export default function HeroBackground({
       onLayout={onLayout}
       style={{ backgroundColor: '#071e2a', paddingVertical, paddingHorizontal, overflow: 'hidden' }}
     >
+      {backgroundImage && (
+        <Image
+          source={backgroundImage}
+          style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, width: '100%', height: '100%' }}
+          resizeMode="cover"
+        />
+      )}
+
+      <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: backgroundImage ? 'rgba(0, 18, 28, 0.58)' : 'transparent' }} />
+
       {w > 0 && BUBBLES.map(b => <Bubble key={b.id} config={b} w={w} h={h} />)}
 
       <View style={{ position: 'relative', zIndex: 10 }}>
