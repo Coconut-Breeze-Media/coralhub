@@ -66,6 +66,10 @@ export default function ResourcesScreen() {
     router.push(ROUTES.COMMUNITY);
   }, []);
 
+  const handleGoToActivityFeed = useCallback(() => {
+    router.push(ROUTES.PROFILE_ACTIVITY);
+  }, []);
+
   return (
     <Animated.ScrollView
       style={styles.screen}
@@ -393,6 +397,37 @@ export default function ResourcesScreen() {
           </Pressable>
         </View>
       </HeroBackground>
+
+      <View style={[styles.body, {
+        paddingHorizontal: isWide ? 48 : 16,
+        paddingTop:        isWide ? 56 : 36,
+        paddingBottom:     isWide ? 80 : 52,
+      }]}> 
+        <View style={styles.finalSection}>
+          <Text style={[styles.bodyText, {
+            fontSize:   isWide ? 48 : 20,
+            lineHeight: isWide ? 72 : 44,
+            textAlign:  'center',
+            maxWidth:   1040,
+            alignSelf:  'center',
+          }]}> 
+            If you have any <Text style={styles.archiveLink}>feedback</Text> on the current resources or have suggestions for the future we would love to hear from you! Also, if you would like any of your own content featured on our resource pages please <Text style={styles.archiveLink}>get in touch</Text>.
+          </Text>
+
+          <Pressable
+            onPress={handleGoToActivityFeed}
+            style={[styles.finalFeedBtn, {
+              marginTop:        isWide ? 56 : 28,
+              paddingVertical:  isWide ? 16 : 12,
+              paddingHorizontal: isWide ? 44 : 30,
+            }]}
+          >
+            <Text style={[styles.finalFeedBtnText, { fontSize: isWide ? 18 : 15 }]}> 
+              VIEW ACTIVITY FEED
+            </Text>
+          </Pressable>
+        </View>
+      </View>
     </Animated.ScrollView>
   );
 }
@@ -480,6 +515,24 @@ const styles = StyleSheet.create({
     borderColor: '#ffffff',
   },
   upgradeBtnText: {
+    color: '#ffffff',
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  finalSection: {
+    borderTopWidth: 1,
+    borderTopColor: '#dbdde1',
+    alignItems: 'center',
+  },
+  finalFeedBtn: {
+    alignSelf: 'center',
+    borderRadius: 999,
+    backgroundColor: '#000000',
+    borderWidth: 6,
+    borderColor: '#efefef',
+  },
+  finalFeedBtnText: {
     color: '#ffffff',
     fontWeight: '800',
     textTransform: 'uppercase',
