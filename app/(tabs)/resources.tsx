@@ -13,10 +13,43 @@ import { router } from 'expo-router';
 import { useAuth } from '../../lib/auth';
 import { ROUTES } from '../../constants/navigation';
 import HeroBackground from '../../components/ui/HeroBackground';
-import QuickLinksSection from '../../components/ui/QuickLinksSection';
+import QuickLinksSection, { type QuickLinkData } from '../../components/ui/QuickLinksSection';
 
 const MAGAZINE_IMAGE = 'https://www.thecoralreefresearchhub.com/wp-content/uploads/2026/04/Issue-2-Cover-Image-212x300.png';
 const MAGAZINE_PDF   = 'https://www.thecoralreefresearchhub.com/wp-content/uploads/2026/01/Issue-1-Coral-Matters-Magazine.pdf';
+
+const OTHER_QUICK_LINKS: QuickLinkData[] = [
+  {
+    id: 'other-news-feed',
+    label: 'NEWS FEED',
+    description: 'Check out The Coral Reef Research Hubs news feed page. This page is like regular social media but without the algorithms and advertising! Post anything you want that is coral related to this page and get in front of all our members!',
+  },
+  {
+    id: 'other-networking',
+    label: 'NETWORKING',
+    description: 'View our database of members and search member profiles, request connections and message each other. This is where your networking journey begins!',
+  },
+  {
+    id: 'other-groups',
+    label: 'VIEW GROUPS',
+    description: 'View our database of member created groups. These groups work just like those on regular social media, and are great places to collaborate or search for those who have simialr niched research interests.',
+  },
+  {
+    id: 'other-magazine',
+    label: 'CORAL MATTERS MAGAZINE',
+    description: 'Check out current and back issues of our quarterly magazine Coral Matters, that aims to bring you up-to-date coral related news, research, help and advice from around the world. It is also a place where we will be featuring members work, ideas and questions. Please do not hesitate to get in touch if you would like to contribute to future issues! Remember this is YOUR magazine, created by coral reef scientists for coral reef scientists!',
+  },
+  {
+    id: 'other-merchandise',
+    label: 'MERCHANDISE',
+    description: 'Get some cool looking Coral Reef Research Hub merch! We are in the process of developing an official online store, so these are just sample products (which you can order by reaching out to us).',
+  },
+  {
+    id: 'other-featured-products',
+    label: 'FEATURED PRODUCTS',
+    description: 'Coming soon! We are creating a list of featured products that we feel all coral reef scientists should not be without. Check back soon and take a look at what our recommendations are!',
+  },
+];
 
 export default function ResourcesScreen() {
   const { width } = useWindowDimensions();
@@ -82,6 +115,7 @@ export default function ResourcesScreen() {
       <View style={[styles.body, {
         paddingHorizontal: isWide ? 48 : 16,
         paddingTop:        isWide ? 56 : 24,
+        paddingBottom:     isWide ? 56 : 32,
       }]}>
 
         {/* Magazine */}
@@ -170,10 +204,103 @@ export default function ResourcesScreen() {
             </Text>
           </Pressable>
         </View>
+
+
       </View>
 
       {/* ── Premium Quick Links with parallax + scroll reveal ── */}
       <QuickLinksSection scrollY={scrollY} />
+
+      <View style={[styles.body, {
+        paddingHorizontal: isWide ? 48 : 16,
+        paddingTop:        isWide ? 56 : 32,
+        paddingBottom:     isWide ? 72 : 44,
+      }]}> 
+        <View style={styles.workshopsSection}>
+          <Text style={[styles.newsFeedTitle, {
+            fontSize:   isWide ? 42 : 22,
+            lineHeight: isWide ? 50 : 28,
+          }]}> 
+            Workshops and Webinars
+          </Text>
+
+          <Text style={[styles.bodyText, {
+            marginTop:  isWide ? 20 : 12,
+            fontSize:   isWide ? 18 : 15,
+            lineHeight: isWide ? 28 : 23,
+            textAlign:  'center',
+            maxWidth:   900,
+            alignSelf:  'center',
+          }]}> 
+            As part of our commitment to sharing expertise and ongoing professional development we are currently planning regular workshops and webinars for our members to partake and interact with. These live events will be recorded and archived on our site so that even if you miss them you will still be able to view and learn. Watch our social feed for more updates on this. If you would like to get involved and present either a workshop or webinar please get in touch and let us know what subject you would like to showcase and teach others about. We can help with the planning, hosting, and will publicise these events across our legacy social media feeds to ensure you have a receptive audience!
+          </Text>
+
+          <Pressable
+            style={[styles.feedBtn, {
+              marginTop:        isWide ? 32 : 20,
+              paddingVertical:  isWide ? 16 : 12,
+              paddingHorizontal: isWide ? 40 : 24,
+            }]}
+          >
+            <Text style={[styles.feedBtnText, { fontSize: isWide ? 18 : 15 }]}> 
+              GET IN TOUCH
+            </Text>
+          </Pressable>
+        </View>
+      </View>
+
+      <QuickLinksSection
+        scrollY={scrollY}
+        title="Other Quick Links"
+        items={OTHER_QUICK_LINKS}
+        backgroundImage={require('../../assets/sea2.png')}
+      />
+
+      <View style={[styles.body, {
+        paddingHorizontal: isWide ? 48 : 16,
+        paddingTop:        isWide ? 56 : 32,
+        paddingBottom:     isWide ? 72 : 44,
+      }]}> 
+        <View style={styles.fundamentalsSection}>
+          <Text style={[styles.fundamentalsHeading, {
+            fontSize:   isWide ? 56 : 28,
+            lineHeight: isWide ? 64 : 34,
+          }]}> 
+            Fundamentals Course!
+          </Text>
+
+          <Text style={[styles.fundamentalsSubheading, {
+            fontSize:   isWide ? 46 : 24,
+            lineHeight: isWide ? 54 : 30,
+            marginTop:  isWide ? 28 : 16,
+          }]}> 
+            How to Become a Coral Reef Scientist
+          </Text>
+
+          <Text style={[styles.bodyText, {
+            marginTop:  isWide ? 26 : 16,
+            fontSize:   isWide ? 18 : 15,
+            lineHeight: isWide ? 40 : 28,
+            textAlign:  'center',
+            maxWidth:   980,
+            alignSelf:  'center',
+          }]}> 
+            After a number of member requests we created this fundamentals course to help guide you on your career journey (whichever stage you are at) from deciding you love coral reefs and want to work with them, to charting your professional career. This series of workbooks have been designed to make you think through every step of the coral reef scientists career journey, and ask you many important questions along the way, the answers to which are crucial to help you make those all important decisions. Remember, everyone’s journey is different!
+          </Text>
+
+          <Pressable
+            style={[styles.feedBtn, {
+              marginTop:        isWide ? 36 : 24,
+              paddingVertical:  isWide ? 16 : 12,
+              paddingHorizontal: isWide ? 40 : 24,
+            }]}
+          >
+            <Text style={[styles.feedBtnText, { fontSize: isWide ? 18 : 15 }]}> 
+              VIEW COURSE
+            </Text>
+          </Pressable>
+        </View>
+      </View>
     </Animated.ScrollView>
   );
 }
@@ -211,4 +338,26 @@ const styles = StyleSheet.create({
   },
   feedBtn:     { alignSelf: 'center', borderRadius: 999, backgroundColor: '#1f8098' },
   feedBtnText: { color: '#ffffff', fontWeight: '800', letterSpacing: 0.5 },
+  workshopsSection: {
+    borderTopWidth: 1,
+    borderTopColor: '#dbdde1',
+    alignItems: 'center',
+  },
+  fundamentalsSection: {
+    borderTopWidth: 1,
+    borderTopColor: '#dbdde1',
+    alignItems: 'center',
+  },
+  fundamentalsHeading: {
+    color: '#2f6eb3',
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    textAlign: 'center',
+  },
+  fundamentalsSubheading: {
+    color: '#2f6eb3',
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    textAlign: 'center',
+  },
 });

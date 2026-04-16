@@ -7,12 +7,19 @@ import {
   Text,
   useWindowDimensions,
   View,
+  type ImageSourcePropType,
   type LayoutChangeEvent,
 } from 'react-native';
 
 // ─── Data ──────────────────────────────────────────────────────────────────────
 
-export const QUICK_LINKS = [
+export interface QuickLinkData {
+  id: string;
+  label: string;
+  description: string;
+}
+
+export const QUICK_LINKS: QuickLinkData[] = [
   {
     id: 'career',
     label: 'CAREER OPPORTUNITIES',
@@ -90,23 +97,28 @@ const BUTTON_H = 44;
 // ─── Single animated item ──────────────────────────────────────────────────────
 
 interface ItemProps {
-  item: (typeof QUICK_LINKS)[0];
+  item: QuickLinkData;
   scrollY: Animated.Value;
   viewportH: number;
   isWide: boolean;
   /** Y of the items-grid View within scroll content (sectionY + gridOffsetInSection) */
   gridAbsoluteY: number;
+  onPressItem?: (item: QuickLinkData) => void;
 }
 
-function QuickLinkItem({ item, scrollY, viewportH, isWide, gridAbsoluteY }: ItemProps) {
+function QuickLinkItem({ item, scrollY, viewportH, isWide, gridAbsoluteY, onPressItem }: ItemProps) {
   // Start very far down so the item is invisible before measurement
   const absoluteYAnim = useRef(new Animated.Value(999999)).current;
+  const absoluteYRef  = useRef(999999);
   const localYRef     = useRef<number | null>(null);
+  const [hasRevealed, setHasRevealed] = useState(false);
 
   // Update absoluteYAnim whenever we have both measurements
   const syncPosition = useCallback((localY: number, baseY: number) => {
     if (baseY <= 0) return; // section not measured yet
-    absoluteYAnim.setValue(baseY + localY);
+    const absoluteY = baseY + localY;
+    absoluteYRef.current = absoluteY;
+    absoluteYAnim.setValue(absoluteY);
   }, []);
 
   // Re-sync when the grid base Y changes (e.g. after section layout fires)
@@ -126,6 +138,19 @@ function QuickLinkItem({ item, scrollY, viewportH, isWide, gridAbsoluteY }: Item
   const rel = useRef(Animated.subtract(scrollY, absoluteYAnim)).current;
 
   const VH = viewportH;
+  const revealThreshold = -VH * 0.22;
+
+  useEffect(() => {
+    if (hasRevealed) return;
+    const subId = scrollY.addListener(({ value }) => {
+      if (value - absoluteYRef.current >= revealThreshold) {
+        setHasRevealed(true);
+      }
+    });
+    return () => {
+      scrollY.removeListener(subId);
+    };
+  }, [hasRevealed, revealThreshold, scrollY]);
 
   // item below screen → rel < −VH*0.88 → hidden
   // item entering     → rel ~ −VH*0.22 → fully visible
@@ -147,7 +172,7 @@ function QuickLinkItem({ item, scrollY, viewportH, isWide, gridAbsoluteY }: Item
       style={[
         styles.item,
         { marginBottom: isWide ? 40 : 32 },
-        { opacity, transform: [{ translateY }, { scale }] },
+        hasRevealed ? { opacity: 1, transform: [{ translateY: 0 }, { scale: 1 }] } : { opacity, transform: [{ translateY }, { scale }] },
       ]}
     >
       {/* Particle burst anchored at button vertical center */}
@@ -171,7 +196,9 @@ function QuickLinkItem({ item, scrollY, viewportH, isWide, gridAbsoluteY }: Item
       </View>
 
       {/* Button */}
-      <Pressable style={({ pressed }) => [
+      <Pressable
+        onPress={onPressItem ? () => onPressItem(item) : undefined}
+        style={({ pressed }) => [
         styles.button,
         { paddingVertical: isWide ? 14 : 11, paddingHorizontal: isWide ? 36 : 28 },
         pressed && styles.buttonPressed,
@@ -200,9 +227,19 @@ const PARALLAX_OFFSET = 70;
 
 interface SectionProps {
   scrollY: Animated.Value;
+  title?: string;
+  items?: QuickLinkData[];
+  backgroundImage?: ImageSourcePropType;
+  onPressItem?: (item: QuickLinkData) => void;
 }
 
-export default function QuickLinksSection({ scrollY }: SectionProps) {
+export default function QuickLinksSection({
+  scrollY,
+  title = 'Premium Resources Quick Links',
+  items = QUICK_LINKS,
+  backgroundImage = require('../../assets/sea1.png'),
+  onPressItem,
+}: SectionProps) {
   const { height: viewportH, width } = useWindowDimensions();
   const isWide = width >= 768;
 
@@ -246,7 +283,7 @@ export default function QuickLinksSection({ scrollY }: SectionProps) {
         { transform: [{ translateY: imageShift }] },
       ]}>
         <Image
-          source={require('../../assets/sea1.png')}
+          source={backgroundImage}
           style={{ flex: 1, width: '100%' }}
           resizeMode="cover"
         />
@@ -258,10 +295,14 @@ export default function QuickLinksSection({ scrollY }: SectionProps) {
       {/* Content */}
       <View style={[
         styles.content,
-        { paddingVertical: isWide ? 64 : 40, paddingHorizontal: isWide ? 48 : 20 },
+        {
+          paddingTop: isWide ? 64 : 40,
+          paddingBottom: isWide ? 120 : 96,
+          paddingHorizontal: isWide ? 48 : 20,
+        },
       ]}>
-        <Text style={[styles.sectionTitle, { fontSize: isWide ? 36 : 22 }]}>
-          Premium Resources Quick Links
+        <Text style={[styles.sectionTitle, { fontSize: isWide ? 36 : 22 }]}> 
+          {title}
         </Text>
 
         {/* Grid — onLayout gives Y relative to content View (= section root since content starts at y=0) */}
@@ -269,7 +310,7 @@ export default function QuickLinksSection({ scrollY }: SectionProps) {
           onLayout={onGridLayout}
           style={[styles.grid, { maxWidth: isWide ? 820 : '100%' }]}
         >
-          {QUICK_LINKS.map((item) => (
+          {items.map((item) => (
             <QuickLinkItem
               key={item.id}
               item={item}
@@ -277,6 +318,7 @@ export default function QuickLinksSection({ scrollY }: SectionProps) {
               viewportH={viewportH}
               isWide={isWide}
               gridAbsoluteY={gridAbsoluteY}
+              onPressItem={onPressItem}
             />
           ))}
         </View>
