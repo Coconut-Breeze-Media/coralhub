@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Animated, Easing, LayoutChangeEvent, View } from 'react-native';
+import { Animated, LayoutChangeEvent, View } from 'react-native';
 import type { ReactNode } from 'react';
 
 // ─── Bubble particles ──────────────────────────────────────────────────────────
@@ -97,131 +97,6 @@ function Bubble({ config, w, h }: { config: BubbleConfig; w: number; h: number }
   );
 }
 
-// ─── Seaweed blades ────────────────────────────────────────────────────────────
-
-interface BladeConfig {
-  id: number;
-  xRatio: number;
-  heightRatio: number;
-  maxHeightPx: number;
-  width: number;
-  color: string;
-  maxAngle: number;
-  duration: number;
-  delay: number;
-  phase: number;
-}
-
-const BLADES: BladeConfig[] = [
-  // far left
-  { id: 0,  xRatio: 0.01, heightRatio: 0.28, maxHeightPx: 110, width: 7,  color: '#1a5c35', maxAngle: 12, duration: 2200, delay: 0,    phase:  0.0 },
-  { id: 1,  xRatio: 0.04, heightRatio: 0.35, maxHeightPx: 130, width: 5,  color: '#2d8a4e', maxAngle: 16, duration: 2700, delay: 250,  phase:  0.6 },
-  { id: 2,  xRatio: 0.08, heightRatio: 0.22, maxHeightPx:  90, width: 9,  color: '#0f4228', maxAngle: 10, duration: 1900, delay: 550,  phase: -0.4 },
-  { id: 3,  xRatio: 0.12, heightRatio: 0.30, maxHeightPx: 115, width: 6,  color: '#3aad63', maxAngle: 14, duration: 2450, delay: 100,  phase:  0.3 },
-  // center-left
-  { id: 4,  xRatio: 0.26, heightRatio: 0.32, maxHeightPx: 120, width: 7,  color: '#236b3d', maxAngle: 13, duration: 2600, delay: 1100, phase: -0.5 },
-  { id: 5,  xRatio: 0.30, heightRatio: 0.24, maxHeightPx:  95, width: 9,  color: '#1a5c35', maxAngle: 11, duration: 2050, delay: 400,  phase:  0.7 },
-  { id: 6,  xRatio: 0.34, heightRatio: 0.38, maxHeightPx: 145, width: 5,  color: '#2d8a4e', maxAngle: 17, duration: 2900, delay: 750,  phase:  0.1 },
-  { id: 7,  xRatio: 0.38, heightRatio: 0.26, maxHeightPx: 100, width: 8,  color: '#0f4228', maxAngle: 12, duration: 2300, delay: 600,  phase: -0.2 },
-  // center
-  { id: 8,  xRatio: 0.47, heightRatio: 0.25, maxHeightPx:  90, width: 6,  color: '#1a5c35', maxAngle: 11, duration: 2150, delay: 500,  phase: -0.3 },
-  { id: 9,  xRatio: 0.53, heightRatio: 0.30, maxHeightPx: 110, width: 5,  color: '#2d8a4e', maxAngle: 14, duration: 2550, delay: 900,  phase:  0.5 },
-  // center-right
-  { id: 10, xRatio: 0.62, heightRatio: 0.29, maxHeightPx: 112, width: 7,  color: '#0f4228', maxAngle: 12, duration: 2200, delay: 200,  phase:  0.4 },
-  { id: 11, xRatio: 0.66, heightRatio: 0.37, maxHeightPx: 140, width: 5,  color: '#3aad63', maxAngle: 16, duration: 2750, delay: 800,  phase: -0.6 },
-  { id: 12, xRatio: 0.70, heightRatio: 0.23, maxHeightPx:  88, width: 9,  color: '#236b3d', maxAngle: 10, duration: 1950, delay: 350,  phase:  0.2 },
-  { id: 13, xRatio: 0.74, heightRatio: 0.31, maxHeightPx: 118, width: 6,  color: '#2d8a4e', maxAngle: 13, duration: 2400, delay: 650,  phase: -0.1 },
-  // far right
-  { id: 14, xRatio: 0.84, heightRatio: 0.33, maxHeightPx: 125, width: 7,  color: '#1a5c35', maxAngle: 14, duration: 2500, delay: 600,  phase: -0.4 },
-  { id: 15, xRatio: 0.88, heightRatio: 0.26, maxHeightPx:  98, width: 5,  color: '#236b3d', maxAngle: 11, duration: 1800, delay: 150,  phase:  0.6 },
-  { id: 16, xRatio: 0.92, heightRatio: 0.36, maxHeightPx: 135, width: 6,  color: '#2d8a4e', maxAngle: 15, duration: 2650, delay: 450,  phase:  0.2 },
-  { id: 17, xRatio: 0.97, heightRatio: 0.21, maxHeightPx:  80, width: 10, color: '#0f4228', maxAngle:  9, duration: 1700, delay: 750,  phase: -0.2 },
-];
-
-function SeaweedBlade({ config, w, h }: { config: BladeConfig; w: number; h: number }) {
-  const sway   = useRef(new Animated.Value(config.phase)).current;
-  const bladeH = Math.min(h * config.heightRatio, config.maxHeightPx);
-  const half   = bladeH / 2;
-
-  useEffect(() => {
-    if (w === 0 || h === 0) return;
-
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(sway, { toValue:  1, duration: config.duration, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-        Animated.timing(sway, { toValue: -1, duration: config.duration, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-      ])
-    ).start();
-
-    return () => sway.stopAnimation();
-  }, [w, h]);
-
-  const rotate = sway.interpolate({
-    inputRange: [-1, 1],
-    outputRange: [`-${config.maxAngle}deg`, `${config.maxAngle}deg`],
-  });
-
-  return (
-    <Animated.View style={{
-      position: 'absolute',
-      bottom: 0,
-      left: config.xRatio * w,
-      width: config.width,
-      height: bladeH,
-      borderTopLeftRadius:     config.width / 2,
-      borderTopRightRadius:    config.width / 2,
-      borderBottomLeftRadius:  2,
-      borderBottomRightRadius: 2,
-      backgroundColor: config.color,
-      opacity: 0.80,
-      transform: [{ translateY: half }, { rotate }, { translateY: -half }],
-    }} />
-  );
-}
-
-// ─── Ambient light rays ────────────────────────────────────────────────────────
-
-interface RayConfig { id: number; xRatio: number; duration: number; delay: number; }
-
-const RAYS: RayConfig[] = [
-  { id: 0, xRatio: 0.18, duration: 6000, delay: 0    },
-  { id: 1, xRatio: 0.48, duration: 7500, delay: 2500 },
-  { id: 2, xRatio: 0.75, duration: 5500, delay: 1200 },
-];
-
-function LightRay({ config, w, h }: { config: RayConfig; w: number; h: number }) {
-  const anim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    if (w === 0 || h === 0) return;
-
-    Animated.loop(
-      Animated.sequence([
-        Animated.delay(config.delay),
-        Animated.timing(anim, { toValue: 1, duration: config.duration / 2, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-        Animated.timing(anim, { toValue: 0, duration: config.duration / 2, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-      ])
-    ).start();
-
-    return () => anim.stopAnimation();
-  }, [w, h]);
-
-  const opacity = anim.interpolate({ inputRange: [0, 1], outputRange: [0, 0.06] });
-
-  return (
-    <Animated.View style={{
-      position: 'absolute',
-      top: 0,
-      left: config.xRatio * w - 20,
-      width: 40,
-      height: h,
-      backgroundColor: '#a8f0ff',
-      opacity,
-      transform: [{ skewX: '8deg' }],
-    }} />
-  );
-}
-
 // ─── Container ─────────────────────────────────────────────────────────────────
 
 interface HeroBackgroundProps {
@@ -249,9 +124,7 @@ export default function HeroBackground({
       onLayout={onLayout}
       style={{ backgroundColor: '#071e2a', paddingVertical, paddingHorizontal, overflow: 'hidden' }}
     >
-      {w > 0 && RAYS.map(r    => <LightRay     key={r.id} config={r} w={w} h={h} />)}
-      {w > 0 && BUBBLES.map(b => <Bubble       key={b.id} config={b} w={w} h={h} />)}
-      {w > 0 && BLADES.map(b  => <SeaweedBlade key={b.id} config={b} w={w} h={h} />)}
+      {w > 0 && BUBBLES.map(b => <Bubble key={b.id} config={b} w={w} h={h} />)}
 
       <View style={{ position: 'relative', zIndex: 10 }}>
         {children}
