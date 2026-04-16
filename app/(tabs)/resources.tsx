@@ -17,6 +17,7 @@ import QuickLinksSection, { type QuickLinkData } from '../../components/ui/Quick
 
 const MAGAZINE_IMAGE = 'https://www.thecoralreefresearchhub.com/wp-content/uploads/2026/04/Issue-2-Cover-Image-212x300.png';
 const MAGAZINE_PDF   = 'https://www.thecoralreefresearchhub.com/wp-content/uploads/2026/01/Issue-1-Coral-Matters-Magazine.pdf';
+const MASTERCLASS_IMAGE = 'https://www.thecoralreefresearchhub.com/wp-content/uploads/2024/04/Masterclass-Thumbnail_SG.jpg';
 
 const OTHER_QUICK_LINKS: QuickLinkData[] = [
   {
@@ -301,6 +302,52 @@ export default function ResourcesScreen() {
           </Pressable>
         </View>
       </View>
+
+      <QuickLinksSection
+        scrollY={scrollY}
+        title="Latest Knowledge Sharing Masterclass"
+        backgroundImage={require('../../assets/sea3.png')}
+        hideItems
+        heroImageSource={{ uri: MASTERCLASS_IMAGE }}
+      />
+
+      <View style={[styles.body, {
+        paddingHorizontal: isWide ? 48 : 16,
+        paddingTop:        isWide ? 56 : 32,
+        paddingBottom:     isWide ? 72 : 44,
+      }]}> 
+        <View style={styles.fundamentalsSection}>
+          <Text style={[styles.newsFeedTitle, {
+            fontSize:   isWide ? 52 : 22,
+            lineHeight: isWide ? 60 : 30,
+          }]}> 
+            Coral Reef Historical Archive
+          </Text>
+
+          <Text style={[styles.bodyText, {
+            marginTop:  isWide ? 24 : 14,
+            fontSize:   isWide ? 18 : 15,
+            lineHeight: isWide ? 40 : 28,
+            textAlign:  'center',
+            maxWidth:   1020,
+            alignSelf:  'center',
+          }]}> 
+            We are building a non-systematic archive of videos from coral reefs around the world. There are tens of thousands of hours of video footage shot by underwater enthusiasts that simply get lost because no-one sees their value as they do not have precise geographical or temporal reference. However, in years to come it will be extremely useful for researchers to be able to see what these areas looked like in the past, even if their location is slightly generic and the date only categorised by year. For example, imagine how useful it would be to watch a video from Jamaica in the 1970’s. Things have changed a lot since then, and shifting baselines are a known problem when new researchers enter the field. It is our goal to build an archive of this non-systematic footage to help stop shifting baselines and give early career scientists (and other researchers) a snap shot from the past. If you have any footage you would like to contribute to our archive please <Text style={styles.archiveLink}>get in touch</Text>.
+          </Text>
+
+          <Pressable
+            style={[styles.feedBtn, {
+              marginTop:        isWide ? 36 : 24,
+              paddingVertical:  isWide ? 16 : 12,
+              paddingHorizontal: isWide ? 40 : 24,
+            }]}
+          >
+            <Text style={[styles.feedBtnText, { fontSize: isWide ? 18 : 15 }]}> 
+              VIEW ARCHIVE
+            </Text>
+          </Pressable>
+        </View>
+      </View>
     </Animated.ScrollView>
   );
 }
@@ -359,5 +406,8 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     textTransform: 'uppercase',
     textAlign: 'center',
+  },
+  archiveLink: {
+    color: '#2f6eb3',
   },
 });

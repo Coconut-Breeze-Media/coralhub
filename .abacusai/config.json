@@ -3,6 +3,7 @@
     "allow": [
       "Bash(npx tsc *)",
       "Bash(npx tsc --noEmit 2>&1 || true)",
+      "Bash(npx tsc --noEmit 2>&1 || true)",
       "Bash(npx tsc --noEmit 2>&1 || true)"
     ]
   }

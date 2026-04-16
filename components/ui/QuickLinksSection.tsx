@@ -231,6 +231,9 @@ interface SectionProps {
   items?: QuickLinkData[];
   backgroundImage?: ImageSourcePropType;
   onPressItem?: (item: QuickLinkData) => void;
+  hideItems?: boolean;
+  heroImageSource?: ImageSourcePropType;
+  onPressHeroImage?: () => void;
 }
 
 export default function QuickLinksSection({
@@ -239,6 +242,9 @@ export default function QuickLinksSection({
   items = QUICK_LINKS,
   backgroundImage = require('../../assets/sea1.png'),
   onPressItem,
+  hideItems = false,
+  heroImageSource,
+  onPressHeroImage,
 }: SectionProps) {
   const { height: viewportH, width } = useWindowDimensions();
   const isWide = width >= 768;
@@ -305,23 +311,40 @@ export default function QuickLinksSection({
           {title}
         </Text>
 
-        {/* Grid — onLayout gives Y relative to content View (= section root since content starts at y=0) */}
-        <View
-          onLayout={onGridLayout}
-          style={[styles.grid, { maxWidth: isWide ? 820 : '100%' }]}
-        >
-          {items.map((item) => (
-            <QuickLinkItem
-              key={item.id}
-              item={item}
-              scrollY={scrollY}
-              viewportH={viewportH}
-              isWide={isWide}
-              gridAbsoluteY={gridAbsoluteY}
-              onPressItem={onPressItem}
-            />
-          ))}
-        </View>
+        {!hideItems && (
+          <View
+            onLayout={onGridLayout}
+            style={[styles.grid, { maxWidth: isWide ? 820 : '100%' }]}
+          >
+            {items.map((item) => (
+              <QuickLinkItem
+                key={item.id}
+                item={item}
+                scrollY={scrollY}
+                viewportH={viewportH}
+                isWide={isWide}
+                gridAbsoluteY={gridAbsoluteY}
+                onPressItem={onPressItem}
+              />
+            ))}
+          </View>
+        )}
+
+        {heroImageSource && (
+          <View style={[styles.heroImageWrap, { marginTop: isWide ? 26 : 18 }]}> 
+            <Pressable
+              onPress={onPressHeroImage}
+              disabled={!onPressHeroImage}
+              style={({ pressed }) => [pressed && onPressHeroImage ? { opacity: 0.92 } : null]}
+            >
+              <Image
+                source={heroImageSource}
+                style={styles.heroImage}
+                resizeMode="cover"
+              />
+            </Pressable>
+          </View>
+        )}
       </View>
     </View>
   );
@@ -338,6 +361,8 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5, marginBottom: 36,
   },
   grid:         { alignSelf: 'center', width: '100%' },
+  heroImageWrap:{ alignSelf: 'center', width: '100%', maxWidth: 1080 },
+  heroImage:    { width: '100%', aspectRatio: 16 / 9, borderRadius: 4 },
   item:         { alignItems: 'center', position: 'relative' },
   particleAnchor: {
     position: 'absolute', left: 0, right: 0,
