@@ -63,11 +63,7 @@ export default function ResourcesScreen() {
   }, []);
 
   const handleGoToNewsFeed = useCallback(() => {
-    router.push(ROUTES.COMMUNITY);
-  }, []);
-
-  const handleGoToActivityFeed = useCallback(() => {
-    router.push(ROUTES.PROFILE_ACTIVITY);
+    router.push(`${ROUTES.COMMUNITY}?tab=feed`);
   }, []);
 
   return (
@@ -415,7 +411,7 @@ export default function ResourcesScreen() {
           </Text>
 
           <Pressable
-            onPress={handleGoToActivityFeed}
+            onPress={handleGoToNewsFeed}
             style={[styles.finalFeedBtn, {
               marginTop:        isWide ? 56 : 28,
               paddingVertical:  isWide ? 16 : 12,

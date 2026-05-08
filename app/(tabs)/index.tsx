@@ -19,7 +19,7 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '../../lib/auth';
 import { uploadImage } from '../../lib/api';
 import RequireAuth from '../../components/RequireAuth';
@@ -418,6 +418,7 @@ function PostItem({
 
 function CommunityScreen() {
   const { token, profile } = useAuth();
+  const params = useLocalSearchParams<{ tab?: string }>();
   const [activeTab, setActiveTab] = useState<TabType>('feed');
   const [postContent, setPostContent] = useState('');
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -443,6 +444,20 @@ function CommunityScreen() {
   // State to store posts from all groups
   const [allGroupsActivities, setAllGroupsActivities] = useState<BPActivity[]>([]);
   const allGroupsFetchedRef = useRef(false);
+
+  useEffect(() => {
+    if (params.tab === 'groups') {
+      setActiveTab('groups-feed');
+      return;
+    }
+    if (params.tab === 'myposts') {
+      setActiveTab('my-posts');
+      return;
+    }
+    if (params.tab === 'feed') {
+      setActiveTab('feed');
+    }
+  }, [params.tab]);
 
   // Fetch group activity if a group is selected
   const { data: groupActivityData, isLoading: isLoadingGroupActivity, refetch: refetchGroupActivity } = useGroupActivity(
