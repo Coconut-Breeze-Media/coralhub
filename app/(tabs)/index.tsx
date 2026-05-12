@@ -30,7 +30,8 @@ import {
   useCreatePost, 
   useLikePost, 
   useSharePost, 
-  useDeletePost 
+  useDeletePost,
+  useUpdatePost 
 } from '../../hooks/useActivity';
 import { useMember } from '../../hooks/useMembers';
 import { useQueryClient } from '@tanstack/react-query';
@@ -142,14 +143,16 @@ function PostItem({
   profile, 
   onLike, 
   onShare, 
-  onDelete 
+  onDelete,
+  onEdit 
 }: { 
   item: BPActivity;
   token: string | null;
   profile: any;
   onLike: (activityId: number, isLiked: boolean) => void;
   onShare: (activityId: number) => void;
-  onDelete: (activityId: number) => void;
+  onDelete: (item: BPActivity) => void;
+  onEdit: (item: BPActivity) => void;
 }) {
   // Fetch member data from BuddyPress API
   const { data: memberData, isLoading: isMemberLoading } = useMember(token, item.user_id);
@@ -254,12 +257,20 @@ function PostItem({
           </View>
         </View>
         {isCurrentUserPost && (
-          <TouchableOpacity
-            onPress={() => onDelete(item.id)}
-            style={styles.deleteButton}
-          >
-            <Text style={styles.deleteButtonText}>•••</Text>
-          </TouchableOpacity>
+          <View style={styles.postOwnerActions}>
+            <TouchableOpacity
+              onPress={() => onEdit(item)}
+              style={styles.iconActionButton}
+            >
+              <Text style={styles.iconActionButtonText}>✏️</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => onDelete(item)}
+              style={styles.iconActionButton}
+            >
+              <Text style={styles.iconActionButtonText}>🗑️</Text>
+            </TouchableOpacity>
+          </View>
         )}
       </View>
       
@@ -428,6 +439,11 @@ function CommunityScreen() {
   const [showGroupDropdown, setShowGroupDropdown] = useState(false);
   const [selectedImages, setSelectedImages] = useState<string[]>([]);
   const [postLink, setPostLink] = useState('');
+  const [isEditModalVisible, setIsEditModalVisible] = useState(false);
+  const [editingPost, setEditingPost] = useState<BPActivity | null>(null);
+  const [editContent, setEditContent] = useState('');
+  const [isDeleteModalVisible, setIsDeleteModalVisible] = useState(false);
+  const [deletingPost, setDeletingPost] = useState<BPActivity | null>(null);
   
   // Get current user data
   const { data: currentUser } = useMe();
@@ -567,6 +583,7 @@ function CommunityScreen() {
   const likePostMutation = useLikePost(token);
   const sharePostMutation = useSharePost(token);
   const deletePostMutation = useDeletePost(token);
+  const updatePostMutation = useUpdatePost(token);
   
   const handleCreatePost = async () => {
     if (!postContent.trim() && selectedImages.length === 0 && !postLink.trim()) {
@@ -695,27 +712,69 @@ function CommunityScreen() {
     }
   };
   
-  const handleDeletePost = async (activityId: number) => {
-    Alert.alert(
-      'Delete Post',
-      'Are you sure you want to delete this post?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await deletePostMutation.mutateAsync(activityId);
-              Alert.alert('Success', 'Post deleted successfully!');
-            } catch (error) {
-              Alert.alert('Error', 'Failed to delete post');
-              console.error('Delete post error:', error);
-            }
-          },
-        },
-      ]
-    );
+  const handleDeletePost = (item: BPActivity) => {
+    setDeletingPost(item);
+    setIsDeleteModalVisible(true);
+  };
+
+  const closeDeleteModal = () => {
+    if (deletePostMutation.isPending) return;
+    setIsDeleteModalVisible(false);
+    setDeletingPost(null);
+  };
+
+  const confirmDeletePost = async () => {
+    if (!deletingPost) return;
+
+    try {
+      await deletePostMutation.mutateAsync(deletingPost.id);
+      closeDeleteModal();
+      Alert.alert('Success', 'Post deleted successfully!');
+    } catch (error) {
+      Alert.alert('Error', 'Failed to delete post');
+      console.error('Delete post error:', error);
+      closeDeleteModal();
+    }
+  };
+
+  const handleOpenEditPost = (item: BPActivity) => {
+    let content = '';
+    if (typeof item.content === 'string') {
+      content = item.content;
+    } else {
+      content = item.content.raw || item.content.rendered || '';
+    }
+    setEditingPost(item);
+    setEditContent(content.replace(/<[^>]+>/g, '').trim());
+    setIsEditModalVisible(true);
+  };
+
+  const closeEditModal = () => {
+    setIsEditModalVisible(false);
+    setEditingPost(null);
+    setEditContent('');
+  };
+
+  const handleSaveEditPost = async () => {
+    if (!editingPost) return;
+    if (!editContent.trim()) {
+      Alert.alert('Error', 'Post content cannot be empty');
+      return;
+    }
+
+    try {
+      await updatePostMutation.mutateAsync({
+        activityId: editingPost.id,
+        content: editContent.trim(),
+        component: editingPost.component,
+        primary_item_id: editingPost.primary_item_id,
+      });
+      closeEditModal();
+      Alert.alert('Success', 'Post updated successfully!');
+    } catch (error: any) {
+      Alert.alert('Error', error?.message || 'Failed to update post');
+      console.error('Update post error:', error);
+    }
   };
   
   const handleLoadMore = () => {
@@ -733,6 +792,7 @@ function CommunityScreen() {
         onLike={handleLikePost}
         onShare={handleSharePost}
         onDelete={handleDeletePost}
+        onEdit={handleOpenEditPost}
       />
     );
   };
@@ -1073,48 +1133,144 @@ function CommunityScreen() {
           <Text style={styles.loadingText}>Loading posts...</Text>
         </View>
       ) : (
-        <FlatList
-          data={allActivities}
-          keyExtractor={(item) => String(item.id)}
-          renderItem={renderPost}
-          contentContainerStyle={styles.feedContainer}
-          refreshControl={
-            <RefreshControl 
-              refreshing={isRefetching || (activeTab === 'groups-feed' && selectedGroupId ? false : false)} 
-              onRefresh={() => {
-                if (activeTab === 'groups-feed' && selectedGroupId) {
-                  refetchGroupActivity();
-                } else {
-                  refetch();
-                }
-              }} 
-              colors={['#0066cc']} 
-            />
-          }
-          onEndReached={handleLoadMore}
-          onEndReachedThreshold={0.5}
-          ListFooterComponent={
-            isFetchingNextPage ? (
-              <View style={styles.loadMoreContainer}>
-                <ActivityIndicator size="small" color="#0066cc" />
-                <Text style={styles.loadMoreText}>Loading more...</Text>
+        <>
+          <FlatList
+            data={allActivities}
+            keyExtractor={(item) => String(item.id)}
+            renderItem={renderPost}
+            contentContainerStyle={styles.feedContainer}
+            refreshControl={
+              <RefreshControl 
+                refreshing={isRefetching || (activeTab === 'groups-feed' && selectedGroupId ? false : false)} 
+                onRefresh={() => {
+                  if (activeTab === 'groups-feed' && selectedGroupId) {
+                    refetchGroupActivity();
+                  } else {
+                    refetch();
+                  }
+                }} 
+                colors={['#0066cc']} 
+              />
+            }
+            onEndReached={handleLoadMore}
+            onEndReachedThreshold={0.5}
+            ListFooterComponent={
+              isFetchingNextPage ? (
+                <View style={styles.loadMoreContainer}>
+                  <ActivityIndicator size="small" color="#0066cc" />
+                  <Text style={styles.loadMoreText}>Loading more...</Text>
+                </View>
+              ) : null
+            }
+            ListEmptyComponent={
+              <View style={styles.emptyContainer}>
+                <Text style={styles.emptyText}>
+                  {activeTab === 'my-posts'
+                    ? 'No posts yet.\nStart sharing your thoughts with the community!'
+                    : activeTab === 'groups-feed'
+                    ? selectedGroupId 
+                      ? 'No posts in this group yet.'
+                      : 'No posts from your groups.\nJoin groups to see their posts!'
+                    : 'No posts to show.\nCheck back later for updates!'}
+                </Text>
               </View>
-            ) : null
-          }
-          ListEmptyComponent={
-            <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>
-                {activeTab === 'my-posts'
-                  ? 'No posts yet.\nStart sharing your thoughts with the community!'
-                  : activeTab === 'groups-feed'
-                  ? selectedGroupId 
-                    ? 'No posts in this group yet.'
-                    : 'No posts from your groups.\nJoin groups to see their posts!'
-                  : 'No posts to show.\nCheck back later for updates!'}
-              </Text>
+            }
+          />
+
+          <Modal
+            visible={isEditModalVisible}
+            animationType="slide"
+            transparent={true}
+            onRequestClose={closeEditModal}
+          >
+            <View style={styles.editModalOverlay}>
+              <View style={styles.editModalCard}>
+                <View style={styles.editModalHeader}>
+                  <Text style={styles.editModalTitle}>Edit Post</Text>
+                  <TouchableOpacity onPress={closeEditModal}>
+                    <Text style={styles.editModalClose}>✕</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <TextInput
+                  style={styles.editInput}
+                  placeholder="Edit your post..."
+                  placeholderTextColor="#9ca3af"
+                  multiline
+                  value={editContent}
+                  onChangeText={setEditContent}
+                  editable={!updatePostMutation.isPending}
+                />
+
+                <View style={styles.editModalActions}>
+                  <TouchableOpacity
+                    onPress={closeEditModal}
+                    style={styles.editCancelButton}
+                    disabled={updatePostMutation.isPending}
+                  >
+                    <Text style={styles.editCancelText}>Cancel</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={handleSaveEditPost}
+                    disabled={updatePostMutation.isPending || !editContent.trim()}
+                    style={[
+                      styles.editSaveButton,
+                      (updatePostMutation.isPending || !editContent.trim()) && styles.editSaveButtonDisabled,
+                    ]}
+                  >
+                    {updatePostMutation.isPending ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Text style={styles.editSaveText}>Save</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </View>
             </View>
-          }
-        />
+          </Modal>
+
+          <Modal
+            visible={isDeleteModalVisible}
+            animationType="fade"
+            transparent={true}
+            onRequestClose={closeDeleteModal}
+          >
+            <View style={styles.deleteModalOverlay}>
+              <View style={styles.deleteModalCard}>
+                <Text style={styles.deleteModalTitle}>Delete Post?</Text>
+                <Text style={styles.deleteModalDescription}>
+                  Are you sure you want to delete this post? This action cannot be undone.
+                </Text>
+
+                <View style={styles.deleteModalActions}>
+                  <TouchableOpacity
+                    onPress={closeDeleteModal}
+                    style={styles.deleteCancelButton}
+                    disabled={deletePostMutation.isPending}
+                  >
+                    <Text style={styles.deleteCancelText}>Cancel</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={confirmDeletePost}
+                    disabled={deletePostMutation.isPending}
+                    style={[
+                      styles.deleteConfirmButton,
+                      deletePostMutation.isPending && styles.deleteConfirmButtonDisabled,
+                    ]}
+                  >
+                    {deletePostMutation.isPending ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Text style={styles.deleteConfirmText}>Delete</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </Modal>
+        </>
       )}
     </SafeAreaView>
   );
@@ -1486,14 +1642,16 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#8e8e8e',
   },
-  deleteButton: {
-    padding: 8,
+  postOwnerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
-  deleteButtonText: {
-    color: '#262626',
-    fontSize: 20,
-    fontWeight: 'bold',
-    letterSpacing: 1,
+  iconActionButton: {
+    padding: 6,
+  },
+  iconActionButtonText: {
+    fontSize: 18,
   },
   postContent: {
     fontSize: 14,
@@ -1611,13 +1769,142 @@ const styles = StyleSheet.create({
     borderColor: '#dbdbdb',
   },
   emptyText: {
-    fontSize: 15,
+    fontSize: 16,
     color: '#8e8e8e',
     textAlign: 'center',
     lineHeight: 22,
   },
-  
-  // Image Viewer Modal Styles
+  editModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  editModalCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 20,
+    maxHeight: '80%',
+  },
+  editModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  editModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1f2937',
+  },
+  editModalClose: {
+    fontSize: 22,
+    color: '#6b7280',
+  },
+  editInput: {
+    backgroundColor: '#f9fafb',
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 14,
+    color: '#1f2937',
+    minHeight: 120,
+    textAlignVertical: 'top',
+    marginBottom: 16,
+  },
+  editModalActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  editCancelButton: {
+    flex: 1,
+    backgroundColor: '#f3f4f6',
+    borderRadius: 8,
+    padding: 12,
+    alignItems: 'center',
+  },
+  editCancelText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#6b7280',
+  },
+  editSaveButton: {
+    flex: 1,
+    backgroundColor: '#2563eb',
+    borderRadius: 8,
+    padding: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  editSaveButtonDisabled: {
+    backgroundColor: '#d1d5db',
+  },
+  editSaveText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  deleteModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  deleteModalCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 20,
+    width: '100%',
+    maxWidth: 380,
+  },
+  deleteModalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1f2937',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  deleteModalDescription: {
+    fontSize: 14,
+    color: '#6b7280',
+    lineHeight: 20,
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  deleteModalActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  deleteCancelButton: {
+    flex: 1,
+    backgroundColor: '#f3f4f6',
+    borderRadius: 8,
+    padding: 12,
+    alignItems: 'center',
+  },
+  deleteCancelText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#6b7280',
+  },
+  deleteConfirmButton: {
+    flex: 1,
+    backgroundColor: '#dc2626',
+    borderRadius: 8,
+    padding: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deleteConfirmButtonDisabled: {
+    backgroundColor: '#fca5a5',
+  },
+  deleteConfirmText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#fff',
+  },
   modalContainer: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.95)',
