@@ -31,6 +31,39 @@ interface CommentsModalProps {
   currentUserId?: number | null;
 }
 
+interface FlatComment extends BPActivity {
+  depth: number;
+}
+
+function extractAuthorFromTitle(title: string): string {
+  const m = title?.match(/>([^<]+)</);
+  return m ? m[1].trim() : 'Anonymous';
+}
+
+function resolveAuthor(item: BPActivity): string {
+  if (item.user_name) return item.user_name;
+  if (item.title) return extractAuthorFromTitle(item.title);
+  return 'Anonymous';
+}
+
+function flattenThreaded(items: any[], depth = 0): FlatComment[] {
+  const result: FlatComment[] = [];
+  for (const item of items) {
+    const nested: any[] = item.comments
+      ? (Array.isArray(item.comments) ? item.comments : Object.values(item.comments))
+      : [];
+    if (!item.id) {
+      result.push(...flattenThreaded(nested, depth));
+    } else {
+      result.push({ ...item, depth });
+      if (nested.length > 0) {
+        result.push(...flattenThreaded(nested, depth + 1));
+      }
+    }
+  }
+  return result;
+}
+
 // ─────────────────────────────────────────────
 // Single comment row with inline edit / delete
 // ─────────────────────────────────────────────
@@ -40,7 +73,7 @@ function CommentItem({
   token,
   canModify,
 }: {
-  item: BPActivity;
+  item: FlatComment;
   postId: number;
   token: string | null;
   canModify: boolean;
@@ -59,6 +92,8 @@ function CommentItem({
 
   const rawContent = typeof item.content === 'string' ? item.content : item.content?.rendered || '';
   const content = rawContent.replace(/<[^>]+>/g, '').trim();
+  const authorName = resolveAuthor(item);
+  const avatarInitial = authorName !== 'Anonymous' ? authorName.charAt(0).toUpperCase() : '?';
   const date = new Date(item.date).toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
@@ -96,7 +131,19 @@ function CommentItem({
   };
 
   return (
-    <View style={styles.commentItem}>
+    <View
+      style={[
+        styles.commentItem,
+        item.depth > 0 && { paddingLeft: 16 + item.depth * 20, paddingRight: 16 },
+      ]}
+    >
+      {item.depth > 0 && (
+        <View
+          style={[styles.depthLine, { left: 16 + (item.depth - 1) * 20 + 4 }]}
+          pointerEvents="none"
+        />
+      )}
+
       {/* Delete confirmation modal */}
       <Modal
         visible={deleteConfirmVisible}
@@ -140,9 +187,7 @@ function CommentItem({
         {avatarUrl ? (
           <Image source={{ uri: avatarUrl }} style={styles.commentAvatarImage} />
         ) : (
-          <Text style={styles.commentAvatarText}>
-            {item.user_name?.charAt(0)?.toUpperCase() || '?'}
-          </Text>
+          <Text style={styles.commentAvatarText}>{avatarInitial}</Text>
         )}
       </View>
 
@@ -150,7 +195,7 @@ function CommentItem({
       <View style={styles.commentBubble}>
         {/* Header row: author + actions */}
         <View style={styles.commentHeader}>
-          <Text style={styles.commentAuthor}>{item.user_name || 'Anonymous'}</Text>
+          <Text style={styles.commentAuthor}>{authorName}</Text>
 
           {canModify && !isEditing && (
             <View style={styles.commentActions}>
@@ -235,6 +280,9 @@ export default function CommentsModal({
   );
   const createCommentMutation = useCreateComment(token);
 
+  const flatComments = flattenThreaded(comments || []);
+  const commentCount = flatComments.length;
+
   const handleSubmit = async () => {
     const text = newComment.trim();
     if (!text) return;
@@ -246,8 +294,6 @@ export default function CommentsModal({
       Alert.alert('Error', err?.message || 'Failed to post comment. Please try again.');
     }
   };
-
-  const commentCount = comments?.length ?? 0;
 
   return (
     <Modal
@@ -276,7 +322,7 @@ export default function CommentsModal({
             <ActivityIndicator style={styles.loader} color="#0e7490" />
           ) : (
             <FlatList
-              data={comments || []}
+              data={flatComments}
               keyExtractor={(item) => item.id.toString()}
               renderItem={({ item }) => (
                 <CommentItem
@@ -398,6 +444,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
     gap: 10,
+  },
+  depthLine: {
+    position: 'absolute',
+    top: 8,
+    bottom: 8,
+    width: 2,
+    borderRadius: 1,
+    backgroundColor: '#0e7490',
+    opacity: 0.25,
   },
   commentAvatar: {
     width: 36,
