@@ -112,7 +112,13 @@ function CommentItem({
     const text = editText.trim();
     if (!text) return;
     try {
-      await updateMutation.mutateAsync({ commentId: item.id, content: text, postId });
+      await updateMutation.mutateAsync({
+        commentId: item.id,
+        content: text,
+        postId,
+        primaryItemId: item.primary_item_id,
+        secondaryItemId: item.secondary_item_id,
+      });
       setIsEditing(false);
     } catch (err: any) {
       Alert.alert('Error', err?.message || 'Failed to update comment.');

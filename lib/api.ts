@@ -1406,11 +1406,19 @@ export async function createComment(
 export async function updateComment(
   commentId: number,
   content: string,
-  token: string
+  token: string,
+  primaryItemId?: number,
+  secondaryItemId?: number
 ): Promise<import('../types').BPActivity> {
   return authedFetch<import('../types').BPActivity>(`/buddypress/v1/activity/${commentId}`, token, {
     method: 'PUT',
-    body: JSON.stringify({ content }),
+    body: JSON.stringify({
+      component: 'activity',
+      type: 'activity_comment',
+      content,
+      ...(primaryItemId !== undefined && { primary_item_id: primaryItemId }),
+      ...(secondaryItemId !== undefined && { secondary_item_id: secondaryItemId }),
+    }),
   });
 }
 

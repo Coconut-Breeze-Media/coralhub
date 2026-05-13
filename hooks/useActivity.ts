@@ -228,9 +228,21 @@ export function useUpdateComment(token: string | null) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ commentId, content, postId }: { commentId: number; content: string; postId: number }) => {
+    mutationFn: async ({
+      commentId,
+      content,
+      postId,
+      primaryItemId,
+      secondaryItemId,
+    }: {
+      commentId: number;
+      content: string;
+      postId: number;
+      primaryItemId?: number;
+      secondaryItemId?: number;
+    }) => {
       if (!token) throw new Error('No authentication token');
-      return updateComment(commentId, content, token);
+      return updateComment(commentId, content, token, primaryItemId, secondaryItemId);
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['comments', variables.postId] });
