@@ -72,11 +72,13 @@ function CommentItem({
   postId,
   token,
   canModify,
+  onReply,
 }: {
   item: FlatComment;
   postId: number;
   token: string | null;
   canModify: boolean;
+  onReply: (commentId: number, authorName: string) => void;
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState('');
@@ -256,7 +258,17 @@ function CommentItem({
           <Text style={styles.commentText}>{content}</Text>
         )}
 
-        <Text style={styles.commentDate}>{date}</Text>
+        <View style={styles.commentFooter}>
+          <Text style={styles.commentDate}>{date}</Text>
+          {!isEditing && (
+            <TouchableOpacity
+              onPress={() => onReply(item.id, authorName)}
+              style={styles.replyBtn}
+            >
+              <Text style={styles.replyBtnText}>Reply</Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
     </View>
   );
@@ -273,6 +285,7 @@ export default function CommentsModal({
   currentUserId,
 }: CommentsModalProps) {
   const [newComment, setNewComment] = useState('');
+  const [replyTo, setReplyTo] = useState<{ id: number; authorName: string } | null>(null);
 
   const { data: comments, isLoading, refetch } = usePostComments(
     token,
@@ -283,12 +296,21 @@ export default function CommentsModal({
   const flatComments = flattenThreaded(comments || []);
   const commentCount = flatComments.length;
 
+  const handleReply = (commentId: number, authorName: string) => {
+    setReplyTo({ id: commentId, authorName });
+  };
+
   const handleSubmit = async () => {
     const text = newComment.trim();
     if (!text) return;
     try {
-      await createCommentMutation.mutateAsync({ postId, content: text });
+      await createCommentMutation.mutateAsync({
+        postId,
+        content: text,
+        parentCommentId: replyTo?.id,
+      });
       setNewComment('');
+      setReplyTo(null);
       refetch();
     } catch (err: any) {
       Alert.alert('Error', err?.message || 'Failed to post comment. Please try again.');
@@ -334,6 +356,7 @@ export default function CommentsModal({
                     !!item.user_id &&
                     Number(currentUserId) === Number(item.user_id)
                   }
+                  onReply={handleReply}
                 />
               )}
               style={styles.list}
@@ -346,6 +369,18 @@ export default function CommentsModal({
                 </Text>
               }
             />
+          )}
+
+          {/* Reply context banner */}
+          {replyTo && (
+            <View style={styles.replyBanner}>
+              <Text style={styles.replyBannerText} numberOfLines={1}>
+                Replying to {replyTo.authorName}
+              </Text>
+              <TouchableOpacity onPress={() => setReplyTo(null)}>
+                <Text style={styles.replyBannerClose}>✕</Text>
+              </TouchableOpacity>
+            </View>
           )}
 
           {/* New comment input */}
@@ -508,10 +543,44 @@ const styles = StyleSheet.create({
     color: '#374151',
     lineHeight: 20,
   },
+  commentFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 4,
+  },
   commentDate: {
     fontSize: 11,
     color: '#9ca3af',
-    marginTop: 4,
+  },
+  replyBtn: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  replyBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#0e7490',
+  },
+  replyBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#ecfeff',
+    borderTopWidth: 1,
+    borderTopColor: '#a5f3fc',
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+  },
+  replyBannerText: {
+    fontSize: 13,
+    color: '#0e7490',
+    flex: 1,
+  },
+  replyBannerClose: {
+    paddingLeft: 8,
+    fontSize: 16,
+    color: '#0e7490',
   },
   // Inline edit
   editInput: {

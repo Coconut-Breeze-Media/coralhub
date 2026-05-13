@@ -1382,14 +1382,16 @@ export async function getPostComments(
 export async function createComment(
   activityId: number,
   content: string,
-  token: string
+  token: string,
+  parentCommentId?: number
 ): Promise<import('../types').BPActivity> {
   return authedFetch<import('../types').BPActivity>('/buddypress/v1/activity', token, {
     method: 'POST',
     body: JSON.stringify({
+      component: 'activity',
       type: 'activity_comment',
       primary_item_id: activityId,
-      secondary_item_id: activityId,
+      secondary_item_id: parentCommentId ?? activityId,
       content,
     }),
   });
