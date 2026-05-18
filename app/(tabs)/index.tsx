@@ -565,13 +565,13 @@ function CommunityScreen() {
       setMembersReady(true);
       return;
     }
-    setMembersReady(false);
+    // Prefetch new members in background — never block the list after initial load
     prefetchKeyRef.current = key;
     Promise.all(
-      uniqueIds.map(userId =>
+      uniqueIds.map(uid =>
         queryClient.prefetchQuery({
-          queryKey: ['member', userId],
-          queryFn: () => getMemberById(userId, token!),
+          queryKey: ['member', uid],
+          queryFn: () => getMemberById(uid, token!),
           staleTime: 5 * 60 * 1000,
         })
       )
