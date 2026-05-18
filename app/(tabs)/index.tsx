@@ -44,21 +44,60 @@ import type { BPActivity } from '../../types';
 type TabType = 'feed' | 'my-posts' | 'groups-feed';
 
 // Helper function to extract content text from BuddyPress API response
+function decodeHtmlEntities(text: string): string {
+  return text
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#8211;/g, '–')
+    .replace(/&#8212;/g, '—')
+    .replace(/&#8216;/g, '‘')
+    .replace(/&#8217;/g, '’')
+    .replace(/&#8220;/g, '“')
+    .replace(/&#8221;/g, '”')
+    .replace(/&nbsp;/g, ' ');
+}
+
 function getContentText(content: string | { rendered: string; raw?: string }): string {
-  let text = '';
+  let html = '';
   if (typeof content === 'string') {
-    text = content;
+    html = content;
   } else {
-    text = content.rendered || content.raw || '';
+    html = content.rendered || content.raw || '';
   }
-  // Strip HTML tags
-  return text.replace(/<[^>]+>/g, '').trim();
+
+  // Preserve paragraph/line structure before stripping tags
+  html = html
+    .replace(/<\/p\s*>/gi, '\n\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/li\s*>/gi, '\n')
+    .replace(/<\/h[1-6]\s*>/gi, '\n\n');
+
+  // Strip all HTML tags
+  let text = html.replace(/<[^>]+>/g, '');
+
+  // Decode HTML entities
+  text = decodeHtmlEntities(text);
+
+  // Filter PHP warnings/notices/errors that leak into WordPress content
+  text = text
+    .split('\n')
+    .filter(line => {
+      const t = line.trim();
+      return !(t.match(/^(Warning|Notice|Fatal error|Parse error|Deprecated):/i) && t.includes('.php'));
+    })
+    .join('\n');
+
+  return text
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 // Helper function to extract user name from title HTML
 function getUserNameFromTitle(title: string): string {
-  // Title format: '<a href="...">User Name</a>'
-  const match = title.match(/>([^<]+)</);  
+  const match = title.match(/>([^<]+)</);
   return match ? match[1].trim() : '';
 }
 
@@ -70,70 +109,75 @@ function extractImageUrls(content: string | { rendered: string; raw?: string }):
   } else {
     html = content.rendered || content.raw || '';
   }
-  
+
   const imageUrls: string[] = [];
-  
-  // Match img tags with src or data-src attributes
+  const imageExtensions = /\.(jpg|jpeg|png|gif|webp)(\?[^"']*)?$/i;
+
   const imgRegex = /<img[^>]+(?:src|data-src)=["']([^"']+)["'][^>]*>/gi;
   let match;
-  
   while ((match = imgRegex.exec(html)) !== null) {
     const url = match[1];
     if (url && !url.includes('Please-Upload-Avatar-Image')) {
       imageUrls.push(url);
     }
   }
-  
-  // Also match anchor tags with image links
-  const anchorRegex = /<a[^>]+href=["']([^"']+\.(?:jpg|jpeg|png|gif|webp))["'][^>]*>/gi;
+
+  // Also catch image links from <a> tags
+  const anchorRegex = /<a[^>]+href=["']([^"']+)["'][^>]*>/gi;
   while ((match = anchorRegex.exec(html)) !== null) {
     const url = match[1];
-    if (url && !imageUrls.includes(url) && !url.includes('Please-Upload-Avatar-Image')) {
+    if (url && imageExtensions.test(url) && !imageUrls.includes(url) && !url.includes('Please-Upload-Avatar-Image')) {
       imageUrls.push(url);
     }
   }
-  
+
   return imageUrls;
 }
 
-// Helper function to extract links from HTML content
-function extractLinks(content: string | { rendered: string; raw?: string }): Array<{ url: string; text: string }> {
+// Extracts all tappable links: from <a href> tags AND plain-text URLs in the content
+function extractAllLinks(content: string | { rendered: string; raw?: string }): Array<{ url: string; text: string }> {
   let html = '';
   if (typeof content === 'string') {
     html = content;
   } else {
     html = content.rendered || content.raw || '';
   }
-  
-  const links: Array<{ url: string; text: string }> = [];
-  
-  // Match anchor tags with href attributes
-  const linkRegex = /<a[^>]+href=["']([^"']+)["'][^>]*>([^<]*)<\/a>/gi;
-  let match;
-  
-  while ((match = linkRegex.exec(html)) !== null) {
-    const url = match[1];
-    let text = match[2].trim();
-    
-    // If text is too long (likely a full URL), shorten it
-    if (text.length > 50) {
-      try {
-        const urlObj = new URL(text);
-        text = urlObj.hostname;
-      } catch {
-        text = text.substring(0, 50) + '...';
-      }
-    }
-    
-    if (url && text && !url.includes('Please-Upload-Avatar-Image')) {
-      // Avoid duplicates
-      if (!links.find(link => link.url === url)) {
-        links.push({ url, text: text || url });
-      }
+
+  const results: Array<{ url: string; text: string }> = [];
+  const seenUrls = new Set<string>();
+  const imageExtensions = /\.(jpg|jpeg|png|gif|webp)(\?[^"']*)?$/i;
+  const skip = (url: string) =>
+    !url.startsWith('http') ||
+    url.includes('Please-Upload-Avatar-Image') ||
+    imageExtensions.test(url.split('?')[0]);
+
+  const domainOf = (url: string) => {
+    try { return new URL(url).hostname; } catch { return url; }
+  };
+
+  // 1. All <a href> links (including complex content like link preview cards)
+  const hrefRegex = /<a[^>]+href=["']([^"']+)["']/gi;
+  let m: RegExpExecArray | null;
+  while ((m = hrefRegex.exec(html)) !== null) {
+    const url = m[1];
+    if (!skip(url) && !seenUrls.has(url)) {
+      seenUrls.add(url);
+      results.push({ url, text: domainOf(url) });
     }
   }
-  
-  return links;
+
+  // 2. Plain-text URLs not already captured
+  const plainText = html.replace(/<[^>]+>/g, ' ');
+  const urlRegex = /https?:\/\/[^\s<>"{}|\\^`[\]]+/g;
+  while ((m = urlRegex.exec(plainText)) !== null) {
+    const url = m[0].replace(/[.,;:!?)]+$/, '');
+    if (!skip(url) && !seenUrls.has(url)) {
+      seenUrls.add(url);
+      results.push({ url, text: domainOf(url) });
+    }
+  }
+
+  return results;
 }
 
 // Post Item Component - fetches user data for each post
@@ -169,7 +213,7 @@ function PostItem({
   
   // Extract images from content
   const imageUrls = extractImageUrls(item.content);
-  const links = extractLinks(item.content);
+  const links = extractAllLinks(item.content);
   
   // State for image viewer modal
   const [imageModalVisible, setImageModalVisible] = useState(false);
@@ -299,7 +343,7 @@ function PostItem({
       {/* Post Links */}
       {links.length > 0 && (
         <View style={styles.postLinks}>
-          {links.map((link, index) => (
+          {links.map((link: { url: string; text: string }, index: number) => (
             <TouchableOpacity
               key={index}
               style={styles.linkButton}
