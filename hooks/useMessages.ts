@@ -4,6 +4,7 @@ import {
   getConversations,
   getMessages,
   sendMessage,
+  markConversationAsRead,
 } from '../lib/api';
 
 export function useConversations(token: string | null) {

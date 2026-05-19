@@ -1505,3 +1505,18 @@ export async function sendMessage(
 
   return res.json();
 }
+export async function markConversationAsRead(
+  threadId: number,
+  token: string
+) {
+  const res = await fetchWithTimeout(`${API}/buddypress/v1/messages/${threadId}`, {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  await assertOk(res);
+
+  return res.json();
+}
