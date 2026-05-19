@@ -1465,3 +1465,68 @@ export async function searchUsers(query: string, token: string): Promise<UserSea
     avatar_urls: m.avatar_urls,
   }));
 }
+
+// ---------- Messages API ----------
+export async function getConversations(token: string) {
+  const res = await fetchWithTimeout(`${API}/buddypress/v1/messages`, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  await assertOk(res);
+
+  return res.json();
+}
+export async function getMessages(threadId: number, token: string) {
+  const res = await fetchWithTimeout(`${API}/buddypress/v1/messages/${threadId}`, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  await assertOk(res);
+
+  return res.json();
+}
+
+export async function sendMessage(
+  token: string,
+  recipients: number[],
+  subject: string,
+  message: string
+) {
+  const res = await fetchWithTimeout(`${API}/buddypress/v1/messages`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      recipients,
+      subject,
+      message,
+    }),
+  });
+
+  await assertOk(res);
+
+  return res.json();
+}
+export async function markConversationAsRead(
+  threadId: number,
+  token: string
+) {
+  const res = await fetchWithTimeout(`${API}/buddypress/v1/messages/${threadId}`, {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  await assertOk(res);
+
+  return res.json();
+}
