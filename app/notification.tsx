@@ -11,7 +11,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useAuth } from '../lib/auth';
-import { useMe, usePendingFriendRequests } from '../hooks/useQueries';
+import { useFriendsList, useMe, usePendingFriendRequests } from '../hooks/useQueries';
 import { usePrefetchMembers } from '../hooks/useMembers';
 import type { BPFriendship } from '../types';
 
@@ -52,10 +52,22 @@ export default function NotificationsScreen() {
     error: requestsError,
   } = usePendingFriendRequests(userId);
 
+  const { data: friendsData, isLoading: isLoadingFriends } = useFriendsList(userId, 1, 200);
+
   const receivedRequests = useMemo(() => {
     if (!userId) return [];
-    return (pendingRequests || []).filter((request) => request.friend_id === userId);
-  }, [pendingRequests, userId]);
+    const currentUserId = Number(userId);
+    const friendIds = new Set((friendsData?.friends || []).map((friend) => Number(friend.id)));
+    return (pendingRequests || []).filter((request) => {
+      const requestFriendId = Number(request.friend_id);
+      const requestInitiatorId = Number(request.initiator_id);
+      const isConfirmed = request.is_confirmed === true || Number(request.is_confirmed) === 1;
+      if (isConfirmed) return false;
+      if (requestFriendId !== currentUserId) return false;
+      return !friendIds.has(requestInitiatorId);
+    });
+  }, [pendingRequests, userId, friendsData]);
+
 
   const requestUserIds = useMemo(
     () => receivedRequests.map((request) => request.initiator_id),
@@ -91,7 +103,7 @@ export default function NotificationsScreen() {
     );
   }, [messageNotifications, requestNotifications]);
 
-  const isLoading = isLoadingUser || (Boolean(userId) && (isLoadingRequests || isLoadingMembers));
+  const isLoading = isLoadingUser || (Boolean(userId) && (isLoadingRequests || isLoadingMembers || isLoadingFriends));
 
   return (
     <SafeAreaView style={styles.container}>

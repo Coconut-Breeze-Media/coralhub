@@ -8,7 +8,7 @@ import { Tabs, Redirect, router } from 'expo-router';
 import { Pressable, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../lib/auth';
-import { useMe, usePendingFriendRequests } from '../../hooks/useQueries';
+import { useMe, usePendingFriendRequests, useFriendsList } from '../../hooks/useQueries';
 import { TAB_SCREENS, DEFAULT_HEADER_OPTIONS, ROUTES } from '../../constants/navigation';
 import type { TabScreen } from '../../types';
 
@@ -19,9 +19,19 @@ function NotificationButton() {
   const { data: currentUser } = useMe();
   const userId = currentUser?.id;
   const { data: pendingRequests } = usePendingFriendRequests(userId);
+  const { data: friendsData } = useFriendsList(userId, 1, 200);
 
+  const currentUserId = Number(userId);
+  const friendIds = new Set((friendsData?.friends || []).map((friend) => Number(friend.id)));
   const hasPendingNotifications = Boolean(
-    userId && (pendingRequests || []).some((request) => request.friend_id === userId)
+    userId &&
+      (pendingRequests || []).some((request) => {
+        const requestFriendId = Number(request.friend_id);
+        const requestInitiatorId = Number(request.initiator_id);
+        const isConfirmed = request.is_confirmed === true || Number(request.is_confirmed) === 1;
+        if (isConfirmed) return false;
+        return requestFriendId === currentUserId && !friendIds.has(requestInitiatorId);
+      })
   );
 
   return (
