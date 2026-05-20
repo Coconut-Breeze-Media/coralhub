@@ -17,6 +17,7 @@ import {
 } from '../hooks/useGroups';
 import { useMember } from '../hooks/useMembers';
 import { useCreateGroupPost, useLikePost, useUpdatePost, useDeletePost } from '../hooks/useActivity';
+import ShareButton from '../components/ShareButton';
 import BackButton from '../components/BackButton';
 import { useState, useEffect } from 'react';
 import { useLocalSearchParams } from 'expo-router';
@@ -1900,6 +1901,17 @@ function ActivityCard({
                     {activity.comment_count > 0 ? activity.comment_count : 'Comment'}
                   </Text>
                 </TouchableOpacity>
+
+                <ShareButton
+                  activityId={activity.id}
+                  postUrl={activity.link}
+                  previewAuthorName={member?.name || 'User'}
+                  previewAuthorAvatarUrl={member?.avatar_urls?.thumb}
+                  previewTimeLabel={formatDate(activity.date)}
+                  previewText={displayText}
+                  previewImageUrl={imageUrls[0]}
+                  previewLinkUrl={textLinks[0]?.url || activity.link}
+                />
               </View>
             )}
           </View>

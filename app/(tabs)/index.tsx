@@ -25,11 +25,12 @@ import { uploadImage } from '../../lib/api';
 import RequireAuth from '../../components/RequireAuth';
 import CommentsModal from '../../components/CommentsModal';
 import MentionInput from '../../components/MentionInput';
+import ShareButton from '../../components/ShareButton';
 import { 
   useActivityFeed, 
+  useActivityById,
   useCreatePost, 
   useLikePost, 
-  useSharePost, 
   useDeletePost,
   useUpdatePost 
 } from '../../hooks/useActivity';
@@ -60,12 +61,7 @@ function decodeHtmlEntities(text: string): string {
 }
 
 function getContentText(content: string | { rendered: string; raw?: string }): string {
-  let html = '';
-  if (typeof content === 'string') {
-    html = content;
-  } else {
-    html = content.rendered || content.raw || '';
-  }
+  let html = getContentHtml(content);
 
   // Preserve paragraph/line structure before stripping tags
   html = html
@@ -89,10 +85,62 @@ function getContentText(content: string | { rendered: string; raw?: string }): s
     })
     .join('\n');
 
+  text = stripUnavailableShareFallback(text);
+
   return text
     .replace(/[ \t]+/g, ' ')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+}
+
+function getContentHtml(content: string | { rendered: string; raw?: string }): string {
+  if (typeof content === 'string') {
+    return content;
+  }
+
+  return content.rendered || content.raw || '';
+}
+
+function stripUnavailableShareFallback(text: string): string {
+  return text
+    .replace(
+      /This content isn't available right now\s*When this happens, it's usually because the owner only shared it with a small group of people, change who can see it or it's been deleted\./gi,
+      ''
+    )
+    .replace(/This content isn't available right now/gi, '')
+    .replace(/When this happens, it's usually because[^.]+\./gi, '');
+}
+
+function getShareIntroText(content: string | { rendered: string; raw?: string }): string {
+  const html = getContentHtml(content);
+  const activityInnerMatch = html.match(
+    /<div\b[^>]*class=["'][^"']*\bactivity-inner\b[^"']*["'][^>]*>([\s\S]*?)<\/div>/i
+  );
+
+  if (activityInnerMatch?.[1]) {
+    return getContentText(activityInnerMatch[1]);
+  }
+
+  const shareEmbedIndex = html.search(
+    /<div\b[^>]*class=["'][^"']*(activity-share|shared|repost|embed)[^"']*["'][^>]*>/i
+  );
+
+  return getContentText(shareEmbedIndex >= 0 ? html.slice(0, shareEmbedIndex) : html);
+}
+
+function getSharedActivityId(activity: BPActivity): number | null {
+  const sharedActivityId = Number(activity.primary_item_id);
+
+  if (
+    activity.type === 'activity_share' &&
+    Number.isFinite(sharedActivityId) &&
+    sharedActivityId > 0 &&
+    sharedActivityId !== activity.id
+  ) {
+    return sharedActivityId;
+  }
+
+  return null;
 }
 
 // Helper function to extract user name from title HTML
@@ -186,7 +234,6 @@ function PostItem({
   token, 
   profile, 
   onLike, 
-  onShare, 
   onDelete,
   onEdit 
 }: { 
@@ -194,13 +241,20 @@ function PostItem({
   token: string | null;
   profile: any;
   onLike: (activityId: number, isLiked: boolean) => void;
-  onShare: (activityId: number) => void;
   onDelete: (item: BPActivity) => void;
   onEdit: (item: BPActivity) => void;
 }) {
   // Fetch member data from BuddyPress API
   const { data: memberData, isLoading: isMemberLoading } = useMember(token, item.user_id);
+  const sharedActivityId = getSharedActivityId(item);
+  const {
+    data: sharedActivity,
+    isLoading: isSharedActivityLoading,
+    isError: isSharedActivityError,
+  } = useActivityById(token, sharedActivityId);
+  const { data: sharedMemberData } = useMember(token, sharedActivity?.user_id);
   
+  const isSharedPost = item.type === 'activity_share';
   const isCurrentUserPost = item.user_id === profile?.user_id;
   const isLiked = item.favorited || false;
   
@@ -211,9 +265,27 @@ function PostItem({
     (typeof item.user_avatar === 'object' ? item.user_avatar.thumb : item.user_avatar) || 
     undefined;
   
-  // Extract images from content
-  const imageUrls = extractImageUrls(item.content);
-  const links = extractAllLinks(item.content);
+  const displayText = isSharedPost ? getShareIntroText(item.content) : getContentText(item.content);
+
+  // Shared activities include BuddyPress embed markup in content.rendered.
+  // Render the original activity from the API instead of showing embed fallback text.
+  const imageUrls = isSharedPost ? [] : extractImageUrls(item.content);
+  const links = isSharedPost ? [] : extractAllLinks(item.content);
+  const sharedImageUrls = sharedActivity ? extractImageUrls(sharedActivity.content) : [];
+  const sharedLinks = sharedActivity ? extractAllLinks(sharedActivity.content) : [];
+  const sharedText = sharedActivity ? getContentText(sharedActivity.content) : '';
+  const sharedUserName =
+    sharedActivity
+      ? sharedMemberData?.name?.trim() ||
+        sharedActivity.user_name?.trim() ||
+        getUserNameFromTitle(sharedActivity.title)
+      : '';
+  const sharedUserAvatar =
+    sharedMemberData?.avatar_urls?.thumb ||
+    (typeof sharedActivity?.user_avatar === 'object'
+      ? sharedActivity.user_avatar.thumb
+      : sharedActivity?.user_avatar) ||
+    undefined;
   
   // State for image viewer modal
   const [imageModalVisible, setImageModalVisible] = useState(false);
@@ -270,6 +342,8 @@ function PostItem({
     favorite_count: item.favorite_count,
     component: item.component,
     type: item.type,
+    primary_item_id: item.primary_item_id,
+    secondary_item_id: item.secondary_item_id,
     isCurrentUserPost,
     isLiked,
   });
@@ -319,7 +393,7 @@ function PostItem({
       </View>
       
       {/* Post Content */}
-      <Text style={styles.postContent}>{getContentText(item.content)}</Text>
+      {displayText ? <Text style={styles.postContent}>{displayText}</Text> : null}
       
       {/* Post Images */}
       {imageUrls.length > 0 && (
@@ -357,6 +431,65 @@ function PostItem({
           ))}
         </View>
       )}
+
+      {sharedActivityId ? (
+        <View style={styles.sharedPostCard}>
+          {isSharedActivityLoading ? (
+            <Text style={styles.sharedPostUnavailableText}>Loading shared post...</Text>
+          ) : sharedActivity && !isSharedActivityError ? (
+            <>
+              <View style={styles.sharedPostHeader}>
+                <View style={styles.sharedPostAvatar}>
+                  {sharedUserAvatar ? (
+                    <Image source={{ uri: sharedUserAvatar }} style={styles.sharedPostAvatarImage} />
+                  ) : (
+                    <Text style={styles.sharedPostAvatarText}>
+                      {(sharedUserName || 'P').charAt(0).toUpperCase()}
+                    </Text>
+                  )}
+                </View>
+                <View style={styles.sharedPostUserInfo}>
+                  <Text style={styles.sharedPostUserName} numberOfLines={1}>
+                    {sharedUserName || 'Post'}
+                  </Text>
+                  <Text style={styles.sharedPostDate}>
+                    {new Date(sharedActivity.date).toLocaleDateString('en-US', {
+                      month: 'short',
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </Text>
+                </View>
+              </View>
+
+              {sharedText ? <Text style={styles.sharedPostContent}>{sharedText}</Text> : null}
+
+              {sharedImageUrls.length > 0 ? (
+                <Image
+                  source={{ uri: sharedImageUrls[0] }}
+                  style={styles.sharedPostImage}
+                  resizeMode="cover"
+                />
+              ) : null}
+
+              {sharedLinks.length > 0 ? (
+                <TouchableOpacity
+                  style={styles.sharedPostLink}
+                  onPress={() => handleLinkPress(sharedLinks[0].url)}
+                >
+                  <Text style={styles.linkIcon}>🔗</Text>
+                  <Text style={styles.sharedPostLinkText} numberOfLines={1}>
+                    {sharedLinks[0].text}
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
+            </>
+          ) : (
+            <Text style={styles.sharedPostUnavailableText}>Original post is no longer available.</Text>
+          )}
+        </View>
+      ) : null}
       
       {/* Post Stats */}
       <View style={styles.postStats}>
@@ -393,13 +526,24 @@ function PostItem({
           </Text>
         </TouchableOpacity>
         
-        <TouchableOpacity
-          onPress={() => onShare(item.id)}
+        <ShareButton
+          activityId={item.id}
+          postUrl={item.link}
           style={styles.actionButton}
-        >
-          <Text style={styles.actionIcon}>📤</Text>
-          <Text style={styles.actionLabel}>Share</Text>
-        </TouchableOpacity>
+          iconColor="#6b7280"
+          textColor="#737373"
+          previewAuthorName={userName}
+          previewAuthorAvatarUrl={userAvatar}
+          previewTimeLabel={new Date(item.date).toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+          })}
+          previewText={displayText}
+          previewImageUrl={imageUrls[0] || sharedImageUrls[0]}
+          previewLinkUrl={links[0]?.url || sharedLinks[0]?.url || item.link}
+        />
       </View>
       
       {/* Comments Modal */}
@@ -625,7 +769,6 @@ function CommunityScreen() {
   // Mutations
   const createPostMutation = useCreatePost(token);
   const likePostMutation = useLikePost(token);
-  const sharePostMutation = useSharePost(token);
   const deletePostMutation = useDeletePost(token);
   const updatePostMutation = useUpdatePost(token);
   
@@ -746,16 +889,6 @@ function CommunityScreen() {
     }
   };
   
-  const handleSharePost = async (activityId: number) => {
-    try {
-      await sharePostMutation.mutateAsync({ activityId });
-      Alert.alert('Success', 'Post shared successfully!');
-    } catch (error) {
-      Alert.alert('Error', 'Failed to share post');
-      console.error('Share post error:', error);
-    }
-  };
-  
   const handleDeletePost = (item: BPActivity) => {
     setDeletingPost(item);
     setIsDeleteModalVisible(true);
@@ -834,7 +967,6 @@ function CommunityScreen() {
         token={token}
         profile={profile}
         onLike={handleLikePost}
-        onShare={handleSharePost}
         onDelete={handleDeletePost}
         onEdit={handleOpenEditPost}
       />
@@ -1739,6 +1871,91 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#0095f6',
     fontWeight: '500',
+  },
+  sharedPostCard: {
+    marginHorizontal: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#dbdbdb',
+    borderRadius: 8,
+    backgroundColor: '#fafafa',
+    overflow: 'hidden',
+  },
+  sharedPostHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingTop: 12,
+    paddingBottom: 8,
+  },
+  sharedPostAvatar: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#0095f6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 8,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#dbdbdb',
+  },
+  sharedPostAvatarImage: {
+    width: 30,
+    height: 30,
+  },
+  sharedPostAvatarText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  sharedPostUserInfo: {
+    flex: 1,
+  },
+  sharedPostUserName: {
+    fontSize: 13,
+    color: '#262626',
+    fontWeight: '700',
+  },
+  sharedPostDate: {
+    fontSize: 11,
+    color: '#8e8e8e',
+    marginTop: 1,
+  },
+  sharedPostContent: {
+    fontSize: 14,
+    color: '#262626',
+    lineHeight: 20,
+    paddingHorizontal: 12,
+    paddingBottom: 12,
+  },
+  sharedPostImage: {
+    width: '100%',
+    height: 220,
+    backgroundColor: '#f0f0f0',
+  },
+  sharedPostLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    margin: 12,
+    backgroundColor: '#f0f8ff',
+    borderRadius: 8,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#0095f6',
+    gap: 8,
+  },
+  sharedPostLinkText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#0095f6',
+    fontWeight: '500',
+  },
+  sharedPostUnavailableText: {
+    fontSize: 13,
+    color: '#737373',
+    lineHeight: 19,
+    padding: 12,
   },
   postStats: {
     paddingHorizontal: 16,

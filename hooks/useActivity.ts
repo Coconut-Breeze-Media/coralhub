@@ -2,6 +2,7 @@
 import { useMutation, useQuery, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
 import {
   getActivityFeed,
+  getActivityById,
   createPost,
   createGroupPost,
   updatePost,
@@ -61,6 +62,24 @@ export function useActivityFeed(
 }
 
 /**
+ * Hook to fetch a single activity by ID.
+ * Used for shared posts so the app renders the original activity directly
+ * instead of relying on BuddyPress' rendered share embed.
+ */
+export function useActivityById(token: string | null, activityId: number | null | undefined) {
+  return useQuery<BPActivity>({
+    queryKey: ['activity', 'detail', activityId] as const,
+    queryFn: async () => {
+      if (!token) throw new Error('No authentication token');
+      if (!activityId) throw new Error('No activity ID provided');
+      return getActivityById(activityId, token);
+    },
+    enabled: !!token && !!activityId,
+    staleTime: 30000,
+  });
+}
+
+/**
  * Hook to create a new post
  * @param token - JWT authentication token
  */
@@ -111,9 +130,17 @@ export function useSharePost(token: string | null) {
   const queryClient = useQueryClient();
   
   return useMutation({
-    mutationFn: async ({ activityId, content }: { activityId: number; content?: string }) => {
+    mutationFn: async ({
+      activityId,
+      postUrl,
+      content,
+    }: {
+      activityId: number;
+      postUrl: string;
+      content?: string;
+    }) => {
       if (!token) throw new Error('No authentication token');
-      return sharePost(activityId, content || '', token);
+      return sharePost(activityId, postUrl, token, content);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['activity'] });

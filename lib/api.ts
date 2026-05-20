@@ -65,6 +65,8 @@ function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit, ms = 150
   return fetch(input, { ...init, signal: ctrl.signal }).finally(() => clearTimeout(id));
 }
 
+const sharePostRequestsInFlight = new Map<string, Promise<import('../types').BPActivity>>();
+
 // ---------- auth ----------
 export async function wpLogin(username: string, password: string): Promise<JWTPayload> {
   const res = await fetchWithTimeout(`${API}/jwt-auth/v1/token`, {
@@ -772,6 +774,24 @@ export async function getActivityFeed(
 }
 
 /**
+ * Get a single activity from BuddyPress.
+ * @param {number} activityId - BuddyPress activity ID
+ * @param {string} token - JWT authentication token
+ * @returns {Promise<import('../types').BPActivity>}
+ */
+export async function getActivityById(
+  activityId: number,
+  token: string
+): Promise<import('../types').BPActivity> {
+  const result = await authedFetch<import('../types').BPActivity | import('../types').BPActivity[]>(
+    `/buddypress/v1/activity/${activityId}`,
+    token
+  );
+
+  return Array.isArray(result) ? result[0] : result;
+}
+
+/**
  * Upload image to WordPress Media Library
  * @param {string} token - JWT authentication token
  * @param {string} imageUri - Local image URI from device or blob URI
@@ -925,22 +945,59 @@ export async function unlikePost(
  */
 export async function sharePost(
   originalActivityId: number,
-  content: string,
-  token: string
+  postUrl: string,
+  token: string,
+  content?: string
 ): Promise<import('../types').BPActivity> {
-  const data = {
-    content: content || `Shared post`,
+  const trimmedContent = content?.trim() || '';
+  const requestKey = JSON.stringify([token, originalActivityId, postUrl, trimmedContent]);
+  const existingRequest = sharePostRequestsInFlight.get(requestKey);
+
+  if (existingRequest) {
+    return existingRequest;
+  }
+
+  const data: {
+    component: 'activity';
+    type: 'activity_share';
+    primary_item_id: number;
+    link: string;
+    content?: string;
+  } = {
     component: 'activity',
     type: 'activity_share',
     primary_item_id: originalActivityId,
+    link: postUrl,
   };
-  
+
+  if (trimmedContent) {
+    data.content = trimmedContent;
+  }
+
   console.log('[sharePost] Sharing activity:', originalActivityId);
-  
-  return authedFetch<import('../types').BPActivity>('/buddypress/v1/activity', token, {
-    method: 'POST',
-    body: JSON.stringify(data),
-  });
+
+  const request = (async () => {
+    const res = await fetchWithTimeout(`${API}/buddypress/v1/activity`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+        'X-WP-Nonce': token,
+      },
+      body: JSON.stringify(data),
+    });
+
+    await assertOk(res);
+    return res.json();
+  })();
+
+  sharePostRequestsInFlight.set(requestKey, request);
+
+  try {
+    return await request;
+  } finally {
+    sharePostRequestsInFlight.delete(requestKey);
+  }
 }
 
 /**
