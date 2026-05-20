@@ -1,6 +1,7 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { Alert, Image, Modal, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../lib/auth';
 import { useSharePost } from '../hooks/useActivity';
 
@@ -34,6 +35,7 @@ export default function ShareButton({
   previewLinkUrl,
 }: ShareButtonProps) {
   const { token } = useAuth();
+  const queryClient = useQueryClient();
   const sharePostMutation = useSharePost(token);
   const [modalVisible, setModalVisible] = useState(false);
   const [comment, setComment] = useState('');
@@ -94,6 +96,10 @@ export default function ShareButton({
         content: comment.trim() ? comment.trim() : undefined,
       });
       resetAndCloseModal();
+      await Promise.all([
+        queryClient.refetchQueries({ queryKey: ['activity', 'feed'], type: 'active' }),
+        queryClient.refetchQueries({ queryKey: ['groups', 'activity'], type: 'active' }),
+      ]);
       Alert.alert('Success', 'Post shared successfully!');
     } catch (error: any) {
       Alert.alert('Error', error?.message || 'Failed to share post');
