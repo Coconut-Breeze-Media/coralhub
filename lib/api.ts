@@ -14,6 +14,9 @@ import type {
   XProfileFieldData,
   UpdateXProfilePayload,
   BPActivity,
+  BPConversationsResponse,
+  BPMessageThreadResult,
+  BPMessageMutationResponse,
 } from '../types';
 
 const API = process.env.EXPO_PUBLIC_WP_API!;
@@ -1457,7 +1460,7 @@ export async function searchUsers(query: string, token: string): Promise<UserSea
 }
 
 // ---------- Messages API ----------
-export async function getConversations(token: string) {
+export async function getConversations(token: string): Promise<BPConversationsResponse> {
   const res = await fetchWithTimeout(`${API}/buddypress/v1/messages`, {
     method: 'GET',
     headers: {
@@ -1467,9 +1470,12 @@ export async function getConversations(token: string) {
 
   await assertOk(res);
 
-  return res.json();
+  return res.json() as Promise<BPConversationsResponse>;
 }
-export async function getMessages(threadId: number, token: string) {
+export async function getMessages(
+  threadId: number,
+  token: string
+): Promise<BPMessageThreadResult> {
   const res = await fetchWithTimeout(`${API}/buddypress/v1/messages/${threadId}`, {
     method: 'GET',
     headers: {
@@ -1479,7 +1485,7 @@ export async function getMessages(threadId: number, token: string) {
 
   await assertOk(res);
 
-  return res.json();
+  return res.json() as Promise<BPMessageThreadResult>;
 }
 
 export async function sendMessage(
@@ -1487,7 +1493,7 @@ export async function sendMessage(
   recipients: number[],
   subject: string,
   message: string
-) {
+): Promise<BPMessageMutationResponse> {
   const res = await fetchWithTimeout(`${API}/buddypress/v1/messages`, {
     method: 'POST',
     headers: {
@@ -1503,12 +1509,12 @@ export async function sendMessage(
 
   await assertOk(res);
 
-  return res.json();
+  return res.json() as Promise<BPMessageMutationResponse>;
 }
 export async function markConversationAsRead(
   threadId: number,
   token: string
-) {
+): Promise<BPMessageMutationResponse> {
   const res = await fetchWithTimeout(`${API}/buddypress/v1/messages/${threadId}`, {
     method: 'PUT',
     headers: {
@@ -1518,5 +1524,5 @@ export async function markConversationAsRead(
 
   await assertOk(res);
 
-  return res.json();
+  return res.json() as Promise<BPMessageMutationResponse>;
 }

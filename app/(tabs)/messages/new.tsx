@@ -12,12 +12,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../../lib/auth';
 import { useMembersList } from '../../../hooks/useMembers';
 import { useSendMessage } from '../../../hooks/useMessages';
+import type { BPMember } from '../../../types';
 
 export default function NewMessageScreen() {
   const { token } = useAuth();
 
   const [search, setSearch] = useState('');
-  const [selectedMember, setSelectedMember] = useState<any>(null);
+  const [selectedMember, setSelectedMember] = useState<BPMember | null>(null);
   const [message, setMessage] = useState('');
   const sendMessageMutation = useSendMessage(token);
   const isSending = sendMessageMutation.isPending;
@@ -26,6 +27,7 @@ export default function NewMessageScreen() {
     page: 1,
     perPage: 20,
   });
+  const members = Array.isArray(data) ? data : [];
 
   return (
     <SafeAreaView style={{ flex: 1, padding: 16 }}>
@@ -91,9 +93,9 @@ export default function NewMessageScreen() {
       {error && <Text>Error loading members</Text>}
 
       <FlatList
-        data={Array.isArray(data) ? data : []}
-        keyExtractor={(item: any) => item.id.toString()}
-        renderItem={({ item }: any) => (
+        data={members}
+        keyExtractor={(item) => item.id.toString()}
+        renderItem={({ item }) => (
           <Pressable
             onPress={() => setSelectedMember(item)}
             style={{
