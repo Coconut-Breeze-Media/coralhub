@@ -32,6 +32,21 @@ function getConversationItems(
   return [];
 }
 
+function getInitial(value: string): string {
+  const safeValue = value.trim();
+  return safeValue ? safeValue[0].toUpperCase() : 'C';
+}
+
+function getUnreadCount(value: unknown): number {
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  return 0;
+}
+
 export default function MessagesScreen() {
   const { token } = useAuth();
   const { data, isLoading, error } = useConversations(token);
@@ -39,7 +54,7 @@ export default function MessagesScreen() {
   const conversations = getConversationItems(data);
 
   return (
-    <SafeAreaView style={{ flex: 1, padding: 16 }}>
+    <SafeAreaView style={{ flex: 1, padding: 16, backgroundColor: '#f8fafc' }}>
       <View
         style={{
           flexDirection: 'row',
@@ -104,33 +119,98 @@ export default function MessagesScreen() {
       {conversations.length > 0 && (
         <FlatList
           data={conversations}
+          contentContainerStyle={{ paddingBottom: 8 }}
           keyExtractor={(item, index) =>
             String(item.id ?? item.thread_id ?? index)
           }
-          renderItem={({ item, index }) => (
-            <Pressable
-              onPress={() =>
-                router.push(
-                  `/messages/${String(item.id ?? item.thread_id ?? index)}`
-                )
-              }
-              style={{
-                padding: 14,
-                borderWidth: 1,
-                borderColor: '#e5e7eb',
-                borderRadius: 12,
-                marginBottom: 10,
-              }}
-            >
-              <Text style={{ fontWeight: '700', marginBottom: 4 }}>
-                {getTextValue(item.subject) || 'Conversation'}
-              </Text>
+          renderItem={({ item, index }) => {
+            const subject = getTextValue(item.subject) || 'Conversation';
+            const preview = getTextValue(item.last_message_content) || 'Open conversation';
+            const unreadCount = getUnreadCount(item.unread_count);
 
-              <Text numberOfLines={1} style={{ color: '#6b7280' }}>
-                {getTextValue(item.last_message_content) || 'Open conversation'}
-              </Text>
-            </Pressable>
-          )}
+            return (
+              <Pressable
+                onPress={() =>
+                  router.push(
+                    `/messages/${String(item.id ?? item.thread_id ?? index)}`
+                  )
+                }
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  padding: 14,
+                  borderWidth: 1,
+                  borderColor: '#e2e8f0',
+                  borderRadius: 16,
+                  marginBottom: 12,
+                  backgroundColor: '#ffffff',
+                  shadowColor: '#0f172a',
+                  shadowOpacity: 0.05,
+                  shadowRadius: 8,
+                  shadowOffset: { width: 0, height: 3 },
+                  elevation: 1,
+                }}
+              >
+                <View
+                  style={{
+                    width: 44,
+                    height: 44,
+                    borderRadius: 22,
+                    backgroundColor: '#e0f2fe',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginRight: 12,
+                  }}
+                >
+                  <Text style={{ fontSize: 18, fontWeight: '700', color: '#0369a1' }}>
+                    {getInitial(subject)}
+                  </Text>
+                </View>
+
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text
+                    numberOfLines={1}
+                    style={{
+                      fontWeight: '700',
+                      marginBottom: 4,
+                      color: '#0f172a',
+                    }}
+                  >
+                    {subject}
+                  </Text>
+
+                  <Text
+                    numberOfLines={2}
+                    style={{
+                      color: '#64748b',
+                      lineHeight: 19,
+                    }}
+                  >
+                    {preview}
+                  </Text>
+                </View>
+
+                {unreadCount > 0 && (
+                  <View
+                    style={{
+                      minWidth: 22,
+                      height: 22,
+                      paddingHorizontal: 6,
+                      borderRadius: 11,
+                      backgroundColor: '#0284c7',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginLeft: 12,
+                    }}
+                  >
+                    <Text style={{ color: '#ffffff', fontSize: 12, fontWeight: '700' }}>
+                      {unreadCount}
+                    </Text>
+                  </View>
+                )}
+              </Pressable>
+            );
+          }}
         />
       )}
     </SafeAreaView>
