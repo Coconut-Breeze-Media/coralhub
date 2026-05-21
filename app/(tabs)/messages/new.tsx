@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Text,
   TextInput,
@@ -8,11 +8,16 @@ import {
 } from 'react-native';
 
 import { SafeAreaView } from 'react-native-safe-area-context';
-
+import { Stack } from 'expo-router';
 import { useAuth } from '../../../lib/auth';
 import { useMembersList } from '../../../hooks/useMembers';
 import { useSendMessage } from '../../../hooks/useMessages';
 import type { BPMember } from '../../../types';
+
+function getInitial(name: string): string {
+  const safeName = name.trim();
+  return safeName ? safeName[0].toUpperCase() : 'M';
+}
 
 export default function NewMessageScreen() {
   const { token } = useAuth();
@@ -29,9 +34,22 @@ export default function NewMessageScreen() {
   });
   const members = Array.isArray(data) ? data : [];
   const canSend = !!selectedMember && !!message.trim() && !isSending;
+  const trimmedSearch = search.trim();
+  const emptyTitle = useMemo(
+    () => (trimmedSearch ? 'No matching members' : 'No members to show'),
+    [trimmedSearch]
+  );
+  const emptyDescription = useMemo(
+    () =>
+      trimmedSearch
+        ? `We could not find anyone matching "${trimmedSearch}". Try another name or username.`
+        : 'Start by searching for a member you want to message.',
+    [trimmedSearch]
+  );
 
   return (
     <SafeAreaView style={{ flex: 1, padding: 16, backgroundColor: '#f8fafc' }}>
+      <Stack.Screen options={{ title: 'New Message' }} />
       <Text
         style={{
           fontSize: 22,
@@ -80,13 +98,37 @@ export default function NewMessageScreen() {
                   borderRadius: 14,
                   padding: 16,
                   backgroundColor: '#ffffff',
+                  alignItems: 'center',
                 }}
               >
-                <Text style={{ fontWeight: '700', color: '#0f172a', marginBottom: 4 }}>
-                  No members found
+                <View
+                  style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: 24,
+                    backgroundColor: '#e0f2fe',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginBottom: 12,
+                  }}
+                >
+                  <Text style={{ fontSize: 20, fontWeight: '700', color: '#0369a1' }}>
+                    {trimmedSearch ? '?' : 'M'}
+                  </Text>
+                </View>
+                <Text
+                  style={{
+                    fontWeight: '700',
+                    color: '#0f172a',
+                    marginBottom: 4,
+                    fontSize: 17,
+                    textAlign: 'center',
+                  }}
+                >
+                  {emptyTitle}
                 </Text>
-                <Text style={{ color: '#64748b' }}>
-                  Try another name or username.
+                <Text style={{ color: '#64748b', textAlign: 'center', lineHeight: 20 }}>
+                  {emptyDescription}
                 </Text>
               </View>
             ) : null
@@ -98,16 +140,65 @@ export default function NewMessageScreen() {
               <Pressable
                 onPress={() => setSelectedMember(item)}
                 style={{
-                  padding: 12,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  padding: 14,
                   borderWidth: 1,
                   borderColor: isSelected ? '#0284c7' : '#e5e7eb',
                   backgroundColor: isSelected ? '#e0f2fe' : '#ffffff',
-                  borderRadius: 12,
-                  marginBottom: 10,
+                  borderRadius: 16,
+                  marginBottom: 12,
+                  shadowColor: '#0f172a',
+                  shadowOpacity: isSelected ? 0.08 : 0.04,
+                  shadowRadius: 8,
+                  shadowOffset: { width: 0, height: 3 },
+                  elevation: 1,
                 }}
               >
-                <Text style={{ fontWeight: '700', color: '#0f172a' }}>{item.name}</Text>
-                <Text style={{ color: '#64748b', marginTop: 2 }}>ID: {item.id}</Text>
+                <View
+                  style={{
+                    width: 46,
+                    height: 46,
+                    borderRadius: 23,
+                    backgroundColor: isSelected ? '#bae6fd' : '#e0f2fe',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginRight: 12,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 18,
+                      fontWeight: '700',
+                      color: '#0369a1',
+                    }}
+                  >
+                    {getInitial(item.name)}
+                  </Text>
+                </View>
+
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text
+                    numberOfLines={1}
+                    style={{
+                      fontWeight: '700',
+                      color: '#0f172a',
+                      fontSize: 16,
+                      marginBottom: 2,
+                    }}
+                  >
+                    {item.name}
+                  </Text>
+                  <Text
+                    numberOfLines={1}
+                    style={{
+                      color: '#64748b',
+                      fontSize: 13,
+                    }}
+                  >
+                    {isSelected ? 'Selected recipient' : 'Tap to start a private message'}
+                  </Text>
+                </View>
               </Pressable>
             );
           }}
@@ -139,9 +230,6 @@ export default function NewMessageScreen() {
             </Text>
             <Text style={{ fontSize: 16, fontWeight: '700', color: '#0f172a' }}>
               {selectedMember.name}
-            </Text>
-            <Text style={{ color: '#64748b', marginTop: 2 }}>
-              Member ID: {selectedMember.id}
             </Text>
           </View>
 
