@@ -33,6 +33,12 @@ export const TAB_SCREENS: ReadonlyArray<TabNavItem> = [
     iconOutline: 'book-outline',
   },
   {
+    name: 'messages',
+    title: 'Messages',
+    icon: 'chatbubble-ellipses',
+    iconOutline: 'chatbubble-ellipses-outline',
+  },
+  {
     name: 'profile',
     title: 'Profile',
     icon: 'person-circle',
@@ -137,6 +143,7 @@ export const ROUTES = {
   COMMUNITY: '/(tabs)/index',
   RESOURCES: '/(tabs)/resources',
   NETWORKING: '/(tabs)/networking',
+  MESSAGES: '/(tabs)/messages',
   PROFILE: '/(tabs)/profile',
   
   // Profile subroutes

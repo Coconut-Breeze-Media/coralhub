@@ -209,6 +209,91 @@ export interface BPActivity {
 }
 
 /**
+ * BuddyPress message text payload
+ */
+export interface BPMessageText {
+  rendered?: string;
+  raw?: string;
+}
+
+/**
+ * BuddyPress conversation summary item
+ */
+export interface BPConversationSummary {
+  id?: number | string;
+  thread_id?: number | string;
+  subject?: string | BPMessageText;
+  last_message_content?: string | BPMessageText;
+  unread_count?: number;
+}
+
+/**
+ * BuddyPress conversation list wrapper
+ */
+export interface BPConversationListResponse {
+  threads?: BPConversationSummary[];
+  messages?: BPConversationSummary[];
+  items?: BPConversationSummary[];
+}
+
+/**
+ * BuddyPress message sender summary
+ */
+export interface BPMessageSender {
+  id?: number | string;
+  name?: string;
+}
+
+/**
+ * BuddyPress message item
+ */
+export interface BPMessageItem {
+  id?: number | string;
+  message_id?: number | string;
+  sender_id?: number | string;
+  user_id?: number | string;
+  sender?: BPMessageSender;
+  sender_name?: string;
+  display_name?: string;
+  user_name?: string;
+  message?: string | BPMessageText;
+  content?: string | BPMessageText;
+  subject?: string | BPMessageText;
+  date_sent?: string | number;
+  date?: string | number;
+  date_gmt?: string | number;
+  created_at?: string | number;
+}
+
+/**
+ * BuddyPress message thread response
+ */
+export interface BPMessageThreadResponse {
+  id?: number | string;
+  thread_id?: number | string;
+  subject?: string | BPMessageText;
+  messages?: BPMessageItem[] | Record<string, BPMessageItem>;
+  items?: BPMessageItem[] | Record<string, BPMessageItem>;
+  thread?: {
+    subject?: string | BPMessageText;
+    messages?: BPMessageItem[] | Record<string, BPMessageItem>;
+    items?: BPMessageItem[] | Record<string, BPMessageItem>;
+  };
+}
+
+export type BPConversationsResponse =
+  | BPConversationSummary[]
+  | BPConversationListResponse;
+
+export type BPMessageThreadResult =
+  | BPMessageThreadResponse
+  | BPMessageItem[];
+
+export type BPMessageMutationResponse =
+  | BPMessageThreadResponse
+  | BPConversationSummary;
+
+/**
  * WordPress comment object (from /wp/v2/comments endpoint)
  */
 export interface WPComment {
@@ -366,7 +451,7 @@ export interface AuthContextState {
 /**
  * Tab screen identifiers
  */
-export type TabScreen = 'index' | 'resources' | 'networking' | 'profile';
+export type TabScreen = 'index' | 'resources' | 'networking' | 'messages' | 'profile';
 
 /**
  * Root stack screen identifiers

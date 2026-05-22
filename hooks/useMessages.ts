@@ -1,4 +1,9 @@
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import type {
+  BPConversationsResponse,
+  BPMessageThreadResult,
+  BPMessageMutationResponse,
+} from '../types';
 
 import {
   getConversations,
@@ -8,7 +13,7 @@ import {
 } from '../lib/api';
 
 export function useConversations(token: string | null) {
-  return useQuery({
+  return useQuery<BPConversationsResponse>({
     queryKey: ['messages', 'conversations'],
     queryFn: async () => {
       if (!token) throw new Error('No authentication token');
@@ -22,7 +27,7 @@ export function useMessages(
   threadId: number | null,
   token: string | null
 ) {
-  return useQuery({
+  return useQuery<BPMessageThreadResult>({
     queryKey: ['messages', threadId],
     queryFn: async () => {
       if (!token) throw new Error('No authentication token');
@@ -34,7 +39,17 @@ export function useMessages(
   });
 }
 export function useSendMessage(token: string | null) {
-  return useMutation({
+  const queryClient = useQueryClient();
+
+  return useMutation<
+    BPMessageMutationResponse,
+    Error,
+    {
+      recipients: number[];
+      subject: string;
+      message: string;
+    }
+  >({
     mutationFn: async ({
       recipients,
       subject,
@@ -53,10 +68,23 @@ export function useSendMessage(token: string | null) {
         message
       );
     },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ['messages', 'conversations'],
+          exact: true,
+        }),
+        queryClient.invalidateQueries({
+          predicate: (query) =>
+            query.queryKey[0] === 'messages' &&
+            typeof query.queryKey[1] === 'number',
+        }),
+      ]);
+    },
   });
 }
 export function useMarkConversationAsRead(token: string | null) {
-  return useMutation({
+  return useMutation<BPMessageMutationResponse, Error, number>({
     mutationFn: async (threadId: number) => {
       if (!token) throw new Error('No authentication token');
 
