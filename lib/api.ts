@@ -1528,6 +1528,7 @@ export async function searchUsers(query: string, token: string): Promise<UserSea
 
 // ---------- Messages API ----------
 export async function getConversations(token: string): Promise<BPConversationsResponse> {
+  const url = `${API}/buddypress/v1/messages`;
   const res = await fetchWithTimeout(`${API}/buddypress/v1/messages`, {
     method: 'GET',
     headers: {
@@ -1537,13 +1538,18 @@ export async function getConversations(token: string): Promise<BPConversationsRe
 
   await assertOk(res);
 
-  return res.json() as Promise<BPConversationsResponse>;
+  const data = (await res.json()) as BPConversationsResponse;
+  console.log('[getConversations] url:', url);
+  console.log('[getConversations] response:', data);
+
+  return data;
 }
 export async function getMessages(
   threadId: number,
   token: string
 ): Promise<BPMessageThreadResult> {
-  const res = await fetchWithTimeout(`${API}/buddypress/v1/messages/${threadId}`, {
+  const url = `${API}/buddypress/v1/messages/${threadId}`;
+  const res = await fetchWithTimeout(url, {
     method: 'GET',
     headers: {
       Authorization: `Bearer ${token}`,
@@ -1552,7 +1558,12 @@ export async function getMessages(
 
   await assertOk(res);
 
-  return res.json() as Promise<BPMessageThreadResult>;
+  const data = (await res.json()) as BPMessageThreadResult;
+  console.log('[getMessages] url:', url);
+  console.log('[getMessages] thread id:', threadId);
+  console.log('[getMessages] response:', data);
+
+  return data;
 }
 
 export async function sendMessage(
@@ -1582,15 +1593,40 @@ export async function markConversationAsRead(
   threadId: number,
   token: string
 ): Promise<BPMessageMutationResponse> {
-  const res = await fetchWithTimeout(`${API}/buddypress/v1/messages/${threadId}`, {
-    method: 'PUT',
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
+  const url = `${API}/buddypress/v1/messages/${threadId}`;
+
+  console.log('[markConversationAsRead] request started:', {
+    threadId,
+    url,
+    body: { read: true },
   });
 
-  await assertOk(res);
+  try {
+    const res = await fetchWithTimeout(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ read: true }),
+    });
 
-  return res.json() as Promise<BPMessageMutationResponse>;
+    await assertOk(res);
+
+    const data = (await res.json()) as BPMessageMutationResponse;
+
+    console.log('[markConversationAsRead] request succeeded:', {
+      threadId,
+      response: data,
+    });
+
+    return data;
+  } catch (error) {
+    console.log('[markConversationAsRead] request failed:', {
+      threadId,
+      error: error instanceof Error ? error.message : error,
+    });
+
+    throw error;
+  }
 }
-

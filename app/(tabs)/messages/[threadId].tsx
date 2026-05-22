@@ -8,7 +8,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams } from 'expo-router';
 
@@ -173,16 +173,50 @@ export default function ThreadScreen() {
     token
   );
 
-  const title = getConversationTitle(data);
-  const messages = normalizeMessages(getThreadItems(data), userId);
+  const threadItems = useMemo(() => getThreadItems(data), [data]);
+  const title = useMemo(() => getConversationTitle(data), [data]);
+  const messages = useMemo(
+    () => normalizeMessages(threadItems, userId),
+    [threadItems, userId]
+  );
   const hasMessages = messages.length > 0;
   const isRefreshing = isRefetching && !isLoading;
 
   useEffect(() => {
-    if (!Number.isFinite(parsedThreadId)) return;
+    if (!data) return;
 
-    markConversationAsRead(parsedThreadId);
-  }, [parsedThreadId, markConversationAsRead]);
+    console.log('[ThreadScreen] raw thread response:', data);
+    console.log('[ThreadScreen] thread id:', parsedThreadId);
+    console.log('[ThreadScreen] raw message items:', threadItems);
+    console.log('[ThreadScreen] normalized messages:', messages);
+  }, [data, messages, parsedThreadId, threadItems]);
+
+  useEffect(() => {
+    if (!Number.isFinite(parsedThreadId)) {
+      console.log('[ThreadScreen] mark as read skipped: invalid thread id', {
+        threadId,
+      });
+      return;
+    }
+
+    console.log('[ThreadScreen] marking conversation as read:', {
+      threadId: parsedThreadId,
+    });
+
+    markConversationAsRead(parsedThreadId, {
+      onSuccess: () => {
+        console.log('[ThreadScreen] conversation marked as read:', {
+          threadId: parsedThreadId,
+        });
+      },
+      onError: (error) => {
+        console.log('[ThreadScreen] failed to mark conversation as read:', {
+          threadId: parsedThreadId,
+          error: error instanceof Error ? error.message : error,
+        });
+      },
+    });
+  }, [parsedThreadId, markConversationAsRead, threadId]);
 
   useEffect(() => {
     if (!hasMessages) return;

@@ -1,3 +1,4 @@
+import { useEffect, useMemo } from 'react';
 import {
   Text,
   FlatList,
@@ -120,8 +121,15 @@ export default function MessagesScreen() {
   const { token } = useAuth();
   const { data, isLoading, isRefetching, error, refetch } = useConversations(token);
 
-  const conversations = getConversationItems(data);
+  const conversations = useMemo(() => getConversationItems(data), [data]);
   const isRefreshing = isRefetching && !isLoading;
+
+  useEffect(() => {
+    if (!data) return;
+
+    console.log('[MessagesScreen] raw messages response:', data);
+    console.log('[MessagesScreen] messages:', conversations);
+  }, [data, conversations]);
 
   return (
     <SafeAreaView style={{ flex: 1, padding: 16, backgroundColor: '#f8fafc' }}>
