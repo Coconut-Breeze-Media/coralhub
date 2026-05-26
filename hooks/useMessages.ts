@@ -8,6 +8,7 @@ import type {
 import {
   getConversations,
   getMessages,
+  replyToConversation,
   sendMessage,
   markConversationAsRead,
 } from '../lib/api';
@@ -83,12 +84,64 @@ export function useSendMessage(token: string | null) {
     },
   });
 }
+
+export function useReplyToConversation(token: string | null) {
+  const queryClient = useQueryClient();
+
+  return useMutation<
+    BPMessageMutationResponse,
+    Error,
+    {
+      threadId: number;
+      message: string;
+    }
+  >({
+    mutationFn: async ({
+      threadId,
+      message,
+    }: {
+      threadId: number;
+      message: string;
+    }) => {
+      if (!token) throw new Error('No authentication token');
+
+      return replyToConversation(token, threadId, message);
+    },
+    onSuccess: async (_data, variables) => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ['messages', 'conversations'],
+          exact: true,
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ['messages', variables.threadId],
+          exact: true,
+        }),
+      ]);
+    },
+  });
+}
+
 export function useMarkConversationAsRead(token: string | null) {
+  const queryClient = useQueryClient();
+
   return useMutation<BPMessageMutationResponse, Error, number>({
     mutationFn: async (threadId: number) => {
       if (!token) throw new Error('No authentication token');
 
       return markConversationAsRead(threadId, token);
+    },
+    onSuccess: async (_data, threadId) => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ['messages', 'conversations'],
+          exact: true,
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ['messages', threadId],
+          exact: true,
+        }),
+      ]);
     },
   });
 }

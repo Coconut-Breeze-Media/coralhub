@@ -13,6 +13,8 @@ import { router } from 'expo-router';
 import { useAuth } from '../lib/auth';
 import { useFriendsList, useMe, usePendingFriendRequests } from '../hooks/useQueries';
 import { usePrefetchMembers } from '../hooks/useMembers';
+import { useConversations } from '../hooks/useMessages';
+import { getUnreadMessageNotifications } from '../lib/messageNotifications';
 import type { BPFriendship } from '../types';
 
 type AppNotification =
@@ -30,6 +32,7 @@ type AppNotification =
       createdAt: string;
       title: string;
       preview: string;
+      avatarUrl?: string;
       onPress: () => void;
     };
 
@@ -53,6 +56,11 @@ export default function NotificationsScreen() {
   } = usePendingFriendRequests(userId);
 
   const { data: friendsData, isLoading: isLoadingFriends } = useFriendsList(userId, 1, 200);
+  const {
+    data: conversationsData,
+    isLoading: isLoadingMessages,
+    error: messagesError,
+  } = useConversations(token);
 
   const receivedRequests = useMemo(() => {
     if (!userId) return [];
@@ -94,8 +102,16 @@ export default function NotificationsScreen() {
   }, [memberMap, receivedRequests]);
 
   const messageNotifications = useMemo<AppNotification[]>(() => {
-    return [];
-  }, []);
+    return getUnreadMessageNotifications(conversationsData, userId).map((message) => ({
+      id: message.id,
+      type: 'message',
+      createdAt: message.createdAt,
+      title: `You have a new message from: ${message.senderName}`,
+      preview: message.preview,
+      avatarUrl: message.avatarUrl,
+      onPress: () => router.push(`/messages/${message.threadId}`),
+    }));
+  }, [conversationsData, userId]);
 
   const notifications = useMemo(() => {
     return [...requestNotifications, ...messageNotifications].sort(
@@ -103,7 +119,10 @@ export default function NotificationsScreen() {
     );
   }, [messageNotifications, requestNotifications]);
 
-  const isLoading = isLoadingUser || (Boolean(userId) && (isLoadingRequests || isLoadingMembers || isLoadingFriends));
+  const isLoading =
+    isLoadingUser ||
+    (Boolean(userId) &&
+      (isLoadingRequests || isLoadingMembers || isLoadingFriends || isLoadingMessages));
 
   return (
     <SafeAreaView style={styles.container}>
@@ -112,7 +131,7 @@ export default function NotificationsScreen() {
           <ActivityIndicator size="large" color="#0066cc" />
           <Text style={styles.loadingText}>Loading notifications...</Text>
         </View>
-      ) : requestsError ? (
+      ) : requestsError || messagesError ? (
         <View style={styles.centerContainer}>
           <Text style={styles.errorText}>Could not load notifications</Text>
         </View>
@@ -149,9 +168,13 @@ export default function NotificationsScreen() {
             return (
               <Pressable key={notification.id} style={styles.messageCard} onPress={notification.onPress}>
                 <View style={styles.leftContainer}>
-                  <View style={styles.messageIconContainer}>
-                    <Ionicons name="chatbubble-ellipses-outline" size={20} color="#a16207" />
-                  </View>
+                  {notification.avatarUrl ? (
+                    <Image source={{ uri: notification.avatarUrl }} style={styles.avatar} />
+                  ) : (
+                    <View style={styles.messageIconContainer}>
+                      <Ionicons name="chatbubble-ellipses-outline" size={20} color="#a16207" />
+                    </View>
+                  )}
                   <View style={styles.cardContent}>
                     <Text style={styles.cardTitle}>{notification.title}</Text>
                     <Text style={styles.cardDescription}>{notification.preview}</Text>

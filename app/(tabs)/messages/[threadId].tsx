@@ -16,6 +16,7 @@ import { useAuth } from '../../../lib/auth';
 import {
   useMarkConversationAsRead,
   useMessages,
+  useReplyToConversation,
 } from '../../../hooks/useMessages';
 
 type NormalizedMessage = {
@@ -166,6 +167,7 @@ export default function ThreadScreen() {
 
   const { token, userId } = useAuth();
   const { mutate: markConversationAsRead } = useMarkConversationAsRead(token);
+  const replyToConversation = useReplyToConversation(token);
   const scrollViewRef = useRef<ScrollView | null>(null);
   const [message, setMessage] = useState('');
   const { data, isLoading, isRefetching, error, refetch } = useMessages(
@@ -506,18 +508,30 @@ export default function ThreadScreen() {
             />
 
             <Pressable
+              disabled={
+                !message.trim() ||
+                !Number.isFinite(parsedThreadId) ||
+                replyToConversation.isPending
+              }
               onPress={() => {
-                if (!message.trim()) return;
+                const trimmedMessage = message.trim();
+                if (!trimmedMessage || !Number.isFinite(parsedThreadId)) return;
 
-                console.log('thread reply not implemented yet', {
-                  threadId,
-                  message,
+                replyToConversation.mutate({
+                  threadId: parsedThreadId,
+                  message: trimmedMessage,
+                }, {
+                  onSuccess: () => {
+                    setMessage('');
+                    markConversationAsRead(parsedThreadId);
+                  },
                 });
-
-                setMessage('');
               }}
               style={{
-                backgroundColor: '#0284c7',
+                backgroundColor:
+                  message.trim() && !replyToConversation.isPending
+                    ? '#0284c7'
+                    : '#94a3b8',
                 minHeight: 46,
                 paddingHorizontal: 18,
                 justifyContent: 'center',
@@ -525,9 +539,17 @@ export default function ThreadScreen() {
                 borderRadius: 16,
               }}
             >
-              <Text style={{ color: 'white', fontWeight: '700' }}>Send</Text>
+              <Text style={{ color: 'white', fontWeight: '700' }}>
+                {replyToConversation.isPending ? 'Sending...' : 'Send'}
+              </Text>
             </Pressable>
           </View>
+
+          {replyToConversation.isError && (
+            <Text style={{ color: '#b91c1c', marginTop: 8 }}>
+              Failed to send message
+            </Text>
+          )}
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
