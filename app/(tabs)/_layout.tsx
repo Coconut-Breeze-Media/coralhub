@@ -76,18 +76,18 @@ export default function TabsLayout() {
         />
       ))}
       <Tabs.Screen
-        name="messages/[threadId]"
-        options={{
-          href: null,
-        }}
+      name="messages/[threadId]"
+      options={{
+        href: null,
+        title: 'Conversation',
+      }}
     />
       <Tabs.Screen
-        name="messages/new"
-        options={{
-          href: null,
-        }}
+      name="messages/new"
+      options={{
+        href: null,
+        title: 'New Message',
+      }}
     />
-    </Tabs>
-    
-  );
+      </Tabs>);
 }

@@ -17,6 +17,12 @@ import {
   useMarkConversationAsRead,
   useMessages,
 } from '../../../hooks/useMessages';
+import {
+  applyComposerFormat,
+  MessageFormattingToolbar,
+  type ComposerSelection,
+} from '../../../components/MessageFormattingToolbar';
+import { MessageMarkdownText } from '../../../components/MessageMarkdownText';
 
 type NormalizedMessage = {
   id: string;
@@ -37,8 +43,8 @@ function getTextValue(value: unknown): string {
   const record = value as Record<string, unknown>;
 
   return (
-    getTextValue(record.rendered) ||
     getTextValue(record.raw) ||
+    getTextValue(record.rendered) ||
     getTextValue(record.message) ||
     getTextValue(record.content) ||
     ''
@@ -168,6 +174,10 @@ export default function ThreadScreen() {
   const { mutate: markConversationAsRead } = useMarkConversationAsRead(token);
   const scrollViewRef = useRef<ScrollView | null>(null);
   const [message, setMessage] = useState('');
+  const [selection, setSelection] = useState<ComposerSelection>({
+    start: 0,
+    end: 0,
+  });
   const { data, isLoading, isRefetching, error, refetch } = useMessages(
     Number.isFinite(parsedThreadId) ? parsedThreadId : null,
     token
@@ -193,6 +203,14 @@ export default function ThreadScreen() {
 
     return () => cancelAnimationFrame(frameId);
   }, [hasMessages, messages.length]);
+
+  function handleFormatAction(action: Parameters<typeof applyComposerFormat>[2]) {
+    const next = applyComposerFormat(message, selection, action);
+    setMessage(next.text);
+    requestAnimationFrame(() => {
+      setSelection(next.selection);
+    });
+  }
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#f8fafc' }}>
@@ -292,15 +310,15 @@ export default function ThreadScreen() {
                         elevation: item.isOwn ? 2 : 1,
                       }}
                     >
-                      <Text
-                        style={{
+                      <MessageMarkdownText
+                        value={item.body}
+                        textStyle={{
                           color: item.isOwn ? '#ffffff' : '#0f172a',
                           fontSize: 15,
                           lineHeight: 21,
                         }}
-                      >
-                        {item.body}
-                      </Text>
+                        linkColor={item.isOwn ? '#e0f2fe' : '#0369a1'}
+                      />
                     </View>
 
                     {!!item.sentAt && (
@@ -444,18 +462,25 @@ export default function ThreadScreen() {
             backgroundColor: '#ffffff',
           }}
         >
+          <MessageFormattingToolbar onActionPress={handleFormatAction} />
+
           <View
             style={{
               flexDirection: 'row',
               alignItems: 'flex-end',
               gap: 10,
+              marginTop: 12,
             }}
           >
             <TextInput
               value={message}
               onChangeText={setMessage}
+              onSelectionChange={(event) => {
+                setSelection(event.nativeEvent.selection);
+              }}
               placeholder="Type a message..."
               multiline
+              selection={selection}
               textAlignVertical="top"
               style={{
                 flex: 1,
@@ -481,6 +506,7 @@ export default function ThreadScreen() {
                 });
 
                 setMessage('');
+                setSelection({ start: 0, end: 0 });
               }}
               style={{
                 backgroundColor: '#0284c7',

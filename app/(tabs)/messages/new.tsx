@@ -13,6 +13,11 @@ import { useAuth } from '../../../lib/auth';
 import { useMembersList } from '../../../hooks/useMembers';
 import { useSendMessage } from '../../../hooks/useMessages';
 import type { BPMember } from '../../../types';
+import {
+  applyComposerFormat,
+  MessageFormattingToolbar,
+  type ComposerSelection,
+} from '../../../components/MessageFormattingToolbar';
 
 function getInitial(name: string): string {
   const safeName = name.trim();
@@ -25,6 +30,10 @@ export default function NewMessageScreen() {
   const [search, setSearch] = useState('');
   const [selectedMember, setSelectedMember] = useState<BPMember | null>(null);
   const [message, setMessage] = useState('');
+  const [selection, setSelection] = useState<ComposerSelection>({
+    start: 0,
+    end: 0,
+  });
   const sendMessageMutation = useSendMessage(token);
   const isSending = sendMessageMutation.isPending;
   const { data, isLoading, error } = useMembersList(token, {
@@ -46,6 +55,14 @@ export default function NewMessageScreen() {
         : 'Start by searching for a member you want to message.',
     [trimmedSearch]
   );
+
+  function handleFormatAction(action: Parameters<typeof applyComposerFormat>[2]) {
+    const next = applyComposerFormat(message, selection, action);
+    setMessage(next.text);
+    requestAnimationFrame(() => {
+      setSelection(next.selection);
+    });
+  }
 
   return (
     <SafeAreaView style={{ flex: 1, padding: 16, backgroundColor: '#f8fafc' }}>
@@ -236,8 +253,12 @@ export default function NewMessageScreen() {
           <TextInput
             value={message}
             onChangeText={setMessage}
+            onSelectionChange={(event) => {
+              setSelection(event.nativeEvent.selection);
+            }}
             placeholder="Type your message..."
             multiline
+            selection={selection}
             textAlignVertical="top"
             style={{
               borderWidth: 1,
@@ -251,6 +272,8 @@ export default function NewMessageScreen() {
             }}
           />
 
+          <MessageFormattingToolbar onActionPress={handleFormatAction} />
+
           <Pressable
             disabled={!canSend}
             onPress={() => {
@@ -263,6 +286,7 @@ export default function NewMessageScreen() {
               });
 
               setMessage('');
+              setSelection({ start: 0, end: 0 });
             }}
             style={{
               backgroundColor: canSend ? '#0077b6' : '#94a3b8',
