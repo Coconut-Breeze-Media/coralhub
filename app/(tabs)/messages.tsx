@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import {
   Text,
   FlatList,
@@ -8,7 +9,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 
 import { useAuth } from '../../lib/auth';
 import { useConversations } from '../../hooks/useMessages';
@@ -17,6 +18,7 @@ import type {
   BPConversationSummary,
   BPMessageText,
 } from '../../types';
+import { MessageNotice } from '../../components/MessageNotice';
 
 function stripHtml(value: string) {
   return value.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
@@ -27,6 +29,30 @@ function getTextValue(value?: string | BPMessageText): string {
   if (!value) return '';
 
   return stripHtml(value.rendered ?? value.raw ?? '');
+}
+
+function stripMarkdown(value: string): string {
+  return value
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/(^|[\s(])\*([^*]+)\*(?=[\s).,!?:;]|$)/g, '$1$2')
+    .replace(/(^|[\s(])_([^_]+)_(?=[\s).,!?:;]|$)/g, '$1$2')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function truncatePreview(value: string, maxLength = 96): string {
+  if (value.length <= maxLength) return value;
+
+  return `${value.slice(0, maxLength).trimEnd()}...`;
+}
+
+function getPreviewText(value?: string | BPMessageText): string {
+  const normalizedText = getTextValue(value);
+  if (!normalizedText) return '';
+
+  return truncatePreview(stripMarkdown(normalizedText));
 }
 
 function getConversationItems(
@@ -117,11 +143,20 @@ function StateCard({
 }
 
 export default function MessagesScreen() {
+  const { sent } = useLocalSearchParams<{ sent?: string | string[] }>();
   const { token } = useAuth();
   const { data, isLoading, isRefetching, error, refetch } = useConversations(token);
+  const [showSentNotice, setShowSentNotice] = useState(false);
 
   const conversations = getConversationItems(data);
   const isRefreshing = isRefetching && !isLoading;
+  const sentValue = Array.isArray(sent) ? sent[0] : sent;
+
+  useEffect(() => {
+    if (sentValue === '1') {
+      setShowSentNotice(true);
+    }
+  }, [sentValue]);
 
   return (
     <SafeAreaView style={{ flex: 1, padding: 16, backgroundColor: '#f8fafc' }}>
@@ -147,6 +182,18 @@ export default function MessagesScreen() {
           <Text style={{ color: 'white', fontWeight: '700' }}>New</Text>
         </Pressable>
       </View>
+
+      {showSentNotice && (
+        <MessageNotice
+          tone="success"
+          title="Message sent"
+          description="Your conversation was created and your inbox has been refreshed."
+          onDismiss={() => {
+            setShowSentNotice(false);
+            router.replace('/messages');
+          }}
+        />
+      )}
 
       {isLoading && (
         <View style={{ flex: 1, justifyContent: 'center' }}>
@@ -249,7 +296,7 @@ export default function MessagesScreen() {
           }
           renderItem={({ item, index }) => {
             const subject = getTextValue(item.subject) || 'Conversation';
-            const preview = getTextValue(item.last_message_content) || 'Open conversation';
+            const preview = getPreviewText(item.last_message_content) || 'Open conversation';
             const unreadCount = getUnreadCount(item.unread_count);
 
             return (
