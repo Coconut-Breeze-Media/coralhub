@@ -9,6 +9,7 @@ import {
   getConversations,
   getMessages,
   sendMessage,
+  replyToThread,
   markConversationAsRead,
 } from '../lib/api';
 
@@ -78,6 +79,42 @@ export function useSendMessage(token: string | null) {
           predicate: (query) =>
             query.queryKey[0] === 'messages' &&
             typeof query.queryKey[1] === 'number',
+        }),
+      ]);
+    },
+  });
+}
+export function useReplyToThread(token: string | null) {
+  const queryClient = useQueryClient();
+
+  return useMutation<
+    BPMessageMutationResponse,
+    Error,
+    {
+      threadId: number;
+      message: string;
+    }
+  >({
+    mutationFn: async ({
+      threadId,
+      message,
+    }: {
+      threadId: number;
+      message: string;
+    }) => {
+      if (!token) throw new Error('No authentication token');
+
+      return replyToThread(token, threadId, message);
+    },
+    onSuccess: async (_data, variables) => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ['messages', variables.threadId],
+          exact: true,
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ['messages', 'conversations'],
+          exact: true,
         }),
       ]);
     },

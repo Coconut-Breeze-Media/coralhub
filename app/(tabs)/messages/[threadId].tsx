@@ -16,6 +16,7 @@ import { useAuth } from '../../../lib/auth';
 import {
   useMarkConversationAsRead,
   useMessages,
+  useReplyToThread,
 } from '../../../hooks/useMessages';
 import {
   applyComposerFormat,
@@ -172,6 +173,7 @@ export default function ThreadScreen() {
 
   const { token, userId } = useAuth();
   const { mutate: markConversationAsRead } = useMarkConversationAsRead(token);
+  const replyToThreadMutation = useReplyToThread(token);
   const scrollViewRef = useRef<ScrollView | null>(null);
   const [message, setMessage] = useState('');
   const [selection, setSelection] = useState<ComposerSelection>({
@@ -187,6 +189,10 @@ export default function ThreadScreen() {
   const messages = normalizeMessages(getThreadItems(data), userId);
   const hasMessages = messages.length > 0;
   const isRefreshing = isRefetching && !isLoading;
+  const canSendReply =
+    Number.isFinite(parsedThreadId) &&
+    !!message.trim() &&
+    !replyToThreadMutation.isPending;
 
   useEffect(() => {
     if (!Number.isFinite(parsedThreadId)) return;
@@ -205,6 +211,10 @@ export default function ThreadScreen() {
   }, [hasMessages, messages.length]);
 
   function handleFormatAction(action: Parameters<typeof applyComposerFormat>[2]) {
+    if (replyToThreadMutation.isError) {
+      replyToThreadMutation.reset();
+    }
+
     const next = applyComposerFormat(message, selection, action);
     setMessage(next.text);
     requestAnimationFrame(() => {
@@ -462,7 +472,10 @@ export default function ThreadScreen() {
             backgroundColor: '#ffffff',
           }}
         >
-          <MessageFormattingToolbar onActionPress={handleFormatAction} />
+          <MessageFormattingToolbar
+            disabled={replyToThreadMutation.isPending}
+            onActionPress={handleFormatAction}
+          />
 
           <View
             style={{
@@ -474,12 +487,19 @@ export default function ThreadScreen() {
           >
             <TextInput
               value={message}
-              onChangeText={setMessage}
+              onChangeText={(value) => {
+                if (replyToThreadMutation.isError) {
+                  replyToThreadMutation.reset();
+                }
+
+                setMessage(value);
+              }}
               onSelectionChange={(event) => {
                 setSelection(event.nativeEvent.selection);
               }}
               placeholder="Type a message..."
               multiline
+              editable={!replyToThreadMutation.isPending}
               selection={selection}
               textAlignVertical="top"
               style={{
@@ -497,19 +517,25 @@ export default function ThreadScreen() {
             />
 
             <Pressable
+              disabled={!canSendReply}
               onPress={() => {
-                if (!message.trim()) return;
+                if (!Number.isFinite(parsedThreadId) || !message.trim()) return;
 
-                console.log('thread reply not implemented yet', {
-                  threadId,
-                  message,
-                });
-
-                setMessage('');
-                setSelection({ start: 0, end: 0 });
+                replyToThreadMutation.mutate(
+                  {
+                    threadId: parsedThreadId,
+                    message: message.trim(),
+                  },
+                  {
+                    onSuccess: () => {
+                      setMessage('');
+                      setSelection({ start: 0, end: 0 });
+                    },
+                  }
+                );
               }}
               style={{
-                backgroundColor: '#0284c7',
+                backgroundColor: canSendReply ? '#0284c7' : '#94a3b8',
                 minHeight: 46,
                 paddingHorizontal: 18,
                 justifyContent: 'center',
@@ -517,9 +543,18 @@ export default function ThreadScreen() {
                 borderRadius: 16,
               }}
             >
-              <Text style={{ color: 'white', fontWeight: '700' }}>Send</Text>
+              <Text style={{ color: 'white', fontWeight: '700' }}>
+                {replyToThreadMutation.isPending ? 'Sending...' : 'Send'}
+              </Text>
             </Pressable>
           </View>
+
+          {replyToThreadMutation.isError && (
+            <Text style={{ color: '#b91c1c', marginTop: 10, lineHeight: 20 }}>
+              {replyToThreadMutation.error.message ||
+                'Failed to send your reply. Please try again.'}
+            </Text>
+          )}
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
