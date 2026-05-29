@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { useEffect, useRef, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 
 import { useAuth } from '../../../lib/auth';
 import {
@@ -24,6 +24,7 @@ import {
   type ComposerSelection,
 } from '../../../components/MessageFormattingToolbar';
 import { MessageMarkdownText } from '../../../components/MessageMarkdownText';
+import { MessageNotice } from '../../../components/MessageNotice';
 
 type NormalizedMessage = {
   id: string;
@@ -166,10 +167,14 @@ function normalizeMessages(
 }
 
 export default function ThreadScreen() {
-  const { threadId } = useLocalSearchParams();
+  const { threadId, sent } = useLocalSearchParams<{
+    threadId?: string | string[];
+    sent?: string | string[];
+  }>();
   const parsedThreadId = Array.isArray(threadId)
     ? Number(threadId[0])
     : Number(threadId);
+  const sentValue = Array.isArray(sent) ? sent[0] : sent;
 
   const { token, userId } = useAuth();
   const { mutate: markConversationAsRead } = useMarkConversationAsRead(token);
@@ -184,6 +189,7 @@ export default function ThreadScreen() {
     Number.isFinite(parsedThreadId) ? parsedThreadId : null,
     token
   );
+  const [showSentNotice, setShowSentNotice] = useState(false);
 
   const title = getConversationTitle(data);
   const messages = normalizeMessages(getThreadItems(data), userId);
@@ -210,6 +216,12 @@ export default function ThreadScreen() {
     return () => cancelAnimationFrame(frameId);
   }, [hasMessages, messages.length]);
 
+  useEffect(() => {
+    if (sentValue === '1') {
+      setShowSentNotice(true);
+    }
+  }, [sentValue]);
+
   function handleFormatAction(action: Parameters<typeof applyComposerFormat>[2]) {
     if (replyToThreadMutation.isError) {
       replyToThreadMutation.reset();
@@ -230,6 +242,20 @@ export default function ThreadScreen() {
         keyboardVerticalOffset={Platform.OS === 'ios' ? 18 : 0}
       >
         <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}>
+          {showSentNotice && (
+            <MessageNotice
+              tone="success"
+              title="Message sent"
+              description="Your new conversation was created successfully."
+              onDismiss={() => {
+                setShowSentNotice(false);
+                if (Number.isFinite(parsedThreadId)) {
+                  router.replace(`/messages/${parsedThreadId}`);
+                }
+              }}
+            />
+          )}
+
           <View style={{ marginBottom: 16 }}>
             <Text style={{ fontSize: 22, fontWeight: '700', color: '#0f172a' }}>
               {title}

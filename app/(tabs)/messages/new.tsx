@@ -8,20 +8,48 @@ import {
 } from 'react-native';
 
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Stack } from 'expo-router';
+import { router, Stack } from 'expo-router';
 import { useAuth } from '../../../lib/auth';
 import { useMembersList } from '../../../hooks/useMembers';
 import { useSendMessage } from '../../../hooks/useMessages';
-import type { BPMember } from '../../../types';
+import type { BPMember, BPMessageMutationResponse } from '../../../types';
 import {
   applyComposerFormat,
   MessageFormattingToolbar,
   type ComposerSelection,
 } from '../../../components/MessageFormattingToolbar';
+import { MessageNotice } from '../../../components/MessageNotice';
 
 function getInitial(name: string): string {
   const safeName = name.trim();
   return safeName ? safeName[0].toUpperCase() : 'M';
+}
+
+function toNumberOrNull(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
+function getCreatedThreadId(response: BPMessageMutationResponse): number | null {
+  const threadId =
+    toNumberOrNull(response.thread_id) ??
+    toNumberOrNull(response.id);
+
+  if (threadId != null) return threadId;
+
+  const nestedThread = (response as Record<string, unknown>).thread;
+  if (!nestedThread || typeof nestedThread !== 'object') return null;
+
+  const nestedRecord = nestedThread as Record<string, unknown>;
+  return (
+    toNumberOrNull(nestedRecord.thread_id) ??
+    toNumberOrNull(nestedRecord.id)
+  );
 }
 
 export default function NewMessageScreen() {
@@ -57,6 +85,10 @@ export default function NewMessageScreen() {
   );
 
   function handleFormatAction(action: Parameters<typeof applyComposerFormat>[2]) {
+    if (sendMessageMutation.isError) {
+      sendMessageMutation.reset();
+    }
+
     const next = applyComposerFormat(message, selection, action);
     setMessage(next.text);
     requestAnimationFrame(() => {
@@ -155,7 +187,13 @@ export default function NewMessageScreen() {
 
             return (
               <Pressable
-                onPress={() => setSelectedMember(item)}
+                onPress={() => {
+                  if (sendMessageMutation.isError) {
+                    sendMessageMutation.reset();
+                  }
+
+                  setSelectedMember(item);
+                }}
                 style={{
                   flexDirection: 'row',
                   alignItems: 'center',
@@ -252,12 +290,19 @@ export default function NewMessageScreen() {
 
           <TextInput
             value={message}
-            onChangeText={setMessage}
+            onChangeText={(value) => {
+              if (sendMessageMutation.isError) {
+                sendMessageMutation.reset();
+              }
+
+              setMessage(value);
+            }}
             onSelectionChange={(event) => {
               setSelection(event.nativeEvent.selection);
             }}
             placeholder="Type your message..."
             multiline
+            editable={!isSending}
             selection={selection}
             textAlignVertical="top"
             style={{
@@ -272,21 +317,52 @@ export default function NewMessageScreen() {
             }}
           />
 
-          <MessageFormattingToolbar onActionPress={handleFormatAction} />
+          <MessageFormattingToolbar
+            disabled={isSending}
+            onActionPress={handleFormatAction}
+          />
+
+          {sendMessageMutation.isError && (
+            <MessageNotice
+              tone="error"
+              title="Could not send message"
+              description={
+                sendMessageMutation.error.message ||
+                'Please try again in a moment.'
+              }
+              onDismiss={() => sendMessageMutation.reset()}
+            />
+          )}
 
           <Pressable
             disabled={!canSend}
             onPress={() => {
               if (!selectedMember || !message.trim()) return;
 
-              sendMessageMutation.mutate({
-                recipients: [selectedMember.id],
-                subject: 'New Message',
-                message,
-              });
+              sendMessageMutation.mutate(
+                {
+                  recipients: [selectedMember.id],
+                  subject: 'New Message',
+                  message,
+                },
+                {
+                  onSuccess: (response) => {
+                    const threadId = getCreatedThreadId(response);
 
-              setMessage('');
-              setSelection({ start: 0, end: 0 });
+                    setMessage('');
+                    setSelection({ start: 0, end: 0 });
+                    setSelectedMember(null);
+                    setSearch('');
+
+                    if (threadId != null) {
+                      router.replace(`/messages/${threadId}?sent=1`);
+                      return;
+                    }
+
+                    router.replace('/messages?sent=1');
+                  },
+                }
+              );
             }}
             style={{
               backgroundColor: canSend ? '#0077b6' : '#94a3b8',
@@ -300,18 +376,6 @@ export default function NewMessageScreen() {
               {isSending ? 'Sending...' : 'Send Message'}
             </Text>
           </Pressable>
-
-          {sendMessageMutation.isSuccess && (
-            <Text style={{ color: 'green', marginTop: 8 }}>
-              Message sent successfully
-            </Text>
-          )}
-
-          {sendMessageMutation.isError && (
-            <Text style={{ color: 'red', marginTop: 8 }}>
-              Failed to send message
-            </Text>
-          )}
         </View>
       )}
     </SafeAreaView>

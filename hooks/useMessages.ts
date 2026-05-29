@@ -121,11 +121,19 @@ export function useReplyToThread(token: string | null) {
   });
 }
 export function useMarkConversationAsRead(token: string | null) {
+  const queryClient = useQueryClient();
+
   return useMutation<BPMessageMutationResponse, Error, number>({
     mutationFn: async (threadId: number) => {
       if (!token) throw new Error('No authentication token');
 
       return markConversationAsRead(threadId, token);
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ['messages', 'conversations'],
+        exact: true,
+      });
     },
   });
 }
