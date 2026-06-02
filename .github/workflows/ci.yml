@@ -28,7 +28,6 @@ jobs:
 
       - name: TypeScript check
         run: npx tsc --noEmit
-        continue-on-error: true
 
       - name: Expo web export
         run: npx expo export --platform web --output-dir .expo-test-export

@@ -1539,8 +1539,12 @@ export async function markConversationAsRead(
   const res = await fetchWithTimeout(`${API}/buddypress/v1/messages/${threadId}`, {
     method: 'PUT',
     headers: {
+      'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
     },
+    body: JSON.stringify({
+      read: true,
+    }),
   });
 
   await assertOk(res);

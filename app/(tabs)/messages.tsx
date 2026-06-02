@@ -13,23 +13,17 @@ import { router, useLocalSearchParams } from 'expo-router';
 
 import { useAuth } from '../../lib/auth';
 import { useConversations } from '../../hooks/useMessages';
+import {
+  extractConversationParticipantNames,
+  formatConversationTitle,
+  getMessageTextValue,
+} from '../../lib/messagePresentation';
 import type {
   BPConversationsResponse,
   BPConversationSummary,
   BPMessageText,
 } from '../../types';
 import { MessageNotice } from '../../components/MessageNotice';
-
-function stripHtml(value: string) {
-  return value.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-}
-
-function getTextValue(value?: string | BPMessageText): string {
-  if (typeof value === 'string') return stripHtml(value);
-  if (!value) return '';
-
-  return stripHtml(value.rendered ?? value.raw ?? '');
-}
 
 function stripMarkdown(value: string): string {
   return value
@@ -49,7 +43,7 @@ function truncatePreview(value: string, maxLength = 96): string {
 }
 
 function getPreviewText(value?: string | BPMessageText): string {
-  const normalizedText = getTextValue(value);
+  const normalizedText = getMessageTextValue(value);
   if (!normalizedText) return '';
 
   return truncatePreview(stripMarkdown(normalizedText));
@@ -144,7 +138,7 @@ function StateCard({
 
 export default function MessagesScreen() {
   const { sent } = useLocalSearchParams<{ sent?: string | string[] }>();
-  const { token } = useAuth();
+  const { token, profile } = useAuth();
   const { data, isLoading, isRefetching, error, refetch } = useConversations(token);
   const [showSentNotice, setShowSentNotice] = useState(false);
 
@@ -295,7 +289,14 @@ export default function MessagesScreen() {
             String(item.id ?? item.thread_id ?? index)
           }
           renderItem={({ item, index }) => {
-            const subject = getTextValue(item.subject) || 'Conversation';
+            const participantNames = extractConversationParticipantNames(item, [
+              profile?.user_display_name,
+            ]);
+            const title = formatConversationTitle(
+              participantNames,
+              item.subject,
+              'Conversation'
+            );
             const preview = getPreviewText(item.last_message_content) || 'Open conversation';
             const unreadCount = getUnreadCount(item.unread_count);
 
@@ -334,7 +335,7 @@ export default function MessagesScreen() {
                   }}
                 >
                   <Text style={{ fontSize: 18, fontWeight: '700', color: '#0369a1' }}>
-                    {getInitial(subject)}
+                    {getInitial(title)}
                   </Text>
                 </View>
 
@@ -347,7 +348,7 @@ export default function MessagesScreen() {
                       color: '#0f172a',
                     }}
                   >
-                    {subject}
+                    {title}
                   </Text>
 
                   <Text

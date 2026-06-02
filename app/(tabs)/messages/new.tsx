@@ -342,8 +342,8 @@ export default function NewMessageScreen() {
               sendMessageMutation.mutate(
                 {
                   recipients: [selectedMember.id],
-                  subject: 'New Message',
-                  message,
+                  subject: selectedMember.name.trim() || 'Conversation',
+                  message: message.trim(),
                 },
                 {
                   onSuccess: (response) => {

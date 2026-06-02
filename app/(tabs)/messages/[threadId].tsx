@@ -19,6 +19,12 @@ import {
   useReplyToThread,
 } from '../../../hooks/useMessages';
 import {
+  extractConversationParticipantNames,
+  extractParticipantNamesFromMessages,
+  formatConversationTitle,
+  getMessageTextValue,
+} from '../../../lib/messagePresentation';
+import {
   applyComposerFormat,
   MessageFormattingToolbar,
   type ComposerSelection,
@@ -33,25 +39,6 @@ type NormalizedMessage = {
   sentAt: string;
   isOwn: boolean;
 };
-
-function stripHtml(value: string) {
-  return value.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-}
-
-function getTextValue(value: unknown): string {
-  if (typeof value === 'string') return stripHtml(value);
-  if (!value || typeof value !== 'object') return '';
-
-  const record = value as Record<string, unknown>;
-
-  return (
-    getTextValue(record.raw) ||
-    getTextValue(record.rendered) ||
-    getTextValue(record.message) ||
-    getTextValue(record.content) ||
-    ''
-  );
-}
 
 function getArrayFromCandidate(value: unknown): Record<string, unknown>[] {
   if (Array.isArray(value)) {
@@ -71,17 +58,25 @@ function getArrayFromCandidate(value: unknown): Record<string, unknown>[] {
   return [];
 }
 
-function getThreadItems(data: unknown): Record<string, unknown>[] {
+function unwrapThreadRecord(data: unknown): Record<string, unknown> | null {
   if (Array.isArray(data)) {
-    return data.filter(
-      (item): item is Record<string, unknown> =>
-        !!item && typeof item === 'object' && !Array.isArray(item)
-    );
+    const [firstItem] = data;
+    if (firstItem && typeof firstItem === 'object' && !Array.isArray(firstItem)) {
+      return firstItem as Record<string, unknown>;
+    }
+    return null;
   }
 
-  if (!data || typeof data !== 'object') return [];
+  if (data && typeof data === 'object') {
+    return data as Record<string, unknown>;
+  }
 
-  const record = data as Record<string, unknown>;
+  return null;
+}
+
+function getThreadItems(data: unknown): Record<string, unknown>[] {
+  const record = unwrapThreadRecord(data);
+  if (!record) return [];
   const candidates = [
     record.messages,
     (record.thread as Record<string, unknown> | undefined)?.messages,
@@ -111,15 +106,14 @@ function formatTimestamp(value: unknown): string {
   return parsed.toLocaleString();
 }
 
-function getConversationTitle(data: unknown): string {
-  if (!data || typeof data !== 'object') return 'Conversation';
-
-  const record = data as Record<string, unknown>;
+function getConversationSubject(data: unknown): string {
+  const record = unwrapThreadRecord(data);
+  if (!record) return 'Conversation';
 
   return (
-    getTextValue(record.subject) ||
-    getTextValue(record.title) ||
-    getTextValue((record.thread as Record<string, unknown> | undefined)?.subject) ||
+    getMessageTextValue(record.subject) ||
+    getMessageTextValue(record.title) ||
+    getMessageTextValue((record.thread as Record<string, unknown> | undefined)?.subject) ||
     'Conversation'
   );
 }
@@ -147,16 +141,16 @@ function normalizeMessages(
     return {
       id: String(item.id ?? item.message_id ?? item.ID ?? index),
       body:
-        getTextValue(item.message) ||
-        getTextValue(item.content) ||
-        getTextValue(item.excerpt) ||
-        getTextValue(item.subject) ||
+        getMessageTextValue(item.message) ||
+        getMessageTextValue(item.content) ||
+        getMessageTextValue(item.excerpt) ||
+        getMessageTextValue(item.subject) ||
         'Message unavailable',
       senderName:
-        getTextValue(item.sender_name) ||
-        getTextValue(item.display_name) ||
-        getTextValue(item.user_name) ||
-        getTextValue((item.sender as Record<string, unknown> | undefined)?.name) ||
+        getMessageTextValue(item.sender_name) ||
+        getMessageTextValue(item.display_name) ||
+        getMessageTextValue(item.user_name) ||
+        getMessageTextValue((item.sender as Record<string, unknown> | undefined)?.name) ||
         'Member',
       sentAt: formatTimestamp(
         item.date_sent ?? item.date ?? item.date_gmt ?? item.created_at
@@ -176,7 +170,7 @@ export default function ThreadScreen() {
     : Number(threadId);
   const sentValue = Array.isArray(sent) ? sent[0] : sent;
 
-  const { token, userId } = useAuth();
+  const { token, userId, profile } = useAuth();
   const { mutate: markConversationAsRead } = useMarkConversationAsRead(token);
   const replyToThreadMutation = useReplyToThread(token);
   const scrollViewRef = useRef<ScrollView | null>(null);
@@ -191,8 +185,21 @@ export default function ThreadScreen() {
   );
   const [showSentNotice, setShowSentNotice] = useState(false);
 
-  const title = getConversationTitle(data);
-  const messages = normalizeMessages(getThreadItems(data), userId);
+  const threadItems = getThreadItems(data);
+  const threadRecord = unwrapThreadRecord(data);
+  const participantNames = [
+    ...extractConversationParticipantNames(threadRecord, [profile?.user_display_name]),
+    ...extractParticipantNamesFromMessages(threadItems, {
+      currentUserId: userId,
+      currentUserDisplayName: profile?.user_display_name,
+    }),
+  ];
+  const title = formatConversationTitle(
+    participantNames,
+    getConversationSubject(data),
+    'Conversation'
+  );
+  const messages = normalizeMessages(threadItems, userId);
   const hasMessages = messages.length > 0;
   const isRefreshing = isRefetching && !isLoading;
   const canSendReply =

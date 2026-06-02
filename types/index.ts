@@ -217,6 +217,20 @@ export interface BPMessageText {
 }
 
 /**
+ * BuddyPress message participant summary
+ */
+export interface BPMessageParticipant {
+  id?: number | string;
+  user_id?: number | string;
+  name?: string;
+  display_name?: string;
+  sender_name?: string;
+  user_name?: string;
+  username?: string;
+  full_name?: string;
+}
+
+/**
  * BuddyPress conversation summary item
  */
 export interface BPConversationSummary {
@@ -225,6 +239,13 @@ export interface BPConversationSummary {
   subject?: string | BPMessageText;
   last_message_content?: string | BPMessageText;
   unread_count?: number;
+  participants?: BPMessageParticipant[] | Record<string, BPMessageParticipant>;
+  recipients?: BPMessageParticipant[] | Record<string, BPMessageParticipant>;
+  users?: BPMessageParticipant[] | Record<string, BPMessageParticipant>;
+  members?: BPMessageParticipant[] | Record<string, BPMessageParticipant>;
+  participant_names?: string[] | Record<string, string>;
+  recipient_names?: string[] | Record<string, string>;
+  user_names?: string[] | Record<string, string>;
 }
 
 /**
@@ -237,14 +258,6 @@ export interface BPConversationListResponse {
 }
 
 /**
- * BuddyPress message sender summary
- */
-export interface BPMessageSender {
-  id?: number | string;
-  name?: string;
-}
-
-/**
  * BuddyPress message item
  */
 export interface BPMessageItem {
@@ -252,7 +265,8 @@ export interface BPMessageItem {
   message_id?: number | string;
   sender_id?: number | string;
   user_id?: number | string;
-  sender?: BPMessageSender;
+  sender?: BPMessageParticipant;
+  user?: BPMessageParticipant;
   sender_name?: string;
   display_name?: string;
   user_name?: string;
@@ -274,10 +288,24 @@ export interface BPMessageThreadResponse {
   subject?: string | BPMessageText;
   messages?: BPMessageItem[] | Record<string, BPMessageItem>;
   items?: BPMessageItem[] | Record<string, BPMessageItem>;
+  participants?: BPMessageParticipant[] | Record<string, BPMessageParticipant>;
+  recipients?: BPMessageParticipant[] | Record<string, BPMessageParticipant>;
+  users?: BPMessageParticipant[] | Record<string, BPMessageParticipant>;
+  members?: BPMessageParticipant[] | Record<string, BPMessageParticipant>;
+  participant_names?: string[] | Record<string, string>;
+  recipient_names?: string[] | Record<string, string>;
+  user_names?: string[] | Record<string, string>;
   thread?: {
     subject?: string | BPMessageText;
     messages?: BPMessageItem[] | Record<string, BPMessageItem>;
     items?: BPMessageItem[] | Record<string, BPMessageItem>;
+    participants?: BPMessageParticipant[] | Record<string, BPMessageParticipant>;
+    recipients?: BPMessageParticipant[] | Record<string, BPMessageParticipant>;
+    users?: BPMessageParticipant[] | Record<string, BPMessageParticipant>;
+    members?: BPMessageParticipant[] | Record<string, BPMessageParticipant>;
+    participant_names?: string[] | Record<string, string>;
+    recipient_names?: string[] | Record<string, string>;
+    user_names?: string[] | Record<string, string>;
   };
 }
 
