@@ -20,6 +20,7 @@ import {
 } from '../../../hooks/useMessages';
 import {
   extractConversationParticipantNames,
+  extractConversationParticipantUserIds,
   extractParticipantNamesFromMessages,
   formatConversationTitle,
   getMessageTextValue,
@@ -27,8 +28,10 @@ import {
 import {
   applyComposerFormat,
   MessageFormattingToolbar,
+  insertComposerText,
   type ComposerSelection,
 } from '../../../components/MessageFormattingToolbar';
+import { MessageEmojiPicker } from '../../../components/MessageEmojiPicker';
 import { MessageMarkdownText } from '../../../components/MessageMarkdownText';
 import { MessageNotice } from '../../../components/MessageNotice';
 
@@ -174,6 +177,7 @@ export default function ThreadScreen() {
   const { mutate: markConversationAsRead } = useMarkConversationAsRead(token);
   const replyToThreadMutation = useReplyToThread(token);
   const scrollViewRef = useRef<ScrollView | null>(null);
+  const composerInputRef = useRef<TextInput | null>(null);
   const [message, setMessage] = useState('');
   const [selection, setSelection] = useState<ComposerSelection>({
     start: 0,
@@ -187,8 +191,12 @@ export default function ThreadScreen() {
 
   const threadItems = getThreadItems(data);
   const threadRecord = unwrapThreadRecord(data);
+  const replyRecipientIds = extractConversationParticipantUserIds(threadRecord, [userId]);
   const participantNames = [
-    ...extractConversationParticipantNames(threadRecord, [profile?.user_display_name]),
+    ...extractConversationParticipantNames(threadRecord, {
+      excludeNames: [profile?.user_display_name],
+      excludeUserIds: [userId],
+    }),
     ...extractParticipantNamesFromMessages(threadItems, {
       currentUserId: userId,
       currentUserDisplayName: profile?.user_display_name,
@@ -204,6 +212,7 @@ export default function ThreadScreen() {
   const isRefreshing = isRefetching && !isLoading;
   const canSendReply =
     Number.isFinite(parsedThreadId) &&
+    replyRecipientIds.length > 0 &&
     !!message.trim() &&
     !replyToThreadMutation.isPending;
 
@@ -229,16 +238,30 @@ export default function ThreadScreen() {
     }
   }, [sentValue]);
 
+  function applyComposerChange(nextText: string, nextSelection: ComposerSelection) {
+    setMessage(nextText);
+    requestAnimationFrame(() => {
+      setSelection(nextSelection);
+      composerInputRef.current?.focus();
+    });
+  }
+
   function handleFormatAction(action: Parameters<typeof applyComposerFormat>[2]) {
     if (replyToThreadMutation.isError) {
       replyToThreadMutation.reset();
     }
 
     const next = applyComposerFormat(message, selection, action);
-    setMessage(next.text);
-    requestAnimationFrame(() => {
-      setSelection(next.selection);
-    });
+    applyComposerChange(next.text, next.selection);
+  }
+
+  function handleEmojiPress(emoji: string) {
+    if (replyToThreadMutation.isError) {
+      replyToThreadMutation.reset();
+    }
+
+    const next = insertComposerText(message, selection, emoji);
+    applyComposerChange(next.text, next.selection);
   }
 
   return (
@@ -510,6 +533,11 @@ export default function ThreadScreen() {
             onActionPress={handleFormatAction}
           />
 
+          <MessageEmojiPicker
+            disabled={replyToThreadMutation.isPending}
+            onEmojiPress={handleEmojiPress}
+          />
+
           <View
             style={{
               flexDirection: 'row',
@@ -519,6 +547,7 @@ export default function ThreadScreen() {
             }}
           >
             <TextInput
+              ref={composerInputRef}
               value={message}
               onChangeText={(value) => {
                 if (replyToThreadMutation.isError) {
@@ -558,6 +587,7 @@ export default function ThreadScreen() {
                   {
                     threadId: parsedThreadId,
                     message: message.trim(),
+                    recipients: replyRecipientIds,
                   },
                   {
                     onSuccess: () => {
@@ -588,6 +618,15 @@ export default function ThreadScreen() {
                 'Failed to send your reply. Please try again.'}
             </Text>
           )}
+
+          {!replyToThreadMutation.isError &&
+            !isLoading &&
+            !error &&
+            replyRecipientIds.length === 0 && (
+              <Text style={{ color: '#b91c1c', marginTop: 10, lineHeight: 20 }}>
+                We could not resolve the recipients for this conversation yet.
+              </Text>
+            )}
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>

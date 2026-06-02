@@ -138,7 +138,7 @@ function StateCard({
 
 export default function MessagesScreen() {
   const { sent } = useLocalSearchParams<{ sent?: string | string[] }>();
-  const { token, profile } = useAuth();
+  const { token, userId, profile } = useAuth();
   const { data, isLoading, isRefetching, error, refetch } = useConversations(token);
   const [showSentNotice, setShowSentNotice] = useState(false);
 
@@ -289,9 +289,10 @@ export default function MessagesScreen() {
             String(item.id ?? item.thread_id ?? index)
           }
           renderItem={({ item, index }) => {
-            const participantNames = extractConversationParticipantNames(item, [
-              profile?.user_display_name,
-            ]);
+            const participantNames = extractConversationParticipantNames(item, {
+              excludeNames: [profile?.user_display_name],
+              excludeUserIds: [userId],
+            });
             const title = formatConversationTitle(
               participantNames,
               item.subject,

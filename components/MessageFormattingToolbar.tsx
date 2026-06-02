@@ -155,6 +155,22 @@ export function applyComposerFormat(
   }
 }
 
+export function insertComposerText(
+  value: string,
+  rawSelection: ComposerSelection,
+  insertedText: string
+): ComposerFormatResult {
+  const selection = clampSelection(value, rawSelection);
+
+  return replaceSelection(
+    value,
+    selection,
+    insertedText,
+    insertedText.length,
+    insertedText.length
+  );
+}
+
 export function MessageFormattingToolbar({
   disabled = false,
   onActionPress,

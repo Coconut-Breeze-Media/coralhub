@@ -1514,7 +1514,8 @@ export async function sendMessage(
 export async function replyToThread(
   token: string,
   threadId: number,
-  message: string
+  message: string,
+  recipients: number[]
 ): Promise<BPMessageMutationResponse> {
   const res = await fetchWithTimeout(`${API}/buddypress/v1/messages`, {
     method: 'POST',
@@ -1525,6 +1526,7 @@ export async function replyToThread(
     body: JSON.stringify({
       id: threadId,
       message,
+      recipients,
     }),
   });
 

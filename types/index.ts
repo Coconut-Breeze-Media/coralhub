@@ -315,9 +315,11 @@ export type BPConversationsResponse =
 
 export type BPMessageThreadResult =
   | BPMessageThreadResponse
+  | BPMessageThreadResponse[]
   | BPMessageItem[];
 
 export type BPMessageMutationResponse =
+  | BPMessageThreadResponse[]
   | BPMessageThreadResponse
   | BPConversationSummary;
 

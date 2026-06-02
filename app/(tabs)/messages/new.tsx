@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   Text,
   TextInput,
@@ -15,9 +15,11 @@ import { useSendMessage } from '../../../hooks/useMessages';
 import type { BPMember, BPMessageMutationResponse } from '../../../types';
 import {
   applyComposerFormat,
+  insertComposerText,
   MessageFormattingToolbar,
   type ComposerSelection,
 } from '../../../components/MessageFormattingToolbar';
+import { MessageEmojiPicker } from '../../../components/MessageEmojiPicker';
 import { MessageNotice } from '../../../components/MessageNotice';
 
 function getInitial(name: string): string {
@@ -36,13 +38,21 @@ function toNumberOrNull(value: unknown): number | null {
 }
 
 function getCreatedThreadId(response: BPMessageMutationResponse): number | null {
+  const payload: Record<string, unknown> | null = Array.isArray(response)
+    ? response[0] && typeof response[0] === 'object'
+      ? (response[0] as Record<string, unknown>)
+      : null
+    : response && typeof response === 'object'
+      ? (response as Record<string, unknown>)
+      : null;
+
   const threadId =
-    toNumberOrNull(response.thread_id) ??
-    toNumberOrNull(response.id);
+    toNumberOrNull(payload?.thread_id) ??
+    toNumberOrNull(payload?.id);
 
   if (threadId != null) return threadId;
 
-  const nestedThread = (response as Record<string, unknown>).thread;
+  const nestedThread = (payload as Record<string, unknown> | undefined)?.thread;
   if (!nestedThread || typeof nestedThread !== 'object') return null;
 
   const nestedRecord = nestedThread as Record<string, unknown>;
@@ -62,6 +72,7 @@ export default function NewMessageScreen() {
     start: 0,
     end: 0,
   });
+  const composerInputRef = useRef<TextInput | null>(null);
   const sendMessageMutation = useSendMessage(token);
   const isSending = sendMessageMutation.isPending;
   const { data, isLoading, error } = useMembersList(token, {
@@ -84,16 +95,30 @@ export default function NewMessageScreen() {
     [trimmedSearch]
   );
 
+  function applyComposerChange(nextText: string, nextSelection: ComposerSelection) {
+    setMessage(nextText);
+    requestAnimationFrame(() => {
+      setSelection(nextSelection);
+      composerInputRef.current?.focus();
+    });
+  }
+
   function handleFormatAction(action: Parameters<typeof applyComposerFormat>[2]) {
     if (sendMessageMutation.isError) {
       sendMessageMutation.reset();
     }
 
     const next = applyComposerFormat(message, selection, action);
-    setMessage(next.text);
-    requestAnimationFrame(() => {
-      setSelection(next.selection);
-    });
+    applyComposerChange(next.text, next.selection);
+  }
+
+  function handleEmojiPress(emoji: string) {
+    if (sendMessageMutation.isError) {
+      sendMessageMutation.reset();
+    }
+
+    const next = insertComposerText(message, selection, emoji);
+    applyComposerChange(next.text, next.selection);
   }
 
   return (
@@ -289,6 +314,7 @@ export default function NewMessageScreen() {
           </View>
 
           <TextInput
+            ref={composerInputRef}
             value={message}
             onChangeText={(value) => {
               if (sendMessageMutation.isError) {
@@ -320,6 +346,11 @@ export default function NewMessageScreen() {
           <MessageFormattingToolbar
             disabled={isSending}
             onActionPress={handleFormatAction}
+          />
+
+          <MessageEmojiPicker
+            disabled={isSending}
+            onEmojiPress={handleEmojiPress}
           />
 
           {sendMessageMutation.isError && (

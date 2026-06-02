@@ -106,7 +106,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     setCheckingMembership(true);
     try {
-      const res: MembershipResp = await getMembershipStatus(token);
+      const res: MembershipResponse = await getMembershipStatus(token);
       setIsMember(!!res.is_member);
       setLastMembershipCheckAt(Date.now());
     } catch (e) {

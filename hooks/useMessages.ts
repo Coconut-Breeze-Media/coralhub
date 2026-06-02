@@ -93,18 +93,21 @@ export function useReplyToThread(token: string | null) {
     {
       threadId: number;
       message: string;
+      recipients: number[];
     }
   >({
     mutationFn: async ({
       threadId,
       message,
+      recipients,
     }: {
       threadId: number;
       message: string;
+      recipients: number[];
     }) => {
       if (!token) throw new Error('No authentication token');
 
-      return replyToThread(token, threadId, message);
+      return replyToThread(token, threadId, message, recipients);
     },
     onSuccess: async (_data, variables) => {
       await Promise.all([

@@ -77,6 +77,22 @@ function getStringItems(value: unknown): string[] {
   return [];
 }
 
+function getNumericItems(value: unknown): number[] {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => toNumberOrNull(item))
+      .filter((item): item is number => item != null);
+  }
+
+  if (value && typeof value === 'object') {
+    return Object.values(value)
+      .map((item) => toNumberOrNull(item))
+      .filter((item): item is number => item != null);
+  }
+
+  return [];
+}
+
 function uniqueNames(values: string[]): string[] {
   const seen = new Set<string>();
   const unique: string[] = [];
@@ -95,12 +111,24 @@ function uniqueNames(values: string[]): string[] {
   return unique;
 }
 
+function uniqueNumbers(values: number[]): number[] {
+  return Array.from(new Set(values));
+}
+
 function getExcludedNameSet(excludeNames: Array<string | null | undefined>): Set<string> {
   return new Set(
     excludeNames
       .map((value) => normalizeWhitespace(value ?? ''))
       .filter(Boolean)
       .map((value) => value.toLocaleLowerCase())
+  );
+}
+
+function getExcludedIdSet(excludeUserIds: Array<number | null | undefined>): Set<number> {
+  return new Set(
+    excludeUserIds.filter(
+      (value): value is number => typeof value === 'number' && Number.isFinite(value)
+    )
   );
 }
 
@@ -116,7 +144,10 @@ function toNumberOrNull(value: unknown): number | null {
 
 export function extractConversationParticipantNames(
   source: unknown,
-  excludeNames: Array<string | null | undefined> = []
+  options: {
+    excludeNames?: Array<string | null | undefined>;
+    excludeUserIds?: Array<number | null | undefined>;
+  } = {}
 ): string[] {
   if (!source || typeof source !== 'object') return [];
 
@@ -141,27 +172,82 @@ export function extractConversationParticipantNames(
     nestedThread?.recipient_names,
     nestedThread?.user_names,
   ];
-  const excluded = getExcludedNameSet(excludeNames);
+  const excludedNames = getExcludedNameSet(options.excludeNames ?? []);
+  const excludedIds = getExcludedIdSet(options.excludeUserIds ?? []);
   const names: string[] = [];
 
   for (const candidate of candidateCollections) {
     for (const item of getObjectItems(candidate)) {
+      const userId =
+        toNumberOrNull(item.user_id) ??
+        toNumberOrNull(item.id) ??
+        toNumberOrNull((item.user as MessageRecord | undefined)?.id);
       const name =
         getNameValue(item) ||
         getNameValue(item.sender) ||
         getNameValue(item.user);
 
-      if (!name || excluded.has(name.toLocaleLowerCase())) continue;
+      if (!name) continue;
+      if (userId != null && excludedIds.has(userId)) continue;
+      if (excludedNames.has(name.toLocaleLowerCase())) continue;
       names.push(name);
     }
 
     for (const item of getStringItems(candidate)) {
-      if (excluded.has(item.toLocaleLowerCase())) continue;
+      if (excludedNames.has(item.toLocaleLowerCase())) continue;
       names.push(item);
     }
   }
 
   return uniqueNames(names);
+}
+
+export function extractConversationParticipantUserIds(
+  source: unknown,
+  excludeUserIds: Array<number | null | undefined> = []
+): number[] {
+  if (!source || typeof source !== 'object') return [];
+
+  const record = source as MessageRecord;
+  const nestedThread =
+    record.thread && typeof record.thread === 'object'
+      ? (record.thread as MessageRecord)
+      : undefined;
+  const candidateCollections = [
+    record.participants,
+    record.recipients,
+    record.users,
+    record.members,
+    record.sender_ids,
+    nestedThread?.participants,
+    nestedThread?.recipients,
+    nestedThread?.users,
+    nestedThread?.members,
+    nestedThread?.sender_ids,
+  ];
+  const excludedIds = getExcludedIdSet(excludeUserIds);
+  const userIds: number[] = [];
+
+  for (const candidate of candidateCollections) {
+    for (const item of getObjectItems(candidate)) {
+      const userId =
+        toNumberOrNull(item.user_id) ??
+        toNumberOrNull(item.id) ??
+        toNumberOrNull((item.user as MessageRecord | undefined)?.id);
+
+      if (userId != null && !excludedIds.has(userId)) {
+        userIds.push(userId);
+      }
+    }
+
+    for (const userId of getNumericItems(candidate)) {
+      if (!excludedIds.has(userId)) {
+        userIds.push(userId);
+      }
+    }
+  }
+
+  return uniqueNumbers(userIds);
 }
 
 export function extractParticipantNamesFromMessages(
