@@ -9,21 +9,25 @@ import { Pressable, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../lib/auth';
 import { useMe, usePendingFriendRequests, useFriendsList } from '../../hooks/useQueries';
+import { useConversations } from '../../hooks/useMessages';
 import { TAB_SCREENS, DEFAULT_HEADER_OPTIONS, ROUTES } from '../../constants/navigation';
+import { getUnreadMessageNotifications } from '../../lib/messageNotifications';
 import type { TabScreen } from '../../types';
 
 /**
  * Notification bell header button component
  */
 function NotificationButton() {
+  const { token } = useAuth();
   const { data: currentUser } = useMe();
   const userId = currentUser?.id;
   const { data: pendingRequests } = usePendingFriendRequests(userId);
   const { data: friendsData } = useFriendsList(userId, 1, 200);
+  const { data: conversationsData } = useConversations(token);
 
   const currentUserId = Number(userId);
   const friendIds = new Set((friendsData?.friends || []).map((friend) => Number(friend.id)));
-  const hasPendingNotifications = Boolean(
+  const hasPendingFriendRequests = Boolean(
     userId &&
       (pendingRequests || []).some((request) => {
         const requestFriendId = Number(request.friend_id);
@@ -33,6 +37,8 @@ function NotificationButton() {
         return requestFriendId === currentUserId && !friendIds.has(requestInitiatorId);
       })
   );
+  const hasUnreadMessages = getUnreadMessageNotifications(conversationsData, userId).length > 0;
+  const hasPendingNotifications = hasPendingFriendRequests || hasUnreadMessages;
 
   return (
     <Pressable

@@ -8,7 +8,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 
@@ -16,6 +16,7 @@ import { useAuth } from '../../../lib/auth';
 import {
   useMarkConversationAsRead,
   useMessages,
+  useReplyToConversation,
   useReplyToThread,
 } from '../../../hooks/useMessages';
 import {
@@ -176,6 +177,7 @@ export default function ThreadScreen() {
   const { token, userId, profile } = useAuth();
   const { mutate: markConversationAsRead } = useMarkConversationAsRead(token);
   const replyToThreadMutation = useReplyToThread(token);
+  const replyToConversation = useReplyToConversation(token);
   const scrollViewRef = useRef<ScrollView | null>(null);
   const composerInputRef = useRef<TextInput | null>(null);
   const [message, setMessage] = useState('');
@@ -217,10 +219,40 @@ export default function ThreadScreen() {
     !replyToThreadMutation.isPending;
 
   useEffect(() => {
-    if (!Number.isFinite(parsedThreadId)) return;
+    if (!data) return;
 
-    markConversationAsRead(parsedThreadId);
-  }, [parsedThreadId, markConversationAsRead]);
+    console.log('[ThreadScreen] raw thread response:', data);
+    console.log('[ThreadScreen] thread id:', parsedThreadId);
+    console.log('[ThreadScreen] raw message items:', threadItems);
+    console.log('[ThreadScreen] normalized messages:', messages);
+  }, [data, messages, parsedThreadId, threadItems]);
+
+  useEffect(() => {
+    if (!Number.isFinite(parsedThreadId)) {
+      console.log('[ThreadScreen] mark as read skipped: invalid thread id', {
+        threadId,
+      });
+      return;
+    }
+
+    console.log('[ThreadScreen] marking conversation as read:', {
+      threadId: parsedThreadId,
+    });
+
+    markConversationAsRead(parsedThreadId, {
+      onSuccess: () => {
+        console.log('[ThreadScreen] conversation marked as read:', {
+          threadId: parsedThreadId,
+        });
+      },
+      onError: (error) => {
+        console.log('[ThreadScreen] failed to mark conversation as read:', {
+          threadId: parsedThreadId,
+          error: error instanceof Error ? error.message : error,
+        });
+      },
+    });
+  }, [parsedThreadId, markConversationAsRead, threadId]);
 
   useEffect(() => {
     if (!hasMessages) return;
@@ -580,6 +612,11 @@ export default function ThreadScreen() {
 
             <Pressable
               disabled={!canSendReply}
+              disabled={
+                !message.trim() ||
+                !Number.isFinite(parsedThreadId) ||
+                replyToConversation.isPending
+              }
               onPress={() => {
                 if (!Number.isFinite(parsedThreadId) || !message.trim()) return;
 
@@ -598,7 +635,10 @@ export default function ThreadScreen() {
                 );
               }}
               style={{
-                backgroundColor: canSendReply ? '#0284c7' : '#94a3b8',
+                backgroundColor: canSendReply ?
+                  message.trim() && !replyToConversation.isPending
+                    ? '#0284c7' : '#94a3b8'
+                    : '#94a3b8',
                 minHeight: 46,
                 paddingHorizontal: 18,
                 justifyContent: 'center',
@@ -607,7 +647,9 @@ export default function ThreadScreen() {
               }}
             >
               <Text style={{ color: 'white', fontWeight: '700' }}>
-                {replyToThreadMutation.isPending ? 'Sending...' : 'Send'}
+                {replyToThreadMutation.isPending ? 'Sending...' : '
+                {replyToConversation.isPending ? 'Sending...' : 'Send'}
+              '}
               </Text>
             </Pressable>
           </View>
@@ -627,6 +669,12 @@ export default function ThreadScreen() {
                 We could not resolve the recipients for this conversation yet.
               </Text>
             )}
+
+          {replyToConversation.isError && (
+            <Text style={{ color: '#b91c1c', marginTop: 8 }}>
+              Failed to send message
+            </Text>
+          )}
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>

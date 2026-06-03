@@ -142,7 +142,7 @@ export default function MessagesScreen() {
   const { data, isLoading, isRefetching, error, refetch } = useConversations(token);
   const [showSentNotice, setShowSentNotice] = useState(false);
 
-  const conversations = getConversationItems(data);
+  const conversations = useMemo(() => getConversationItems(data), [data]);
   const isRefreshing = isRefetching && !isLoading;
   const sentValue = Array.isArray(sent) ? sent[0] : sent;
 
@@ -151,6 +151,13 @@ export default function MessagesScreen() {
       setShowSentNotice(true);
     }
   }, [sentValue]);
+
+  useEffect(() => {
+    if (!data) return;
+
+    console.log('[MessagesScreen] raw messages response:', data);
+    console.log('[MessagesScreen] messages:', conversations);
+  }, [data, conversations]);
 
   return (
     <SafeAreaView style={{ flex: 1, padding: 16, backgroundColor: '#f8fafc' }}>

@@ -228,6 +228,12 @@ export interface BPMessageParticipant {
   user_name?: string;
   username?: string;
   full_name?: string;
+  sender_only?: number | string | boolean;
+  unread_count?: number | string;
+  user_avatars?: {
+    full?: string;
+    thumb?: string;
+  };
 }
 
 /**
@@ -236,9 +242,15 @@ export interface BPMessageParticipant {
 export interface BPConversationSummary {
   id?: number | string;
   thread_id?: number | string;
+  message_id?: number | string;
+  last_sender_id?: number | string;
+  date?: string;
+  date_gmt?: string;
   subject?: string | BPMessageText;
+  excerpt?: string | BPMessageText;
+  message?: string | BPMessageText;
   last_message_content?: string | BPMessageText;
-  unread_count?: number;
+  unread_count?: number | string;
   participants?: BPMessageParticipant[] | Record<string, BPMessageParticipant>;
   recipients?: BPMessageParticipant[] | Record<string, BPMessageParticipant>;
   users?: BPMessageParticipant[] | Record<string, BPMessageParticipant>;
