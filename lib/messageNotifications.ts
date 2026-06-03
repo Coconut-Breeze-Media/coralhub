@@ -40,6 +40,18 @@ function getUnreadCount(value: unknown): number {
   return getNumberValue(value) ?? 0;
 }
 
+function getParticipantName(participant: BPMessageParticipant | undefined): string {
+  return (
+    participant?.name?.trim() ||
+    participant?.display_name?.trim() ||
+    participant?.sender_name?.trim() ||
+    participant?.user_name?.trim() ||
+    participant?.username?.trim() ||
+    participant?.full_name?.trim() ||
+    ''
+  );
+}
+
 function getParticipants(
   value: BPConversationSummary['recipients']
 ): BPMessageParticipant[] {
@@ -47,6 +59,20 @@ function getParticipants(
   if (value && typeof value === 'object') return Object.values(value);
 
   return [];
+}
+
+export function getCurrentUserUnreadCount(
+  conversation: BPConversationSummary,
+  currentUserId: number | string | null | undefined
+): number {
+  const userId = getNumberValue(currentUserId);
+  if (!userId) return 0;
+
+  const currentRecipient = getParticipants(conversation.recipients).find(
+    (recipient) => getNumberValue(recipient.user_id ?? recipient.id) === userId
+  );
+
+  return getUnreadCount(currentRecipient?.unread_count);
 }
 
 export function getConversationItems(
@@ -62,23 +88,24 @@ export function getConversationItems(
 
 export function getUnreadMessageNotifications(
   data: BPConversationsResponse | undefined,
-  currentUserId: number | string | undefined
+  currentUserId: number | string | null | undefined
 ): UnreadMessageNotification[] {
   const userId = getNumberValue(currentUserId);
   if (!userId) return [];
 
   return getConversationItems(data).flatMap((conversation) => {
-    const unreadCount = getUnreadCount(conversation.unread_count);
+    const unreadCount = getCurrentUserUnreadCount(conversation, userId);
     const senderId = getNumberValue(conversation.last_sender_id);
     const threadId = getNumberValue(conversation.id ?? conversation.thread_id);
+    const participants = getParticipants(conversation.recipients);
 
-    if (!threadId || !senderId || unreadCount <= 0 || senderId === userId) return [];
+    if (!threadId || unreadCount <= 0) return [];
 
-    const sender = getParticipants(conversation.recipients).find(
-      (recipient) => getNumberValue(recipient.user_id) === senderId
-    );
+    const sender =
+      participants.find((recipient) => getNumberValue(recipient.user_id) === senderId) ??
+      participants.find((recipient) => getNumberValue(recipient.user_id) !== userId);
 
-    const senderName = sender?.name?.trim() || 'Someone';
+    const senderName = getParticipantName(sender) || 'Someone';
     const avatarUrl = sender?.user_avatars?.thumb || sender?.user_avatars?.full;
     const preview =
       getTextValue(conversation.excerpt) ||

@@ -24,6 +24,7 @@ import type {
   BPMessageText,
 } from '../../types';
 import { MessageNotice } from '../../components/MessageNotice';
+import { getCurrentUserUnreadCount } from '../../lib/messageNotifications';
 
 function stripMarkdown(value: string): string {
   return value
@@ -63,16 +64,6 @@ function getConversationItems(
 function getInitial(value: string): string {
   const safeValue = value.trim();
   return safeValue ? safeValue[0].toUpperCase() : 'C';
-}
-
-function getUnreadCount(value: unknown): number {
-  if (typeof value === 'number') return value;
-  if (typeof value === 'string') {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : 0;
-  }
-
-  return 0;
 }
 
 function StateCard({
@@ -306,7 +297,7 @@ export default function MessagesScreen() {
               'Conversation'
             );
             const preview = getPreviewText(item.last_message_content) || 'Open conversation';
-            const unreadCount = getUnreadCount(item.unread_count);
+            const unreadCount = getCurrentUserUnreadCount(item, userId);
 
             return (
               <Pressable

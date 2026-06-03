@@ -45,9 +45,9 @@ function formatDate(date: string) {
 }
 
 export default function NotificationsScreen() {
-  const { token } = useAuth();
+  const { token, userId: authUserId } = useAuth();
   const { data: currentUser, isLoading: isLoadingUser } = useMe();
-  const userId = currentUser?.id;
+  const userId = currentUser?.id ?? authUserId ?? undefined;
 
   const {
     data: pendingRequests,

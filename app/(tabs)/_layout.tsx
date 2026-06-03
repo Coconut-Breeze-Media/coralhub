@@ -18,9 +18,9 @@ import type { TabScreen } from '../../types';
  * Notification bell header button component
  */
 function NotificationButton() {
-  const { token } = useAuth();
+  const { token, userId: authUserId } = useAuth();
   const { data: currentUser } = useMe();
-  const userId = currentUser?.id;
+  const userId = currentUser?.id ?? authUserId ?? undefined;
   const { data: pendingRequests } = usePendingFriendRequests(userId);
   const { data: friendsData } = useFriendsList(userId, 1, 200);
   const { data: conversationsData } = useConversations(token);
