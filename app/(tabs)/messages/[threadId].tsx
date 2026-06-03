@@ -10,13 +10,30 @@ import {
 } from 'react-native';
 import { useEffect, useRef, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 
 import { useAuth } from '../../../lib/auth';
 import {
   useMarkConversationAsRead,
   useMessages,
+  useReplyToThread,
 } from '../../../hooks/useMessages';
+import {
+  extractConversationParticipantNames,
+  extractConversationParticipantUserIds,
+  extractParticipantNamesFromMessages,
+  formatConversationTitle,
+  getMessageTextValue,
+} from '../../../lib/messagePresentation';
+import {
+  applyComposerFormat,
+  MessageFormattingToolbar,
+  insertComposerText,
+  type ComposerSelection,
+} from '../../../components/MessageFormattingToolbar';
+import { MessageEmojiPicker } from '../../../components/MessageEmojiPicker';
+import { MessageMarkdownText } from '../../../components/MessageMarkdownText';
+import { MessageNotice } from '../../../components/MessageNotice';
 
 type NormalizedMessage = {
   id: string;
@@ -25,25 +42,6 @@ type NormalizedMessage = {
   sentAt: string;
   isOwn: boolean;
 };
-
-function stripHtml(value: string) {
-  return value.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-}
-
-function getTextValue(value: unknown): string {
-  if (typeof value === 'string') return stripHtml(value);
-  if (!value || typeof value !== 'object') return '';
-
-  const record = value as Record<string, unknown>;
-
-  return (
-    getTextValue(record.rendered) ||
-    getTextValue(record.raw) ||
-    getTextValue(record.message) ||
-    getTextValue(record.content) ||
-    ''
-  );
-}
 
 function getArrayFromCandidate(value: unknown): Record<string, unknown>[] {
   if (Array.isArray(value)) {
@@ -63,17 +61,25 @@ function getArrayFromCandidate(value: unknown): Record<string, unknown>[] {
   return [];
 }
 
-function getThreadItems(data: unknown): Record<string, unknown>[] {
+function unwrapThreadRecord(data: unknown): Record<string, unknown> | null {
   if (Array.isArray(data)) {
-    return data.filter(
-      (item): item is Record<string, unknown> =>
-        !!item && typeof item === 'object' && !Array.isArray(item)
-    );
+    const [firstItem] = data;
+    if (firstItem && typeof firstItem === 'object' && !Array.isArray(firstItem)) {
+      return firstItem as Record<string, unknown>;
+    }
+    return null;
   }
 
-  if (!data || typeof data !== 'object') return [];
+  if (data && typeof data === 'object') {
+    return data as Record<string, unknown>;
+  }
 
-  const record = data as Record<string, unknown>;
+  return null;
+}
+
+function getThreadItems(data: unknown): Record<string, unknown>[] {
+  const record = unwrapThreadRecord(data);
+  if (!record) return [];
   const candidates = [
     record.messages,
     (record.thread as Record<string, unknown> | undefined)?.messages,
@@ -103,15 +109,14 @@ function formatTimestamp(value: unknown): string {
   return parsed.toLocaleString();
 }
 
-function getConversationTitle(data: unknown): string {
-  if (!data || typeof data !== 'object') return 'Conversation';
-
-  const record = data as Record<string, unknown>;
+function getConversationSubject(data: unknown): string {
+  const record = unwrapThreadRecord(data);
+  if (!record) return 'Conversation';
 
   return (
-    getTextValue(record.subject) ||
-    getTextValue(record.title) ||
-    getTextValue((record.thread as Record<string, unknown> | undefined)?.subject) ||
+    getMessageTextValue(record.subject) ||
+    getMessageTextValue(record.title) ||
+    getMessageTextValue((record.thread as Record<string, unknown> | undefined)?.subject) ||
     'Conversation'
   );
 }
@@ -139,16 +144,16 @@ function normalizeMessages(
     return {
       id: String(item.id ?? item.message_id ?? item.ID ?? index),
       body:
-        getTextValue(item.message) ||
-        getTextValue(item.content) ||
-        getTextValue(item.excerpt) ||
-        getTextValue(item.subject) ||
+        getMessageTextValue(item.message) ||
+        getMessageTextValue(item.content) ||
+        getMessageTextValue(item.excerpt) ||
+        getMessageTextValue(item.subject) ||
         'Message unavailable',
       senderName:
-        getTextValue(item.sender_name) ||
-        getTextValue(item.display_name) ||
-        getTextValue(item.user_name) ||
-        getTextValue((item.sender as Record<string, unknown> | undefined)?.name) ||
+        getMessageTextValue(item.sender_name) ||
+        getMessageTextValue(item.display_name) ||
+        getMessageTextValue(item.user_name) ||
+        getMessageTextValue((item.sender as Record<string, unknown> | undefined)?.name) ||
         'Member',
       sentAt: formatTimestamp(
         item.date_sent ?? item.date ?? item.date_gmt ?? item.created_at
@@ -159,24 +164,57 @@ function normalizeMessages(
 }
 
 export default function ThreadScreen() {
-  const { threadId } = useLocalSearchParams();
+  const { threadId, sent } = useLocalSearchParams<{
+    threadId?: string | string[];
+    sent?: string | string[];
+  }>();
   const parsedThreadId = Array.isArray(threadId)
     ? Number(threadId[0])
     : Number(threadId);
+  const sentValue = Array.isArray(sent) ? sent[0] : sent;
 
-  const { token, userId } = useAuth();
+  const { token, userId, profile } = useAuth();
   const { mutate: markConversationAsRead } = useMarkConversationAsRead(token);
+  const replyToThreadMutation = useReplyToThread(token);
   const scrollViewRef = useRef<ScrollView | null>(null);
+  const composerInputRef = useRef<TextInput | null>(null);
   const [message, setMessage] = useState('');
+  const [selection, setSelection] = useState<ComposerSelection>({
+    start: 0,
+    end: 0,
+  });
   const { data, isLoading, isRefetching, error, refetch } = useMessages(
     Number.isFinite(parsedThreadId) ? parsedThreadId : null,
     token
   );
+  const [showSentNotice, setShowSentNotice] = useState(false);
 
-  const title = getConversationTitle(data);
-  const messages = normalizeMessages(getThreadItems(data), userId);
+  const threadItems = getThreadItems(data);
+  const threadRecord = unwrapThreadRecord(data);
+  const replyRecipientIds = extractConversationParticipantUserIds(threadRecord, [userId]);
+  const participantNames = [
+    ...extractConversationParticipantNames(threadRecord, {
+      excludeNames: [profile?.user_display_name],
+      excludeUserIds: [userId],
+    }),
+    ...extractParticipantNamesFromMessages(threadItems, {
+      currentUserId: userId,
+      currentUserDisplayName: profile?.user_display_name,
+    }),
+  ];
+  const title = formatConversationTitle(
+    participantNames,
+    getConversationSubject(data),
+    'Conversation'
+  );
+  const messages = normalizeMessages(threadItems, userId);
   const hasMessages = messages.length > 0;
   const isRefreshing = isRefetching && !isLoading;
+  const canSendReply =
+    Number.isFinite(parsedThreadId) &&
+    replyRecipientIds.length > 0 &&
+    !!message.trim() &&
+    !replyToThreadMutation.isPending;
 
   useEffect(() => {
     if (!Number.isFinite(parsedThreadId)) return;
@@ -194,6 +232,38 @@ export default function ThreadScreen() {
     return () => cancelAnimationFrame(frameId);
   }, [hasMessages, messages.length]);
 
+  useEffect(() => {
+    if (sentValue === '1') {
+      setShowSentNotice(true);
+    }
+  }, [sentValue]);
+
+  function applyComposerChange(nextText: string, nextSelection: ComposerSelection) {
+    setMessage(nextText);
+    requestAnimationFrame(() => {
+      setSelection(nextSelection);
+      composerInputRef.current?.focus();
+    });
+  }
+
+  function handleFormatAction(action: Parameters<typeof applyComposerFormat>[2]) {
+    if (replyToThreadMutation.isError) {
+      replyToThreadMutation.reset();
+    }
+
+    const next = applyComposerFormat(message, selection, action);
+    applyComposerChange(next.text, next.selection);
+  }
+
+  function handleEmojiPress(emoji: string) {
+    if (replyToThreadMutation.isError) {
+      replyToThreadMutation.reset();
+    }
+
+    const next = insertComposerText(message, selection, emoji);
+    applyComposerChange(next.text, next.selection);
+  }
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#f8fafc' }}>
       <KeyboardAvoidingView
@@ -202,6 +272,20 @@ export default function ThreadScreen() {
         keyboardVerticalOffset={Platform.OS === 'ios' ? 18 : 0}
       >
         <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}>
+          {showSentNotice && (
+            <MessageNotice
+              tone="success"
+              title="Message sent"
+              description="Your new conversation was created successfully."
+              onDismiss={() => {
+                setShowSentNotice(false);
+                if (Number.isFinite(parsedThreadId)) {
+                  router.replace(`/messages/${parsedThreadId}`);
+                }
+              }}
+            />
+          )}
+
           <View style={{ marginBottom: 16 }}>
             <Text style={{ fontSize: 22, fontWeight: '700', color: '#0f172a' }}>
               {title}
@@ -292,15 +376,15 @@ export default function ThreadScreen() {
                         elevation: item.isOwn ? 2 : 1,
                       }}
                     >
-                      <Text
-                        style={{
+                      <MessageMarkdownText
+                        value={item.body}
+                        textStyle={{
                           color: item.isOwn ? '#ffffff' : '#0f172a',
                           fontSize: 15,
                           lineHeight: 21,
                         }}
-                      >
-                        {item.body}
-                      </Text>
+                        linkColor={item.isOwn ? '#e0f2fe' : '#0369a1'}
+                      />
                     </View>
 
                     {!!item.sentAt && (
@@ -444,18 +528,41 @@ export default function ThreadScreen() {
             backgroundColor: '#ffffff',
           }}
         >
+          <MessageFormattingToolbar
+            disabled={replyToThreadMutation.isPending}
+            onActionPress={handleFormatAction}
+          />
+
+          <MessageEmojiPicker
+            disabled={replyToThreadMutation.isPending}
+            onEmojiPress={handleEmojiPress}
+          />
+
           <View
             style={{
               flexDirection: 'row',
               alignItems: 'flex-end',
               gap: 10,
+              marginTop: 12,
             }}
           >
             <TextInput
+              ref={composerInputRef}
               value={message}
-              onChangeText={setMessage}
+              onChangeText={(value) => {
+                if (replyToThreadMutation.isError) {
+                  replyToThreadMutation.reset();
+                }
+
+                setMessage(value);
+              }}
+              onSelectionChange={(event) => {
+                setSelection(event.nativeEvent.selection);
+              }}
               placeholder="Type a message..."
               multiline
+              editable={!replyToThreadMutation.isPending}
+              selection={selection}
               textAlignVertical="top"
               style={{
                 flex: 1,
@@ -472,18 +579,26 @@ export default function ThreadScreen() {
             />
 
             <Pressable
+              disabled={!canSendReply}
               onPress={() => {
-                if (!message.trim()) return;
+                if (!Number.isFinite(parsedThreadId) || !message.trim()) return;
 
-                console.log('thread reply not implemented yet', {
-                  threadId,
-                  message,
-                });
-
-                setMessage('');
+                replyToThreadMutation.mutate(
+                  {
+                    threadId: parsedThreadId,
+                    message: message.trim(),
+                    recipients: replyRecipientIds,
+                  },
+                  {
+                    onSuccess: () => {
+                      setMessage('');
+                      setSelection({ start: 0, end: 0 });
+                    },
+                  }
+                );
               }}
               style={{
-                backgroundColor: '#0284c7',
+                backgroundColor: canSendReply ? '#0284c7' : '#94a3b8',
                 minHeight: 46,
                 paddingHorizontal: 18,
                 justifyContent: 'center',
@@ -491,9 +606,27 @@ export default function ThreadScreen() {
                 borderRadius: 16,
               }}
             >
-              <Text style={{ color: 'white', fontWeight: '700' }}>Send</Text>
+              <Text style={{ color: 'white', fontWeight: '700' }}>
+                {replyToThreadMutation.isPending ? 'Sending...' : 'Send'}
+              </Text>
             </Pressable>
           </View>
+
+          {replyToThreadMutation.isError && (
+            <Text style={{ color: '#b91c1c', marginTop: 10, lineHeight: 20 }}>
+              {replyToThreadMutation.error.message ||
+                'Failed to send your reply. Please try again.'}
+            </Text>
+          )}
+
+          {!replyToThreadMutation.isError &&
+            !isLoading &&
+            !error &&
+            replyRecipientIds.length === 0 && (
+              <Text style={{ color: '#b91c1c', marginTop: 10, lineHeight: 20 }}>
+                We could not resolve the recipients for this conversation yet.
+              </Text>
+            )}
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>

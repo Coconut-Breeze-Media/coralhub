@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - private-messaging
+
+  pull_request:
+    branches:
+      - Develop
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+      - name: Expo web export
+        run: npx expo export --platform web --output-dir .expo-test-export

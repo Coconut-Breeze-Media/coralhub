@@ -9,6 +9,7 @@ import {
   getConversations,
   getMessages,
   sendMessage,
+  replyToThread,
   markConversationAsRead,
 } from '../lib/api';
 
@@ -83,12 +84,59 @@ export function useSendMessage(token: string | null) {
     },
   });
 }
+export function useReplyToThread(token: string | null) {
+  const queryClient = useQueryClient();
+
+  return useMutation<
+    BPMessageMutationResponse,
+    Error,
+    {
+      threadId: number;
+      message: string;
+      recipients: number[];
+    }
+  >({
+    mutationFn: async ({
+      threadId,
+      message,
+      recipients,
+    }: {
+      threadId: number;
+      message: string;
+      recipients: number[];
+    }) => {
+      if (!token) throw new Error('No authentication token');
+
+      return replyToThread(token, threadId, message, recipients);
+    },
+    onSuccess: async (_data, variables) => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ['messages', variables.threadId],
+          exact: true,
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ['messages', 'conversations'],
+          exact: true,
+        }),
+      ]);
+    },
+  });
+}
 export function useMarkConversationAsRead(token: string | null) {
+  const queryClient = useQueryClient();
+
   return useMutation<BPMessageMutationResponse, Error, number>({
     mutationFn: async (threadId: number) => {
       if (!token) throw new Error('No authentication token');
 
       return markConversationAsRead(threadId, token);
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ['messages', 'conversations'],
+        exact: true,
+      });
     },
   });
 }

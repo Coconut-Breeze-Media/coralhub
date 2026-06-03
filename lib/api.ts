@@ -1578,6 +1578,29 @@ export async function sendMessage(
 
   return res.json() as Promise<BPMessageMutationResponse>;
 }
+export async function replyToThread(
+  token: string,
+  threadId: number,
+  message: string,
+  recipients: number[]
+): Promise<BPMessageMutationResponse> {
+  const res = await fetchWithTimeout(`${API}/buddypress/v1/messages`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      id: threadId,
+      message,
+      recipients,
+    }),
+  });
+
+  await assertOk(res);
+
+  return res.json() as Promise<BPMessageMutationResponse>;
+}
 export async function markConversationAsRead(
   threadId: number,
   token: string
@@ -1585,8 +1608,12 @@ export async function markConversationAsRead(
   const res = await fetchWithTimeout(`${API}/buddypress/v1/messages/${threadId}`, {
     method: 'PUT',
     headers: {
+      'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
     },
+    body: JSON.stringify({
+      read: true,
+    }),
   });
 
   await assertOk(res);

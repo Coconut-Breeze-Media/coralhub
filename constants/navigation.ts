@@ -97,7 +97,7 @@ export const PROFILE_MENU_ITEMS: ReadonlyArray<ProfileMenuItem> = [
   },
   {
     label: 'Messages',
-    href: '/profile/messages',
+    href: '/messages',
     icon: 'chatbubble-ellipses-outline',
   },
   {
@@ -149,7 +149,7 @@ export const ROUTES = {
   // Profile subroutes
   PROFILE_SETTINGS: '/profile/settings',
   PROFILE_ACTIVITY: '/profile/activity',
-  PROFILE_MESSAGES: '/profile/messages',
+  PROFILE_MESSAGES: '/messages',
   PROFILE_GROUPS: '/profile/groups',
   PROFILE_CONNECTIONS: '/profile/connections',
   PROFILE_ACCOUNT_SETTINGS: '/profile/account-settings',
