@@ -1,6 +1,7 @@
 import type {
   BPConversationSummary,
   BPConversationsResponse,
+  BPMessageParticipant,
   BPMessageText,
 } from '../types';
 
@@ -39,6 +40,15 @@ function getUnreadCount(value: unknown): number {
   return getNumberValue(value) ?? 0;
 }
 
+function getParticipants(
+  value: BPConversationSummary['recipients']
+): BPMessageParticipant[] {
+  if (Array.isArray(value)) return value;
+  if (value && typeof value === 'object') return Object.values(value);
+
+  return [];
+}
+
 export function getConversationItems(
   data: BPConversationsResponse | undefined
 ): BPConversationSummary[] {
@@ -64,7 +74,7 @@ export function getUnreadMessageNotifications(
 
     if (!threadId || !senderId || unreadCount <= 0 || senderId === userId) return [];
 
-    const sender = conversation.recipients?.find(
+    const sender = getParticipants(conversation.recipients).find(
       (recipient) => getNumberValue(recipient.user_id) === senderId
     );
 

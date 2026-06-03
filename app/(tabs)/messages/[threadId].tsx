@@ -16,7 +16,6 @@ import { useAuth } from '../../../lib/auth';
 import {
   useMarkConversationAsRead,
   useMessages,
-  useReplyToConversation,
   useReplyToThread,
 } from '../../../hooks/useMessages';
 import {
@@ -177,7 +176,6 @@ export default function ThreadScreen() {
   const { token, userId, profile } = useAuth();
   const { mutate: markConversationAsRead } = useMarkConversationAsRead(token);
   const replyToThreadMutation = useReplyToThread(token);
-  const replyToConversation = useReplyToConversation(token);
   const scrollViewRef = useRef<ScrollView | null>(null);
   const composerInputRef = useRef<TextInput | null>(null);
   const [message, setMessage] = useState('');
@@ -612,11 +610,6 @@ export default function ThreadScreen() {
 
             <Pressable
               disabled={!canSendReply}
-              disabled={
-                !message.trim() ||
-                !Number.isFinite(parsedThreadId) ||
-                replyToConversation.isPending
-              }
               onPress={() => {
                 if (!Number.isFinite(parsedThreadId) || !message.trim()) return;
 
@@ -635,10 +628,7 @@ export default function ThreadScreen() {
                 );
               }}
               style={{
-                backgroundColor: canSendReply ?
-                  message.trim() && !replyToConversation.isPending
-                    ? '#0284c7' : '#94a3b8'
-                    : '#94a3b8',
+                backgroundColor: canSendReply ? '#0284c7' : '#94a3b8',
                 minHeight: 46,
                 paddingHorizontal: 18,
                 justifyContent: 'center',
@@ -647,9 +637,7 @@ export default function ThreadScreen() {
               }}
             >
               <Text style={{ color: 'white', fontWeight: '700' }}>
-                {replyToThreadMutation.isPending ? 'Sending...' : '
-                {replyToConversation.isPending ? 'Sending...' : 'Send'}
-              '}
+                {replyToThreadMutation.isPending ? 'Sending...' : 'Send'}
               </Text>
             </Pressable>
           </View>
@@ -670,11 +658,6 @@ export default function ThreadScreen() {
               </Text>
             )}
 
-          {replyToConversation.isError && (
-            <Text style={{ color: '#b91c1c', marginTop: 8 }}>
-              Failed to send message
-            </Text>
-          )}
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
