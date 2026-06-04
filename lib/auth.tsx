@@ -38,7 +38,9 @@ async function deleteStorageItem(key: string): Promise<void> {
 const AuthContext = createContext<AuthContextState>({
   token: null,
   profile: null,
+  membership: null,
   isMember: null,
+  canAccess: () => false,
   refreshMembership: async () => {},
   setAuth: async () => {},
   clearAuth: async () => {},
@@ -51,6 +53,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   console.log('[auth] provider mounted'); 
   const [token, setToken] = useState<string | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [membership, setMembership] = useState<MembershipResponse | null>(null);
   const [isMember, setIsMember] = useState<boolean | null>(null);
   const [ready, setReady] = useState(false);
   const [checkingMembership, setCheckingMembership] = useState(false);
@@ -95,17 +98,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // membership checker (callable + used internally)
   const refreshMembership = useCallback(async () => {
     if (!token) {
+      setMembership(null);
       setIsMember(null);
       return;
     }
     setCheckingMembership(true);
     try {
-      const res: MembershipResp = await getMembershipStatus(token);
-      setIsMember(!!res.is_member);
+      const res: MembershipResponse = await getMembershipStatus(token);
+      setMembership(res);
+      setIsMember(res.tier ? res.tier !== 'none' : !!res.is_member);
       setLastMembershipCheckAt(Date.now());
     } catch (e) {
       // if unauthorized, clear member flag but keep token as-is (UI can react)
       if (e instanceof ApiError && e.status === 401) {
+        setMembership(null);
         setIsMember(null);
       } else {
         // network/other errors: keep previous value, optionally log
@@ -116,6 +122,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [token]);
 
+  // Whether the current tier grants access to a given resource key.
+  const canAccess = useCallback(
+    (resourceKey: string) => !!membership?.allowed_resources?.includes(resourceKey),
+    [membership]
+  );
+
   // When token is restored or changes, check membership (once ready)
   useEffect(() => {
     if (!ready) return;
@@ -123,6 +135,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // fire and forget; UI can use checkingMembership
       refreshMembership();
     } else {
+      setMembership(null);
       setIsMember(null);
     }
   }, [token, ready, refreshMembership]);
@@ -144,6 +157,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const clearAuth = async () => {
     setToken(null);
     setProfile(null);
+    setMembership(null);
     setIsMember(null);
     setLastMembershipCheckAt(undefined);
 
@@ -157,7 +171,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       value={{
         token,
         profile,
+        membership,
         isMember,
+        canAccess,
         refreshMembership,
         setAuth,
         clearAuth,

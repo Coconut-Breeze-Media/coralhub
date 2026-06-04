@@ -21,6 +21,7 @@ import {
   getMe,
   getMembershipLevels,
   getMembershipStatus,
+  getPremiumResources,
   wpLogin,
 } from '../lib/api';
 
@@ -54,6 +55,24 @@ export function useMembershipStatus() {
     queryFn: () => {
       if (!token) throw new Error('No authentication token');
       return getMembershipStatus(token);
+    },
+    enabled: !!token,
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  });
+}
+
+/**
+ * Hook to fetch the premium-resource catalog with per-user lock state.
+ * Requires authentication token.
+ */
+export function usePremiumResources() {
+  const { token } = useAuth();
+
+  return useQuery({
+    queryKey: queryKeys.premiumResources.all(),
+    queryFn: () => {
+      if (!token) throw new Error('No authentication token');
+      return getPremiumResources(token);
     },
     enabled: !!token,
     staleTime: 5 * 60 * 1000, // 5 minutes

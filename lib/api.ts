@@ -3,6 +3,7 @@ import { Platform } from 'react-native';
 import type {
   JWTPayload,
   MembershipResponse,
+  PremiumResource,
   WPPage,
   WPPost,
   WPUser,
@@ -15,6 +16,9 @@ import type {
   UpdateXProfilePayload,
   BPActivity,
 } from '../types';
+
+// Re-export so callers can `import { MembershipLevel } from '../lib/api'`.
+export type { MembershipLevel, MembershipResponse, PremiumResource } from '../types';
 
 const API = process.env.EXPO_PUBLIC_WP_API!;
 const WP  = process.env.EXPO_PUBLIC_WP_URL!;
@@ -144,6 +148,48 @@ export async function getMembershipLevels(): Promise<MembershipLevel[]> {
           `${WP}/membership-account/membership-checkout/?level=${Number(l?.id ?? 0)}`
       ),
   }));
+}
+
+// =========================
+// Premium Resources (protected)
+// =========================
+/**
+ * Fetch the premium-resource catalog with per-user lock state.
+ * The server computes `unlocked` from the caller's tier; locked items
+ * return an empty `url`.
+ */
+export async function getPremiumResources(token: string): Promise<PremiumResource[]> {
+  const res = await fetchWithTimeout(`${API}/coral/v1/premium-resources`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  await assertOk(res);
+  const data = await res.json();
+
+  const list = Array.isArray(data?.resources) ? data.resources : [];
+  return list.map((r: any) => ({
+    key: String(r?.key ?? ''),
+    title: String(r?.title ?? ''),
+    required_tiers: Array.isArray(r?.required_tiers)
+      ? r.required_tiers.map((t: any) => String(t))
+      : [],
+    unlocked: Boolean(r?.unlocked),
+    url: String(r?.url ?? ''),
+  })) as PremiumResource[];
+}
+
+/**
+ * Exchange the app's JWT session for a short-lived, single-use website
+ * login link that redirects to `redirectUrl` after setting the WP cookie.
+ * Used to open gated website pages already authenticated.
+ */
+export async function getAppLoginLink(
+  token: string,
+  redirectUrl: string
+): Promise<{ url: string }> {
+  return authedFetch<{ url: string }>('/coral/v1/app-login-link', token, {
+    method: 'POST',
+    body: JSON.stringify({ redirect: redirectUrl }),
+  });
 }
 
 // ---------- authedFetch + /users/me ----------
