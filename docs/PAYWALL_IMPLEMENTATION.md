@@ -57,10 +57,12 @@ This map is defined **once** in the WordPress plugin and **re-derived** in the a
 
 All changes go in the existing plugin file **`coral-membership/coral-membership.php`** (currently v1.3). No new plugin needed.
 
-### A1. Switch PMPro to the Stripe gateway (admin, no code) — ⚠️ this is a gateway MIGRATION
-**Current state:** the site is live on **PayPal Express** (Gateway Environment: Live/Production), not Stripe.
+### A1. Stripe gateway in PMPro (admin, no code) — ✅ CONNECTED
+**Status:** Stripe is now connected via PMPro's native Stripe gateway (Connect-with-Stripe). The site was previously on PayPal Express; see migration notes below.
 
-WP Admin → Memberships → Settings → **Payment Gateway & SSL** → select **Stripe**, connect the account, enter live keys. Then for each paid level (Monthly, Annual, Group) set the recurring price and billing cycle. PMPro creates/manages the Stripe subscription and updates the user's level automatically on payment success/failure/cancellation. **No checkout-session or webhook code is written by us** — this is the whole point of choosing the PMPro gateway.
+PMPro creates/manages the Stripe subscription and updates the user's level automatically on payment success/failure/cancellation. **No checkout-session or webhook code is written by us** — this is the whole point of choosing the PMPro gateway. The app's existing checkout flow (app-checkout page running `[pmpro_checkout]`) now runs on Stripe automatically; **no app code change was required.**
+
+Remaining admin check: confirm each paid level (Monthly, Annual, Group) has its recurring price/billing cycle set so Stripe bills it correctly.
 
 **Migration implications (decide before flipping the switch):**
 - PMPro uses **one global gateway at a time**. Setting it to Stripe means all *new* checkouts go through Stripe.
@@ -247,8 +249,8 @@ In `constants/navigation.ts` the Resources/Networking tab icons appear swapped (
 All 13 resource URLs are now confirmed and wired into `coral_resource_urls()` defaults.
 
 ## Open items / remaining ops work
-1. **Finish Stripe Connect onboarding** (client/Stuart in progress), then in WP Admin switch PMPro's gateway from PayPal Express to Stripe and attach Stripe billing to the three paid levels — Monthly $4.99/mo (ID 2), Annual $49.99/yr (ID 1), Group $199.99/yr (ID 3). Decide how existing PayPal subscribers are handled (let them ride out PayPal, or migrate).
+1. **Confirm Stripe billing on each paid level** — Stripe is connected (✅). Verify Monthly $4.99/mo (ID 2), Annual $49.99/yr (ID 1), Group $199.99/yr (ID 3) each charge correctly via Stripe, and decide how existing PayPal subscribers are handled (let them ride out PayPal, or migrate).
 2. **PMPro per-page restrictions (A6):** set "Require Membership" on each of the 13 resource pages to match the access table — this is the real server-side enforcement behind the WebView.
 3. **Deploy + verify:** push `coral-membership.php` to WordPress, `npm install` + build the app, then run the per-tier verification in this doc.
 
-Decided/done: tier mapping (IDs known), all 13 resource URLs, and the SSO/auto-login bridge (built — A7).
+Decided/done: Stripe gateway connected (A1), tier mapping (IDs known), all 13 resource URLs, and the SSO/auto-login bridge (built — A7).
