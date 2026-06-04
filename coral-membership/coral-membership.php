@@ -215,19 +215,22 @@ if (!function_exists('coral_resource_titles')) {
  */
 if (!function_exists('coral_resource_urls')) {
   function coral_resource_urls() {
+    // Client-provided live URLs (Dashboard is intentionally excluded from the app).
     $defaults = [
-      'opportunities'          => home_url('/opportunities/'),
+      'opportunities'          => home_url('/career-opportunities/'),
       'courses'                => home_url('/courses/'),
       'mentorships'            => home_url('/mentorships/'),
       'document_library'       => home_url('/document-library/'),
-      'coral_matters'          => home_url('/coral-matters/'),
-      'essays_articles'        => home_url('/essays-and-articles/'),
+      'coral_matters'          => home_url('/coralmatters/'),
+      'essays_articles'        => home_url('/articles/'),
       'masterclasses'          => home_url('/masterclasses/'),
       'internships'            => home_url('/internships/'),
-      'partnerships_discounts' => home_url('/partnerships-discounts/'),
+      'partnerships_discounts' => home_url('/partners-and-discounts/'),
       'historical_archive'     => home_url('/historical-archive/'),
-      'corr_grants'            => home_url('/corr-grants/'),
-      'institutional_area'     => home_url('/institutional-area/'),
+      'corr_grants'            => home_url('/research-grants/'),
+      'institutional_area'     => home_url('/institution-area/'),
+      // No Feedback URL was provided — placeholder; set the real one in the
+      // 'coral_resource_urls' option or update this default.
       'feedback'               => home_url('/feedback/'),
     ];
 

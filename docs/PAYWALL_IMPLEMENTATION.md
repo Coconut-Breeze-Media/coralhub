@@ -224,7 +224,27 @@ In `constants/navigation.ts` the Resources/Networking tab icons appear swapped (
 
 ---
 
+## Resource page URLs (client-provided, wired into `coral_resource_urls` defaults)
+
+| Resource key            | URL |
+|-------------------------|-----|
+| opportunities           | https://www.thecoralreefresearchhub.com/career-opportunities/ |
+| courses                 | https://www.thecoralreefresearchhub.com/courses/ |
+| mentorships             | https://www.thecoralreefresearchhub.com/mentorships/ |
+| document_library        | https://www.thecoralreefresearchhub.com/document-library/ |
+| coral_matters           | https://www.thecoralreefresearchhub.com/coralmatters/ |
+| essays_articles         | https://www.thecoralreefresearchhub.com/articles/ |
+| masterclasses           | https://www.thecoralreefresearchhub.com/masterclasses/ |
+| internships             | https://www.thecoralreefresearchhub.com/internships/ |
+| partnerships_discounts  | https://www.thecoralreefresearchhub.com/partners-and-discounts/ |
+| historical_archive      | https://www.thecoralreefresearchhub.com/historical-archive/ |
+| corr_grants             | https://www.thecoralreefresearchhub.com/research-grants/ |
+| institutional_area      | https://www.thecoralreefresearchhub.com/institution-area/ |
+| feedback                | ⚠️ **not provided** — placeholder `/feedback/`, confirm real URL |
+
+(Dashboard — `/dashboard/` — is intentionally excluded from the app per client.)
+
 ## Open items needing client input
-1. The exact **website page URLs/slugs** for each of the 13 Premium Resources (for `coral_resource_urls` / the `premium-resources` endpoint).
+1. **Feedback page URL** — the only resource without a confirmed URL. Set it in the `coral_resource_urls` option (or update the default).
 2. **Gateway migration decision (PayPal Express → Stripe):** the site currently bills via PayPal Express. Confirm we should switch PMPro's gateway to Stripe, provide **live Stripe keys**, and decide how existing PayPal subscribers are handled (let them ride out PayPal, or migrate). Levels and pricing are already set — Monthly $4.99/mo (ID 2), Annual $49.99/yr (ID 1), Group $199.99/yr (ID 3), Basic free (ID 6); the three paid ones just need their Stripe gateway/price wiring once Stripe is connected.
 3. Sign-off on the **SSO/auto-login WebView bridge** (A7) vs. requiring a one-time website login inside the WebView.
