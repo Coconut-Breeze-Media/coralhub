@@ -89,6 +89,14 @@ export default function RootLayout() {
               headerShown: false,
             }}
           />
+
+          {/* Credits screen (renders its own header) */}
+          <Stack.Screen
+            name="profile/credits"
+            options={{
+              headerShown: false,
+            }}
+          />
         </Stack>
       </AuthProvider>
     </QueryClientProvider>

@@ -111,6 +111,11 @@ export const PROFILE_MENU_ITEMS: ReadonlyArray<ProfileMenuItem> = [
     href: '/profile/account',
     icon: 'card-outline',
   },
+  {
+    label: 'Credits',
+    href: '/profile/credits',
+    icon: 'ribbon-outline',
+  },
 ] as const;
 
 // ============================================
@@ -144,6 +149,7 @@ export const ROUTES = {
   PROFILE_CONNECTIONS: '/profile/connections',
   PROFILE_ACCOUNT_SETTINGS: '/profile/account-settings',
   PROFILE_ACCOUNT: '/profile/account',
+  PROFILE_CREDITS: '/profile/credits',
 } as const;
 
 // ============================================
