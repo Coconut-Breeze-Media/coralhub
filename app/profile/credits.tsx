@@ -9,8 +9,7 @@ import { View, Text, ScrollView, Pressable, Linking } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import BackButton from '../../components/BackButton';
 
-// TODO: confirm the exact Coconut Dive Manage URL with the client.
-const COCONUT_DIVE_MANAGE_URL = 'https://coconutdivemanage.com';
+const COCONUT_DIVE_MANAGE_URL = 'https://divemanage.com';
 const COCONUT_BREEZE_MEDIA_URL = 'https://coconutbreezemedia.com';
 
 const PRIMARY = '#2563eb';
