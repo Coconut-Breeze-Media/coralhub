@@ -229,8 +229,6 @@ if (!function_exists('coral_resource_urls')) {
       'historical_archive'     => home_url('/historical-archive/'),
       'corr_grants'            => home_url('/research-grants/'),
       'institutional_area'     => home_url('/institution-area/'),
-      // No Feedback URL was provided — placeholder; set the real one in the
-      // 'coral_resource_urls' option or update this default.
       'feedback'               => home_url('/feedback/'),
     ];
 

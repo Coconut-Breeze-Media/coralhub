@@ -240,11 +240,15 @@ In `constants/navigation.ts` the Resources/Networking tab icons appear swapped (
 | historical_archive      | https://www.thecoralreefresearchhub.com/historical-archive/ |
 | corr_grants             | https://www.thecoralreefresearchhub.com/research-grants/ |
 | institutional_area      | https://www.thecoralreefresearchhub.com/institution-area/ |
-| feedback                | ⚠️ **not provided** — placeholder `/feedback/`, confirm real URL |
+| feedback                | https://www.thecoralreefresearchhub.com/feedback/ |
 
 (Dashboard — `/dashboard/` — is intentionally excluded from the app per client.)
 
-## Open items needing client input
-1. **Feedback page URL** — the only resource without a confirmed URL. Set it in the `coral_resource_urls` option (or update the default).
-2. **Gateway migration decision (PayPal Express → Stripe):** the site currently bills via PayPal Express. Confirm we should switch PMPro's gateway to Stripe, provide **live Stripe keys**, and decide how existing PayPal subscribers are handled (let them ride out PayPal, or migrate). Levels and pricing are already set — Monthly $4.99/mo (ID 2), Annual $49.99/yr (ID 1), Group $199.99/yr (ID 3), Basic free (ID 6); the three paid ones just need their Stripe gateway/price wiring once Stripe is connected.
-3. Sign-off on the **SSO/auto-login WebView bridge** (A7) vs. requiring a one-time website login inside the WebView.
+All 13 resource URLs are now confirmed and wired into `coral_resource_urls()` defaults.
+
+## Open items / remaining ops work
+1. **Finish Stripe Connect onboarding** (client/Stuart in progress), then in WP Admin switch PMPro's gateway from PayPal Express to Stripe and attach Stripe billing to the three paid levels — Monthly $4.99/mo (ID 2), Annual $49.99/yr (ID 1), Group $199.99/yr (ID 3). Decide how existing PayPal subscribers are handled (let them ride out PayPal, or migrate).
+2. **PMPro per-page restrictions (A6):** set "Require Membership" on each of the 13 resource pages to match the access table — this is the real server-side enforcement behind the WebView.
+3. **Deploy + verify:** push `coral-membership.php` to WordPress, `npm install` + build the app, then run the per-tier verification in this doc.
+
+Decided/done: tier mapping (IDs known), all 13 resource URLs, and the SSO/auto-login bridge (built — A7).
