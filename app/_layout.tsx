@@ -90,6 +90,14 @@ export default function RootLayout() {
             }}
           />
 
+          {/* Credits screen (renders its own header) */}
+          <Stack.Screen
+            name="profile/credits"
+            options={{
+              headerShown: false,
+            }}
+          />
+
           {/* Profile activity screen */}
           <Stack.Screen
             name="profile/activity"
