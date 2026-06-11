@@ -53,13 +53,11 @@ export default function RootLayout() {
             options={{ headerShown: false }} 
           />
 
-          {/* Sign-in screen with back button */}
+          {/* Sign-in screen */}
           <Stack.Screen
             name="sign-in"
             options={{
-              headerShown: true,
-              headerTitle: SCREEN_TITLES.SIGN_IN,
-              headerLeft: () => <BackButton />,
+              headerShown: false,
             }}
           />
           {/* Membership levels screen with back button */}
