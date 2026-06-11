@@ -81,7 +81,9 @@ export default function TabsLayout() {
       options={{
         href: null,
         title: 'Conversation',
-        headerLeft: () => <BackButton fallbackRoute={ROUTES.MESSAGES} />,
+        headerLeft: () => (
+          <BackButton fallbackRoute={ROUTES.MESSAGES} useHistory={false} />
+        ),
       }}
     />
       <Tabs.Screen
@@ -89,7 +91,9 @@ export default function TabsLayout() {
       options={{
         href: null,
         title: 'New Message',
-        headerLeft: () => <BackButton fallbackRoute={ROUTES.MESSAGES} />,
+        headerLeft: () => (
+          <BackButton fallbackRoute={ROUTES.MESSAGES} useHistory={false} />
+        ),
       }}
     />
       </Tabs>);

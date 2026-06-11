@@ -1568,6 +1568,20 @@ export async function deleteConversation(
   });
 
   await assertOk(res);
+  const raw = await res.text();
 
-  return res.json() as Promise<BPMessageDeleteResponse>;
+  if (!raw.trim()) {
+    return {
+      deleted: true,
+    };
+  }
+
+  try {
+    return JSON.parse(raw) as BPMessageDeleteResponse;
+  } catch {
+    return {
+      deleted: true,
+      raw,
+    };
+  }
 }

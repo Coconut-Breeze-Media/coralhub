@@ -54,12 +54,22 @@ function getPreviewText(value?: string | BPMessageText): string {
 function getConversationItems(
   data: BPConversationsResponse | undefined
 ): BPConversationSummary[] {
-  if (Array.isArray(data)) return data;
-  if (!data) return [];
-  if (Array.isArray(data.threads)) return data.threads;
-  if (Array.isArray(data.messages)) return data.messages;
-  if (Array.isArray(data.items)) return data.items;
-  return [];
+  const rawItems = Array.isArray(data)
+    ? data
+    : !data
+      ? []
+      : Array.isArray(data.threads)
+        ? data.threads
+        : Array.isArray(data.messages)
+          ? data.messages
+          : Array.isArray(data.items)
+            ? data.items
+            : [];
+
+  return rawItems.filter(
+    (item): item is BPConversationSummary =>
+      !!item && typeof item === 'object' && !Array.isArray(item)
+  );
 }
 
 function getInitial(value: string): string {
@@ -158,6 +168,7 @@ export default function MessagesScreen() {
   const deleteConversationMutation = useDeleteConversation(token);
   const [showSentNotice, setShowSentNotice] = useState(false);
   const [showDeletedNotice, setShowDeletedNotice] = useState(false);
+  const [deleteErrorMessage, setDeleteErrorMessage] = useState('');
 
   const conversations = getConversationItems(data);
   const isRefreshing = isRefetching && !isLoading;
@@ -182,7 +193,7 @@ export default function MessagesScreen() {
   function handleDeleteConversation(threadId: number, title: string) {
     Alert.alert(
       'Delete conversation',
-      `Are you sure you want to delete "${title}"? This action cannot be undone.`,
+      'Delete this conversation? This will remove the conversation from your inbox. Are you sure you want to continue?',
       [
         {
           text: 'Cancel',
@@ -192,13 +203,14 @@ export default function MessagesScreen() {
           text: 'Delete',
           style: 'destructive',
           onPress: () => {
+            setDeleteErrorMessage('');
             deleteConversationMutation.mutate(threadId, {
               onSuccess: () => {
                 setShowDeletedNotice(true);
+                setDeleteErrorMessage('');
               },
               onError: (deleteError) => {
-                Alert.alert(
-                  'Error',
+                setDeleteErrorMessage(
                   deleteError.message || 'Could not delete the conversation.'
                 );
               },
@@ -255,6 +267,15 @@ export default function MessagesScreen() {
             setShowDeletedNotice(false);
             router.replace('/messages');
           }}
+        />
+      )}
+
+      {!!deleteErrorMessage && (
+        <MessageNotice
+          tone="error"
+          title="Could not delete conversation"
+          description={deleteErrorMessage}
+          onDismiss={() => setDeleteErrorMessage('')}
         />
       )}
 

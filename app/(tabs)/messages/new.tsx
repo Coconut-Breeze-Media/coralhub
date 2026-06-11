@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   Text,
   TextInput,
@@ -11,7 +11,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, Stack } from 'expo-router';
 import { useAuth } from '../../../lib/auth';
 import { useMembersList } from '../../../hooks/useMembers';
-import { useConversations, useSendMessage } from '../../../hooks/useMessages';
+import {
+  useConversations,
+  useReplyToThread,
+  useSendMessage,
+} from '../../../hooks/useMessages';
 import type {
   BPMember,
   BPConversationSummary,
@@ -86,12 +90,35 @@ function normalizeLookupKey(value: string): string {
 function getConversationItems(
   data: BPConversationsResponse | undefined
 ): BPConversationSummary[] {
-  if (Array.isArray(data)) return data;
-  if (!data) return [];
-  if (Array.isArray(data.threads)) return data.threads;
-  if (Array.isArray(data.messages)) return data.messages;
-  if (Array.isArray(data.items)) return data.items;
-  return [];
+  const rawItems = Array.isArray(data)
+    ? data
+    : !data
+      ? []
+      : Array.isArray(data.threads)
+        ? data.threads
+        : Array.isArray(data.messages)
+          ? data.messages
+          : Array.isArray(data.items)
+            ? data.items
+            : [];
+
+  return rawItems.filter(
+    (item): item is BPConversationSummary =>
+      !!item && typeof item === 'object' && !Array.isArray(item)
+  );
+}
+
+function getMemberItems(data: unknown): BPMember[] {
+  if (!Array.isArray(data)) return [];
+
+  return data.filter(
+    (item): item is BPMember =>
+      !!item &&
+      typeof item === 'object' &&
+      !Array.isArray(item) &&
+      typeof (item as BPMember).id === 'number' &&
+      typeof (item as BPMember).name === 'string'
+  );
 }
 
 export default function NewMessageScreen() {
@@ -107,21 +134,22 @@ export default function NewMessageScreen() {
   const [requestedSelection, setRequestedSelection] = useState<ComposerSelection | undefined>();
   const composerInputRef = useRef<TextInput | null>(null);
   const sendMessageMutation = useSendMessage(token);
-  const isSending = sendMessageMutation.isPending;
+  const replyToThreadMutation = useReplyToThread(token);
+  const isSending =
+    sendMessageMutation.isPending || replyToThreadMutation.isPending;
   const { data: conversationsData } = useConversations(token);
   const { data, isLoading, error } = useMembersList(token, {
     search,
     page: 1,
     perPage: 20,
   });
-  const members = Array.isArray(data) ? data : [];
+  const members = getMemberItems(data);
   const conversations = getConversationItems(conversationsData);
   const canSend = !!selectedMember && !!message.trim() && !isSending;
   const trimmedSearch = search.trim();
   const existingConversationLookups = useMemo(() => {
     const byUserId = new Map<number, ExistingDirectConversation>();
     const byExactName = new Map<string, ExistingDirectConversation[]>();
-    const all: ExistingDirectConversation[] = [];
 
     for (const conversation of conversations) {
       const threadId = toNumberOrNull(conversation.id ?? conversation.thread_id);
@@ -165,16 +193,15 @@ export default function NewMessageScreen() {
         currentMatches.push(match);
         byExactName.set(key, currentMatches);
       }
-
-      all.push(match);
     }
 
-    return { byUserId, byExactName, all };
+    return { byUserId, byExactName };
   }, [conversations, profile?.user_display_name, userId]);
 
   const findExistingConversationForMember = useMemo(
     () => (member: BPMember | null) => {
       if (!member) return null;
+      if (!member.name?.trim()) return null;
 
       const byIdMatch = existingConversationLookups.byUserId.get(member.id);
       if (byIdMatch) return byIdMatch;
@@ -189,71 +216,30 @@ export default function NewMessageScreen() {
     [existingConversationLookups]
   );
 
-  const filteredMembers = useMemo(
-    () => members.filter((member) => !findExistingConversationForMember(member)),
-    [findExistingConversationForMember, members]
+  const existingConversationForSelectedMember = useMemo(
+    () => findExistingConversationForMember(selectedMember),
+    [findExistingConversationForMember, selectedMember]
   );
 
-  const existingSearchMatches = useMemo(() => {
-    if (!trimmedSearch) return [];
-
-    const normalizedSearch = normalizeLookupKey(trimmedSearch);
-    const seenThreadIds = new Set<number>();
-
-    return existingConversationLookups.all.filter((conversation) => {
-      if (seenThreadIds.has(conversation.threadId)) return false;
-
-      const matchesSearch =
-        normalizeLookupKey(conversation.title).includes(normalizedSearch) ||
-        normalizeLookupKey(conversation.participantName).includes(normalizedSearch);
-
-      if (!matchesSearch) return false;
-
-      seenThreadIds.add(conversation.threadId);
-      return true;
-    });
-  }, [existingConversationLookups.all, trimmedSearch]);
-
-  const hasOnlyExistingConversationMatches =
-    trimmedSearch.length > 0 &&
-    filteredMembers.length === 0 &&
-    existingSearchMatches.length > 0;
-
   const emptyTitle = useMemo(
-    () =>
-      hasOnlyExistingConversationMatches
-        ? existingSearchMatches.length === 1
-          ? 'Conversation already exists'
-          : 'Conversations already exist'
-        : trimmedSearch
-          ? 'No matching members'
-          : 'No members to show',
-    [existingSearchMatches.length, hasOnlyExistingConversationMatches, trimmedSearch]
+    () => (trimmedSearch ? 'No matching members' : 'No members to show'),
+    [trimmedSearch]
   );
   const emptyDescription = useMemo(
     () =>
-      hasOnlyExistingConversationMatches
-        ? existingSearchMatches.length === 1
-          ? `You already have a conversation with ${existingSearchMatches[0]?.participantName}. Open that chat from your inbox instead of starting a new one.`
-          : 'All matching members already have a conversation in your inbox. Open the existing chat instead of creating a duplicate.'
-        : trimmedSearch
+      trimmedSearch
         ? `We could not find anyone matching "${trimmedSearch}". Try another name or username.`
         : 'Start by searching for a member you want to message.',
-    [
-      existingSearchMatches,
-      existingSearchMatches.length,
-      hasOnlyExistingConversationMatches,
-      trimmedSearch,
-    ]
+    [trimmedSearch]
   );
 
-  useEffect(() => {
-    if (!selectedMember) return;
-
-    if (findExistingConversationForMember(selectedMember)) {
-      setSelectedMember(null);
-    }
-  }, [findExistingConversationForMember, selectedMember]);
+  function resetComposerState() {
+    setMessage('');
+    setSelection({ start: 0, end: 0 });
+    setRequestedSelection(undefined);
+    setSelectedMember(null);
+    setSearch('');
+  }
 
   function applyComposerChange(nextText: string, nextSelection: ComposerSelection) {
     setMessage(nextText);
@@ -269,18 +255,16 @@ export default function NewMessageScreen() {
   }
 
   function handleFormatAction(action: Parameters<typeof applyComposerFormat>[2]) {
-    if (sendMessageMutation.isError) {
-      sendMessageMutation.reset();
-    }
+    if (sendMessageMutation.isError) sendMessageMutation.reset();
+    if (replyToThreadMutation.isError) replyToThreadMutation.reset();
 
     const next = applyComposerFormat(message, selection, action);
     applyComposerChange(next.text, next.selection);
   }
 
   function handleEmojiPress(emoji: string) {
-    if (sendMessageMutation.isError) {
-      sendMessageMutation.reset();
-    }
+    if (sendMessageMutation.isError) sendMessageMutation.reset();
+    if (replyToThreadMutation.isError) replyToThreadMutation.reset();
 
     const next = insertComposerText(message, selection, emoji);
     applyComposerChange(next.text, next.selection);
@@ -321,12 +305,12 @@ export default function NewMessageScreen() {
         {error && <Text>Error loading members</Text>}
 
         <FlatList
-          data={filteredMembers}
+          data={members}
           keyExtractor={(item) => item.id.toString()}
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={{
             paddingBottom: 12,
-            flexGrow: filteredMembers.length === 0 ? 1 : undefined,
+            flexGrow: members.length === 0 ? 1 : undefined,
           }}
           ListEmptyComponent={
             !isLoading && !error ? (
@@ -369,46 +353,18 @@ export default function NewMessageScreen() {
                 <Text style={{ color: '#64748b', textAlign: 'center', lineHeight: 20 }}>
                   {emptyDescription}
                 </Text>
-
-                {hasOnlyExistingConversationMatches && (
-                  <Pressable
-                    onPress={() => {
-                      if (existingSearchMatches.length === 1) {
-                        router.replace(
-                          `/messages/${existingSearchMatches[0].threadId}`
-                        );
-                        return;
-                      }
-
-                      router.replace('/messages');
-                    }}
-                    style={{
-                      marginTop: 14,
-                      backgroundColor: '#0077b6',
-                      paddingHorizontal: 16,
-                      paddingVertical: 10,
-                      borderRadius: 10,
-                    }}
-                  >
-                    <Text style={{ color: '#ffffff', fontWeight: '700' }}>
-                      {existingSearchMatches.length === 1
-                        ? 'Open Conversation'
-                        : 'Open Inbox'}
-                    </Text>
-                  </Pressable>
-                )}
               </View>
             ) : null
           }
           renderItem={({ item }) => {
             const isSelected = selectedMember?.id === item.id;
+            const existingConversation = findExistingConversationForMember(item);
 
             return (
               <Pressable
                 onPress={() => {
-                  if (sendMessageMutation.isError) {
-                    sendMessageMutation.reset();
-                  }
+                  if (sendMessageMutation.isError) sendMessageMutation.reset();
+                  if (replyToThreadMutation.isError) replyToThreadMutation.reset();
 
                   setSelectedMember(item);
                 }}
@@ -469,7 +425,13 @@ export default function NewMessageScreen() {
                       fontSize: 13,
                     }}
                   >
-                    {isSelected ? 'Selected recipient' : 'Tap to start a private message'}
+                    {isSelected
+                      ? existingConversation
+                        ? 'Selected existing conversation'
+                        : 'Selected recipient'
+                      : existingConversation
+                        ? 'Existing conversation will be reused'
+                        : 'Tap to start a private message'}
                   </Text>
                 </View>
               </Pressable>
@@ -504,15 +466,19 @@ export default function NewMessageScreen() {
             <Text style={{ fontSize: 16, fontWeight: '700', color: '#0f172a' }}>
               {selectedMember.name}
             </Text>
+            {!!existingConversationForSelectedMember && (
+              <Text style={{ marginTop: 6, color: '#0369a1', lineHeight: 20 }}>
+                Your message will be added to the existing conversation with this member.
+              </Text>
+            )}
           </View>
 
           <TextInput
             ref={composerInputRef}
             value={message}
             onChangeText={(value) => {
-              if (sendMessageMutation.isError) {
-                sendMessageMutation.reset();
-              }
+              if (sendMessageMutation.isError) sendMessageMutation.reset();
+              if (replyToThreadMutation.isError) replyToThreadMutation.reset();
 
               setMessage(value);
             }}
@@ -546,15 +512,19 @@ export default function NewMessageScreen() {
             onEmojiPress={handleEmojiPress}
           />
 
-          {sendMessageMutation.isError && (
+          {(sendMessageMutation.isError || replyToThreadMutation.isError) && (
             <MessageNotice
               tone="error"
               title="Could not send message"
               description={
-                sendMessageMutation.error.message ||
+                sendMessageMutation.error?.message ||
+                replyToThreadMutation.error?.message ||
                 'Please try again in a moment.'
               }
-              onDismiss={() => sendMessageMutation.reset()}
+              onDismiss={() => {
+                sendMessageMutation.reset();
+                replyToThreadMutation.reset();
+              }}
             />
           )}
 
@@ -562,17 +532,22 @@ export default function NewMessageScreen() {
             disabled={!canSend}
             onPress={() => {
               if (!selectedMember || !message.trim()) return;
-
-              const existingConversation =
-                findExistingConversationForMember(selectedMember);
+              const existingConversation = existingConversationForSelectedMember;
 
               if (existingConversation) {
-                setSelectedMember(null);
-                setMessage('');
-                setSelection({ start: 0, end: 0 });
-                setRequestedSelection(undefined);
-                setSearch('');
-                router.replace(`/messages/${existingConversation.threadId}`);
+                replyToThreadMutation.mutate(
+                  {
+                    threadId: existingConversation.threadId,
+                    message: message.trim(),
+                    recipients: [selectedMember.id],
+                  },
+                  {
+                    onSuccess: () => {
+                      resetComposerState();
+                      router.replace(`/messages/${existingConversation.threadId}`);
+                    },
+                  }
+                );
                 return;
               }
 
@@ -585,12 +560,7 @@ export default function NewMessageScreen() {
                 {
                   onSuccess: (response) => {
                     const threadId = getCreatedThreadId(response);
-
-                    setMessage('');
-                    setSelection({ start: 0, end: 0 });
-                    setRequestedSelection(undefined);
-                    setSelectedMember(null);
-                    setSearch('');
+                    resetComposerState();
 
                     if (threadId != null) {
                       router.replace(`/messages/${threadId}?sent=1`);
@@ -609,12 +579,16 @@ export default function NewMessageScreen() {
               marginTop: 12,
               alignItems: 'center',
             }}
-          >
-            <Text style={{ color: 'white', fontWeight: '700' }}>
-              {isSending ? 'Sending...' : 'Send Message'}
-            </Text>
-          </Pressable>
-        </View>
+            >
+              <Text style={{ color: 'white', fontWeight: '700' }}>
+                {isSending
+                  ? 'Sending...'
+                  : existingConversationForSelectedMember
+                    ? 'Send Reply'
+                    : 'Send Message'}
+              </Text>
+            </Pressable>
+          </View>
       )}
     </SafeAreaView>
   );

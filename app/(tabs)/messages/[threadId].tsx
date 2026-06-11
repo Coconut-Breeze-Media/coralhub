@@ -1,4 +1,5 @@
 import {
+  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
@@ -193,6 +194,7 @@ export default function ThreadScreen() {
     token
   );
   const [showSentNotice, setShowSentNotice] = useState(false);
+  const [deleteErrorMessage, setDeleteErrorMessage] = useState('');
 
   const threadItems = getThreadItems(data);
   const threadRecord = unwrapThreadRecord(data);
@@ -281,7 +283,7 @@ export default function ThreadScreen() {
 
     Alert.alert(
       'Delete conversation',
-      `Are you sure you want to delete "${title}"? This action cannot be undone.`,
+      'Delete this conversation? This will remove the conversation from your inbox. Are you sure you want to continue?',
       [
         {
           text: 'Cancel',
@@ -291,13 +293,13 @@ export default function ThreadScreen() {
           text: 'Delete',
           style: 'destructive',
           onPress: () => {
+            setDeleteErrorMessage('');
             deleteConversationMutation.mutate(parsedThreadId, {
               onSuccess: () => {
                 router.replace('/messages?deleted=1');
               },
               onError: (deleteError) => {
-                Alert.alert(
-                  'Error',
+                setDeleteErrorMessage(
                   deleteError.message || 'Could not delete the conversation.'
                 );
               },
@@ -316,7 +318,7 @@ export default function ThreadScreen() {
           headerRight: Number.isFinite(parsedThreadId)
             ? () => (
                 <Pressable
-                  onPress={handleDeleteConversation}
+                  onPress={deleteConversationMutation.isPending ? undefined : handleDeleteConversation}
                   disabled={!canDeleteConversation}
                   hitSlop={8}
                   accessibilityRole="button"
@@ -326,7 +328,11 @@ export default function ThreadScreen() {
                     opacity: canDeleteConversation ? 1 : 0.45,
                   }}
                 >
-                  <Ionicons name="trash-outline" size={20} color="#dc2626" />
+                  {deleteConversationMutation.isPending ? (
+                    <ActivityIndicator size="small" color="#dc2626" />
+                  ) : (
+                    <Ionicons name="trash-outline" size={20} color="#dc2626" />
+                  )}
                 </Pressable>
               )
             : undefined,
@@ -350,6 +356,15 @@ export default function ThreadScreen() {
                   router.replace(`/messages/${parsedThreadId}`);
                 }
               }}
+            />
+          )}
+
+          {!!deleteErrorMessage && (
+            <MessageNotice
+              tone="error"
+              title="Could not delete conversation"
+              description={deleteErrorMessage}
+              onDismiss={() => setDeleteErrorMessage('')}
             />
           )}
 

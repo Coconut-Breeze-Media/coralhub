@@ -1,7 +1,7 @@
 // components/BackButton.tsx
 /**
  * Custom back button component for navigation header
- * Falls back to tabs if no history available
+ * Can use navigation history or route to an explicit fallback target
  */
 
 import { Ionicons } from '@expo/vector-icons';
@@ -12,15 +12,17 @@ import { ROUTES } from '../constants/navigation';
 
 type BackButtonProps = {
   fallbackRoute?: Href;
+  useHistory?: boolean;
 };
 
 export default function BackButton({
   fallbackRoute = ROUTES.TABS,
+  useHistory = true,
 }: BackButtonProps) {
   const insets = useSafeAreaInsets();
 
   const goBack = () => {
-    if (router.canGoBack?.()) {
+    if (useHistory && router.canGoBack?.()) {
       router.back();
     } else {
       router.replace(fallbackRoute);
