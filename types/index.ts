@@ -323,6 +323,12 @@ export type BPMessageMutationResponse =
   | BPMessageThreadResponse
   | BPConversationSummary;
 
+export interface BPMessageDeleteResponse {
+  deleted?: boolean;
+  previous?: BPMessageThreadResponse | BPConversationSummary | null;
+  [key: string]: unknown;
+}
+
 /**
  * WordPress comment object (from /wp/v2/comments endpoint)
  */

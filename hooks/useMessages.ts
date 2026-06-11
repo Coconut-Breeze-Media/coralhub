@@ -3,6 +3,7 @@ import type {
   BPConversationsResponse,
   BPMessageThreadResult,
   BPMessageMutationResponse,
+  BPMessageDeleteResponse,
 } from '../types';
 
 import {
@@ -11,6 +12,7 @@ import {
   sendMessage,
   replyToThread,
   markConversationAsRead,
+  deleteConversation,
 } from '../lib/api';
 
 export function useConversations(token: string | null) {
@@ -137,6 +139,30 @@ export function useMarkConversationAsRead(token: string | null) {
         queryKey: ['messages', 'conversations'],
         exact: true,
       });
+    },
+  });
+}
+
+export function useDeleteConversation(token: string | null) {
+  const queryClient = useQueryClient();
+
+  return useMutation<BPMessageDeleteResponse, Error, number>({
+    mutationFn: async (threadId: number) => {
+      if (!token) throw new Error('No authentication token');
+
+      return deleteConversation(threadId, token);
+    },
+    onSuccess: async (_data, threadId) => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ['messages', 'conversations'],
+          exact: true,
+        }),
+        queryClient.removeQueries({
+          queryKey: ['messages', threadId],
+          exact: true,
+        }),
+      ]);
     },
   });
 }

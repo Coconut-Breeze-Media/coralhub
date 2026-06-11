@@ -6,18 +6,24 @@
 
 import { Ionicons } from '@expo/vector-icons';
 import { Pressable } from 'react-native';
-import { router } from 'expo-router';
+import { router, type Href } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ROUTES } from '../constants/navigation';
 
-export default function BackButton() {
+type BackButtonProps = {
+  fallbackRoute?: Href;
+};
+
+export default function BackButton({
+  fallbackRoute = ROUTES.TABS,
+}: BackButtonProps) {
   const insets = useSafeAreaInsets();
 
   const goBack = () => {
     if (router.canGoBack?.()) {
       router.back();
     } else {
-      router.replace(ROUTES.TABS);
+      router.replace(fallbackRoute);
     }
   };
 

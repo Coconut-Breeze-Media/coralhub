@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Text,
   TextInput,
@@ -11,8 +11,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, Stack } from 'expo-router';
 import { useAuth } from '../../../lib/auth';
 import { useMembersList } from '../../../hooks/useMembers';
-import { useSendMessage } from '../../../hooks/useMessages';
-import type { BPMember, BPMessageMutationResponse } from '../../../types';
+import { useConversations, useSendMessage } from '../../../hooks/useMessages';
+import type {
+  BPMember,
+  BPConversationSummary,
+  BPConversationsResponse,
+  BPMessageMutationResponse,
+} from '../../../types';
 import {
   applyComposerFormat,
   insertComposerText,
@@ -21,6 +26,12 @@ import {
 } from '../../../components/MessageFormattingToolbar';
 import { MessageEmojiPicker } from '../../../components/MessageEmojiPicker';
 import { MessageNotice } from '../../../components/MessageNotice';
+import {
+  extractConversationParticipantNames,
+  extractConversationParticipantUserIds,
+  formatConversationTitle,
+  getMessageTextValue,
+} from '../../../lib/messagePresentation';
 
 function getInitial(name: string): string {
   const safeName = name.trim();
@@ -62,8 +73,29 @@ function getCreatedThreadId(response: BPMessageMutationResponse): number | null 
   );
 }
 
+type ExistingDirectConversation = {
+  threadId: number;
+  title: string;
+  participantName: string;
+};
+
+function normalizeLookupKey(value: string): string {
+  return value.trim().toLocaleLowerCase();
+}
+
+function getConversationItems(
+  data: BPConversationsResponse | undefined
+): BPConversationSummary[] {
+  if (Array.isArray(data)) return data;
+  if (!data) return [];
+  if (Array.isArray(data.threads)) return data.threads;
+  if (Array.isArray(data.messages)) return data.messages;
+  if (Array.isArray(data.items)) return data.items;
+  return [];
+}
+
 export default function NewMessageScreen() {
-  const { token } = useAuth();
+  const { token, userId, profile } = useAuth();
 
   const [search, setSearch] = useState('');
   const [selectedMember, setSelectedMember] = useState<BPMember | null>(null);
@@ -72,34 +104,167 @@ export default function NewMessageScreen() {
     start: 0,
     end: 0,
   });
+  const [requestedSelection, setRequestedSelection] = useState<ComposerSelection | undefined>();
   const composerInputRef = useRef<TextInput | null>(null);
   const sendMessageMutation = useSendMessage(token);
   const isSending = sendMessageMutation.isPending;
+  const { data: conversationsData } = useConversations(token);
   const { data, isLoading, error } = useMembersList(token, {
     search,
     page: 1,
     perPage: 20,
   });
   const members = Array.isArray(data) ? data : [];
+  const conversations = getConversationItems(conversationsData);
   const canSend = !!selectedMember && !!message.trim() && !isSending;
   const trimmedSearch = search.trim();
+  const existingConversationLookups = useMemo(() => {
+    const byUserId = new Map<number, ExistingDirectConversation>();
+    const byExactName = new Map<string, ExistingDirectConversation[]>();
+    const all: ExistingDirectConversation[] = [];
+
+    for (const conversation of conversations) {
+      const threadId = toNumberOrNull(conversation.id ?? conversation.thread_id);
+      if (threadId == null) continue;
+
+      const participantIds = extractConversationParticipantUserIds(conversation, [userId]);
+      const participantNames = extractConversationParticipantNames(conversation, {
+        excludeNames: [profile?.user_display_name],
+        excludeUserIds: [userId],
+      });
+
+      const hasSingleIdentifiableParticipant =
+        participantIds.length === 1 || participantNames.length === 1;
+
+      if (!hasSingleIdentifiableParticipant) {
+        continue;
+      }
+
+      const title = formatConversationTitle(
+        participantNames,
+        conversation.subject,
+        'Conversation'
+      );
+      const participantName =
+        participantNames[0] || getMessageTextValue(conversation.subject) || title;
+      const match: ExistingDirectConversation = {
+        threadId,
+        title,
+        participantName,
+      };
+
+      if (participantIds.length === 1 && !byUserId.has(participantIds[0])) {
+        byUserId.set(participantIds[0], match);
+      }
+
+      for (const candidate of [participantName, title]) {
+        const key = normalizeLookupKey(candidate);
+        if (!key) continue;
+
+        const currentMatches = byExactName.get(key) ?? [];
+        currentMatches.push(match);
+        byExactName.set(key, currentMatches);
+      }
+
+      all.push(match);
+    }
+
+    return { byUserId, byExactName, all };
+  }, [conversations, profile?.user_display_name, userId]);
+
+  const findExistingConversationForMember = useMemo(
+    () => (member: BPMember | null) => {
+      if (!member) return null;
+
+      const byIdMatch = existingConversationLookups.byUserId.get(member.id);
+      if (byIdMatch) return byIdMatch;
+
+      const byNameMatches =
+        existingConversationLookups.byExactName.get(
+          normalizeLookupKey(member.name)
+        ) ?? [];
+
+      return byNameMatches.length === 1 ? byNameMatches[0] : null;
+    },
+    [existingConversationLookups]
+  );
+
+  const filteredMembers = useMemo(
+    () => members.filter((member) => !findExistingConversationForMember(member)),
+    [findExistingConversationForMember, members]
+  );
+
+  const existingSearchMatches = useMemo(() => {
+    if (!trimmedSearch) return [];
+
+    const normalizedSearch = normalizeLookupKey(trimmedSearch);
+    const seenThreadIds = new Set<number>();
+
+    return existingConversationLookups.all.filter((conversation) => {
+      if (seenThreadIds.has(conversation.threadId)) return false;
+
+      const matchesSearch =
+        normalizeLookupKey(conversation.title).includes(normalizedSearch) ||
+        normalizeLookupKey(conversation.participantName).includes(normalizedSearch);
+
+      if (!matchesSearch) return false;
+
+      seenThreadIds.add(conversation.threadId);
+      return true;
+    });
+  }, [existingConversationLookups.all, trimmedSearch]);
+
+  const hasOnlyExistingConversationMatches =
+    trimmedSearch.length > 0 &&
+    filteredMembers.length === 0 &&
+    existingSearchMatches.length > 0;
+
   const emptyTitle = useMemo(
-    () => (trimmedSearch ? 'No matching members' : 'No members to show'),
-    [trimmedSearch]
+    () =>
+      hasOnlyExistingConversationMatches
+        ? existingSearchMatches.length === 1
+          ? 'Conversation already exists'
+          : 'Conversations already exist'
+        : trimmedSearch
+          ? 'No matching members'
+          : 'No members to show',
+    [existingSearchMatches.length, hasOnlyExistingConversationMatches, trimmedSearch]
   );
   const emptyDescription = useMemo(
     () =>
-      trimmedSearch
+      hasOnlyExistingConversationMatches
+        ? existingSearchMatches.length === 1
+          ? `You already have a conversation with ${existingSearchMatches[0]?.participantName}. Open that chat from your inbox instead of starting a new one.`
+          : 'All matching members already have a conversation in your inbox. Open the existing chat instead of creating a duplicate.'
+        : trimmedSearch
         ? `We could not find anyone matching "${trimmedSearch}". Try another name or username.`
         : 'Start by searching for a member you want to message.',
-    [trimmedSearch]
+    [
+      existingSearchMatches,
+      existingSearchMatches.length,
+      hasOnlyExistingConversationMatches,
+      trimmedSearch,
+    ]
   );
+
+  useEffect(() => {
+    if (!selectedMember) return;
+
+    if (findExistingConversationForMember(selectedMember)) {
+      setSelectedMember(null);
+    }
+  }, [findExistingConversationForMember, selectedMember]);
 
   function applyComposerChange(nextText: string, nextSelection: ComposerSelection) {
     setMessage(nextText);
+    setSelection(nextSelection);
+    setRequestedSelection(nextSelection);
+
     requestAnimationFrame(() => {
-      setSelection(nextSelection);
       composerInputRef.current?.focus();
+      requestAnimationFrame(() => {
+        setRequestedSelection(undefined);
+      });
     });
   }
 
@@ -156,12 +321,12 @@ export default function NewMessageScreen() {
         {error && <Text>Error loading members</Text>}
 
         <FlatList
-          data={members}
+          data={filteredMembers}
           keyExtractor={(item) => item.id.toString()}
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={{
             paddingBottom: 12,
-            flexGrow: members.length === 0 ? 1 : undefined,
+            flexGrow: filteredMembers.length === 0 ? 1 : undefined,
           }}
           ListEmptyComponent={
             !isLoading && !error ? (
@@ -204,6 +369,34 @@ export default function NewMessageScreen() {
                 <Text style={{ color: '#64748b', textAlign: 'center', lineHeight: 20 }}>
                   {emptyDescription}
                 </Text>
+
+                {hasOnlyExistingConversationMatches && (
+                  <Pressable
+                    onPress={() => {
+                      if (existingSearchMatches.length === 1) {
+                        router.replace(
+                          `/messages/${existingSearchMatches[0].threadId}`
+                        );
+                        return;
+                      }
+
+                      router.replace('/messages');
+                    }}
+                    style={{
+                      marginTop: 14,
+                      backgroundColor: '#0077b6',
+                      paddingHorizontal: 16,
+                      paddingVertical: 10,
+                      borderRadius: 10,
+                    }}
+                  >
+                    <Text style={{ color: '#ffffff', fontWeight: '700' }}>
+                      {existingSearchMatches.length === 1
+                        ? 'Open Conversation'
+                        : 'Open Inbox'}
+                    </Text>
+                  </Pressable>
+                )}
               </View>
             ) : null
           }
@@ -329,7 +522,7 @@ export default function NewMessageScreen() {
             placeholder="Type your message..."
             multiline
             editable={!isSending}
-            selection={selection}
+            selection={requestedSelection}
             textAlignVertical="top"
             style={{
               borderWidth: 1,
@@ -370,6 +563,19 @@ export default function NewMessageScreen() {
             onPress={() => {
               if (!selectedMember || !message.trim()) return;
 
+              const existingConversation =
+                findExistingConversationForMember(selectedMember);
+
+              if (existingConversation) {
+                setSelectedMember(null);
+                setMessage('');
+                setSelection({ start: 0, end: 0 });
+                setRequestedSelection(undefined);
+                setSearch('');
+                router.replace(`/messages/${existingConversation.threadId}`);
+                return;
+              }
+
               sendMessageMutation.mutate(
                 {
                   recipients: [selectedMember.id],
@@ -382,6 +588,7 @@ export default function NewMessageScreen() {
 
                     setMessage('');
                     setSelection({ start: 0, end: 0 });
+                    setRequestedSelection(undefined);
                     setSelectedMember(null);
                     setSearch('');
 

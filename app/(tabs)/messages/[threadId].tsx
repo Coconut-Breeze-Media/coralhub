@@ -1,4 +1,5 @@
 import {
+  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -10,10 +11,12 @@ import {
 } from 'react-native';
 import { useEffect, useRef, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, Stack, useLocalSearchParams } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 
 import { useAuth } from '../../../lib/auth';
 import {
+  useDeleteConversation,
   useMarkConversationAsRead,
   useMessages,
   useReplyToThread,
@@ -174,6 +177,7 @@ export default function ThreadScreen() {
   const sentValue = Array.isArray(sent) ? sent[0] : sent;
 
   const { token, userId, profile } = useAuth();
+  const deleteConversationMutation = useDeleteConversation(token);
   const { mutate: markConversationAsRead } = useMarkConversationAsRead(token);
   const replyToThreadMutation = useReplyToThread(token);
   const scrollViewRef = useRef<ScrollView | null>(null);
@@ -183,6 +187,7 @@ export default function ThreadScreen() {
     start: 0,
     end: 0,
   });
+  const [requestedSelection, setRequestedSelection] = useState<ComposerSelection | undefined>();
   const { data, isLoading, isRefetching, error, refetch } = useMessages(
     Number.isFinite(parsedThreadId) ? parsedThreadId : null,
     token
@@ -215,6 +220,8 @@ export default function ThreadScreen() {
     replyRecipientIds.length > 0 &&
     !!message.trim() &&
     !replyToThreadMutation.isPending;
+  const canDeleteConversation =
+    Number.isFinite(parsedThreadId) && !deleteConversationMutation.isPending;
 
   useEffect(() => {
     if (!Number.isFinite(parsedThreadId)) return;
@@ -240,9 +247,14 @@ export default function ThreadScreen() {
 
   function applyComposerChange(nextText: string, nextSelection: ComposerSelection) {
     setMessage(nextText);
+    setSelection(nextSelection);
+    setRequestedSelection(nextSelection);
+
     requestAnimationFrame(() => {
-      setSelection(nextSelection);
       composerInputRef.current?.focus();
+      requestAnimationFrame(() => {
+        setRequestedSelection(undefined);
+      });
     });
   }
 
@@ -264,8 +276,63 @@ export default function ThreadScreen() {
     applyComposerChange(next.text, next.selection);
   }
 
+  function handleDeleteConversation() {
+    if (!Number.isFinite(parsedThreadId)) return;
+
+    Alert.alert(
+      'Delete conversation',
+      `Are you sure you want to delete "${title}"? This action cannot be undone.`,
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            deleteConversationMutation.mutate(parsedThreadId, {
+              onSuccess: () => {
+                router.replace('/messages?deleted=1');
+              },
+              onError: (deleteError) => {
+                Alert.alert(
+                  'Error',
+                  deleteError.message || 'Could not delete the conversation.'
+                );
+              },
+            });
+          },
+        },
+      ]
+    );
+  }
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#f8fafc' }}>
+      <Stack.Screen
+        options={{
+          title: 'Conversation',
+          headerRight: Number.isFinite(parsedThreadId)
+            ? () => (
+                <Pressable
+                  onPress={handleDeleteConversation}
+                  disabled={!canDeleteConversation}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel="Delete conversation"
+                  style={{
+                    paddingHorizontal: 4,
+                    opacity: canDeleteConversation ? 1 : 0.45,
+                  }}
+                >
+                  <Ionicons name="trash-outline" size={20} color="#dc2626" />
+                </Pressable>
+              )
+            : undefined,
+        }}
+      />
+
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -562,7 +629,7 @@ export default function ThreadScreen() {
               placeholder="Type a message..."
               multiline
               editable={!replyToThreadMutation.isPending}
-              selection={selection}
+              selection={requestedSelection}
               textAlignVertical="top"
               style={{
                 flex: 1,
@@ -593,6 +660,7 @@ export default function ThreadScreen() {
                     onSuccess: () => {
                       setMessage('');
                       setSelection({ start: 0, end: 0 });
+                      setRequestedSelection(undefined);
                     },
                   }
                 );

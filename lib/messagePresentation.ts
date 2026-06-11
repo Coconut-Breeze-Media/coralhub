@@ -1,11 +1,89 @@
 type MessageRecord = Record<string, unknown>;
 
+const NAMED_HTML_ENTITIES: Record<string, string> = {
+  amp: '&',
+  apos: "'",
+  gt: '>',
+  lt: '<',
+  nbsp: ' ',
+  quot: '"',
+};
+
 function normalizeWhitespace(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
 }
 
+function normalizeMessageWhitespace(value: string): string {
+  return value
+    .replace(/\r\n?/g, '\n')
+    .replace(/[^\S\n]+/g, ' ')
+    .replace(/ *\n */g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+export function decodeHtmlEntities(value: string): string {
+  return value.replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (match, entity) => {
+    if (!entity) return match;
+
+    if (entity.startsWith('#')) {
+      const isHex = entity[1]?.toLowerCase() === 'x';
+      const numericValue = isHex
+        ? Number.parseInt(entity.slice(2), 16)
+        : Number.parseInt(entity.slice(1), 10);
+
+      if (!Number.isFinite(numericValue) || numericValue <= 0) {
+        return match;
+      }
+
+      try {
+        return String.fromCodePoint(numericValue);
+      } catch {
+        return match;
+      }
+    }
+
+    return NAMED_HTML_ENTITIES[entity.toLowerCase()] ?? match;
+  });
+}
+
 export function stripMessageHtml(value: string): string {
-  return normalizeWhitespace(value.replace(/<[^>]+>/g, ' '));
+  const withLineBreaks = value
+    .replace(/<\s*br\s*\/?>/gi, '\n')
+    .replace(/<\s*li[^>]*>/gi, '- ')
+    .replace(/<\/\s*(p|div|li|ul|ol|blockquote|h[1-6])\s*>/gi, '\n');
+
+  return normalizeMessageWhitespace(
+    decodeHtmlEntities(withLineBreaks.replace(/<[^>]+>/g, ' '))
+  );
+}
+
+function shouldEncodeMessageCodePoint(codePoint: number): boolean {
+  return (
+    codePoint > 0xffff ||
+    codePoint === 0x200d ||
+    codePoint === 0xfe0f ||
+    (codePoint >= 0x2600 && codePoint <= 0x27bf)
+  );
+}
+
+export function encodeMessageForTransport(value: string): string {
+  let encoded = '';
+
+  for (const char of value) {
+    const codePoint = char.codePointAt(0);
+
+    if (codePoint == null) {
+      encoded += char;
+      continue;
+    }
+
+    encoded += shouldEncodeMessageCodePoint(codePoint)
+      ? `&#${codePoint};`
+      : char;
+  }
+
+  return encoded;
 }
 
 export function getMessageTextValue(value: unknown): string {
@@ -24,7 +102,10 @@ export function getMessageTextValue(value: unknown): string {
 }
 
 function getNameValue(value: unknown): string {
-  if (typeof value === 'string') return normalizeWhitespace(stripMessageHtml(value));
+  if (typeof value === 'string') {
+    return normalizeWhitespace(decodeHtmlEntities(value.replace(/<[^>]+>/g, ' ')));
+  }
+
   if (!value || typeof value !== 'object') return '';
 
   const record = value as MessageRecord;
@@ -63,14 +144,14 @@ function getStringItems(value: unknown): string[] {
   if (Array.isArray(value)) {
     return value
       .filter((item): item is string => typeof item === 'string')
-      .map((item) => normalizeWhitespace(stripMessageHtml(item)))
+      .map((item) => normalizeWhitespace(decodeHtmlEntities(item.replace(/<[^>]+>/g, ' '))))
       .filter(Boolean);
   }
 
   if (value && typeof value === 'object') {
     return Object.values(value)
       .filter((item): item is string => typeof item === 'string')
-      .map((item) => normalizeWhitespace(stripMessageHtml(item)))
+      .map((item) => normalizeWhitespace(decodeHtmlEntities(item.replace(/<[^>]+>/g, ' '))))
       .filter(Boolean);
   }
 
