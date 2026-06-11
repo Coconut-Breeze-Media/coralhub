@@ -1,13 +1,14 @@
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
+  NativeSyntheticEvent,
   Platform,
   Pressable,
   RefreshControl,
   ScrollView,
   Text,
   TextInput,
+  TextInputKeyPressEventData,
   View,
 } from 'react-native';
 import { useEffect, useRef, useState } from 'react';
@@ -38,6 +39,7 @@ import {
 import { MessageEmojiPicker } from '../../../components/MessageEmojiPicker';
 import { MessageMarkdownText } from '../../../components/MessageMarkdownText';
 import { MessageNotice } from '../../../components/MessageNotice';
+import DeleteConversationModal from '../../../components/DeleteConversationModal';
 
 type NormalizedMessage = {
   id: string;
@@ -46,6 +48,10 @@ type NormalizedMessage = {
   sentAt: string;
   isOwn: boolean;
 };
+
+type ComposerKeyPressEvent = NativeSyntheticEvent<
+  TextInputKeyPressEventData & { shiftKey?: boolean }
+>;
 
 function getArrayFromCandidate(value: unknown): Record<string, unknown>[] {
   if (Array.isArray(value)) {
@@ -167,6 +173,14 @@ function normalizeMessages(
   });
 }
 
+function shouldSendOnEnterPress(event: ComposerKeyPressEvent): boolean {
+  if (event.nativeEvent.key !== 'Enter') return false;
+  if (event.nativeEvent.shiftKey) return false;
+
+  event.preventDefault();
+  return true;
+}
+
 export default function ThreadScreen() {
   const { threadId, sent } = useLocalSearchParams<{
     threadId?: string | string[];
@@ -189,6 +203,7 @@ export default function ThreadScreen() {
     end: 0,
   });
   const [requestedSelection, setRequestedSelection] = useState<ComposerSelection | undefined>();
+  const [isDeleteConfirmVisible, setIsDeleteConfirmVisible] = useState(false);
   const { data, isLoading, isRefetching, error, refetch } = useMessages(
     Number.isFinite(parsedThreadId) ? parsedThreadId : null,
     token
@@ -281,37 +296,60 @@ export default function ThreadScreen() {
   function handleDeleteConversation() {
     if (!Number.isFinite(parsedThreadId)) return;
 
-    Alert.alert(
-      'Delete conversation',
-      'Delete this conversation? This will remove the conversation from your inbox. Are you sure you want to continue?',
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
+    setDeleteErrorMessage('');
+    setIsDeleteConfirmVisible(true);
+  }
+
+  function confirmDeleteConversation() {
+    if (!Number.isFinite(parsedThreadId)) return;
+
+    deleteConversationMutation.mutate(parsedThreadId, {
+      onSuccess: () => {
+        setIsDeleteConfirmVisible(false);
+        router.replace('/messages?deleted=1');
+      },
+      onError: (deleteError) => {
+        setIsDeleteConfirmVisible(false);
+        setDeleteErrorMessage(
+          deleteError.message || 'Could not delete the conversation.'
+        );
+      },
+    });
+  }
+
+  function handleSendReply() {
+    if (!Number.isFinite(parsedThreadId) || !message.trim()) return;
+    if (replyRecipientIds.length === 0 || replyToThreadMutation.isPending) return;
+
+    replyToThreadMutation.mutate(
+      {
+        threadId: parsedThreadId,
+        message: message.trim(),
+        recipients: replyRecipientIds,
+      },
+      {
+        onSuccess: () => {
+          setMessage('');
+          setSelection({ start: 0, end: 0 });
+          setRequestedSelection(undefined);
         },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => {
-            setDeleteErrorMessage('');
-            deleteConversationMutation.mutate(parsedThreadId, {
-              onSuccess: () => {
-                router.replace('/messages?deleted=1');
-              },
-              onError: (deleteError) => {
-                setDeleteErrorMessage(
-                  deleteError.message || 'Could not delete the conversation.'
-                );
-              },
-            });
-          },
-        },
-      ]
+      }
     );
   }
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#f8fafc' }}>
+      <DeleteConversationModal
+        visible={isDeleteConfirmVisible}
+        isDeleting={deleteConversationMutation.isPending}
+        onCancel={() => {
+          if (!deleteConversationMutation.isPending) {
+            setIsDeleteConfirmVisible(false);
+          }
+        }}
+        onConfirm={confirmDeleteConversation}
+      />
+
       <Stack.Screen
         options={{
           title: 'Conversation',
@@ -641,6 +679,10 @@ export default function ThreadScreen() {
               onSelectionChange={(event) => {
                 setSelection(event.nativeEvent.selection);
               }}
+              onKeyPress={(event) => {
+                if (!shouldSendOnEnterPress(event) || !canSendReply) return;
+                handleSendReply();
+              }}
               placeholder="Type a message..."
               multiline
               editable={!replyToThreadMutation.isPending}
@@ -662,24 +704,7 @@ export default function ThreadScreen() {
 
             <Pressable
               disabled={!canSendReply}
-              onPress={() => {
-                if (!Number.isFinite(parsedThreadId) || !message.trim()) return;
-
-                replyToThreadMutation.mutate(
-                  {
-                    threadId: parsedThreadId,
-                    message: message.trim(),
-                    recipients: replyRecipientIds,
-                  },
-                  {
-                    onSuccess: () => {
-                      setMessage('');
-                      setSelection({ start: 0, end: 0 });
-                      setRequestedSelection(undefined);
-                    },
-                  }
-                );
-              }}
+              onPress={handleSendReply}
               style={{
                 backgroundColor: canSendReply ? '#0284c7' : '#94a3b8',
                 minHeight: 46,

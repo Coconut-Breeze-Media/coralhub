@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import {
-  Alert,
   Text,
   FlatList,
   Pressable,
@@ -16,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../lib/auth';
 import { useConversations, useDeleteConversation } from '../../hooks/useMessages';
 import {
+  dedupeConversationSummaries,
   extractConversationParticipantNames,
   formatConversationTitle,
   getMessageTextValue,
@@ -26,6 +26,7 @@ import type {
   BPMessageText,
 } from '../../types';
 import { MessageNotice } from '../../components/MessageNotice';
+import DeleteConversationModal from '../../components/DeleteConversationModal';
 
 function stripMarkdown(value: string): string {
   return value
@@ -169,8 +170,12 @@ export default function MessagesScreen() {
   const [showSentNotice, setShowSentNotice] = useState(false);
   const [showDeletedNotice, setShowDeletedNotice] = useState(false);
   const [deleteErrorMessage, setDeleteErrorMessage] = useState('');
+  const [threadPendingDelete, setThreadPendingDelete] = useState<number | null>(null);
 
-  const conversations = getConversationItems(data);
+  const conversations = dedupeConversationSummaries(getConversationItems(data), {
+    excludeNames: [profile?.user_display_name],
+    excludeUserIds: [userId],
+  });
   const isRefreshing = isRefetching && !isLoading;
   const sentValue = Array.isArray(sent) ? sent[0] : sent;
   const deletedValue = Array.isArray(deleted) ? deleted[0] : deleted;
@@ -190,39 +195,42 @@ export default function MessagesScreen() {
     }
   }, [deletedValue]);
 
-  function handleDeleteConversation(threadId: number, title: string) {
-    Alert.alert(
-      'Delete conversation',
-      'Delete this conversation? This will remove the conversation from your inbox. Are you sure you want to continue?',
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => {
-            setDeleteErrorMessage('');
-            deleteConversationMutation.mutate(threadId, {
-              onSuccess: () => {
-                setShowDeletedNotice(true);
-                setDeleteErrorMessage('');
-              },
-              onError: (deleteError) => {
-                setDeleteErrorMessage(
-                  deleteError.message || 'Could not delete the conversation.'
-                );
-              },
-            });
-          },
-        },
-      ]
-    );
+  function handleDeleteConversation(threadId: number) {
+    setDeleteErrorMessage('');
+    setThreadPendingDelete(threadId);
+  }
+
+  function confirmDeleteConversation() {
+    if (threadPendingDelete == null) return;
+
+    deleteConversationMutation.mutate(threadPendingDelete, {
+      onSuccess: () => {
+        setThreadPendingDelete(null);
+        setShowDeletedNotice(true);
+        setDeleteErrorMessage('');
+      },
+      onError: (deleteError) => {
+        setThreadPendingDelete(null);
+        setDeleteErrorMessage(
+          deleteError.message || 'Could not delete the conversation.'
+        );
+      },
+    });
   }
 
   return (
     <SafeAreaView style={{ flex: 1, padding: 16, backgroundColor: '#f8fafc' }}>
+      <DeleteConversationModal
+        visible={threadPendingDelete != null}
+        isDeleting={deleteConversationMutation.isPending}
+        onCancel={() => {
+          if (!deleteConversationMutation.isPending) {
+            setThreadPendingDelete(null);
+          }
+        }}
+        onConfirm={confirmDeleteConversation}
+      />
+
       <View
         style={{
           flexDirection: 'row',
@@ -499,7 +507,7 @@ export default function MessagesScreen() {
 
                   {threadId != null && (
                     <Pressable
-                      onPress={() => handleDeleteConversation(threadId, title)}
+                      onPress={() => handleDeleteConversation(threadId)}
                       disabled={isDeleting}
                       hitSlop={8}
                       accessibilityRole="button"
