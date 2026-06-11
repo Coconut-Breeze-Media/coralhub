@@ -17,7 +17,9 @@ import type {
   BPConversationsResponse,
   BPMessageThreadResult,
   BPMessageMutationResponse,
+  BPMessageDeleteResponse,
 } from '../types';
+import { encodeMessageForTransport } from './messagePresentation';
 
 const API = process.env.EXPO_PUBLIC_WP_API!;
 const WP  = process.env.EXPO_PUBLIC_WP_URL!;
@@ -1581,7 +1583,7 @@ export async function sendMessage(
     body: JSON.stringify({
       recipients,
       subject,
-      message,
+      message: encodeMessageForTransport(message),
     }),
   });
 
@@ -1611,7 +1613,7 @@ export async function replyToThread(
     },
     body: JSON.stringify({
       id: threadId,
-      message,
+      message: encodeMessageForTransport(message),
       recipients,
     }),
   });
@@ -1704,5 +1706,35 @@ export async function markConversationAsRead(
     });
 
     throw error;
+  }
+}
+
+export async function deleteConversation(
+  threadId: number,
+  token: string
+): Promise<BPMessageDeleteResponse> {
+  const res = await fetchWithTimeout(`${API}/buddypress/v1/messages/${threadId}`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  await assertOk(res);
+  const raw = await res.text();
+
+  if (!raw.trim()) {
+    return {
+      deleted: true,
+    };
+  }
+
+  try {
+    return JSON.parse(raw) as BPMessageDeleteResponse;
+  } catch {
+    return {
+      deleted: true,
+      raw,
+    };
   }
 }

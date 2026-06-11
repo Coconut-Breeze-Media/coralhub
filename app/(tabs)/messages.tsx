@@ -10,10 +10,12 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 
 import { useAuth } from '../../lib/auth';
-import { useConversations } from '../../hooks/useMessages';
+import { useConversations, useDeleteConversation } from '../../hooks/useMessages';
 import {
+  dedupeConversationSummaries,
   extractConversationParticipantNames,
   formatConversationTitle,
   getMessageTextValue,
@@ -24,6 +26,7 @@ import type {
   BPMessageText,
 } from '../../types';
 import { MessageNotice } from '../../components/MessageNotice';
+import DeleteConversationModal from '../../components/DeleteConversationModal';
 import { getCurrentUserUnreadCount } from '../../lib/messageNotifications';
 
 function stripMarkdown(value: string): string {
@@ -53,17 +56,37 @@ function getPreviewText(value?: string | BPMessageText): string {
 function getConversationItems(
   data: BPConversationsResponse | undefined
 ): BPConversationSummary[] {
-  if (Array.isArray(data)) return data;
-  if (!data) return [];
-  if (Array.isArray(data.threads)) return data.threads;
-  if (Array.isArray(data.messages)) return data.messages;
-  if (Array.isArray(data.items)) return data.items;
-  return [];
+  const rawItems = Array.isArray(data)
+    ? data
+    : !data
+      ? []
+      : Array.isArray(data.threads)
+        ? data.threads
+        : Array.isArray(data.messages)
+          ? data.messages
+          : Array.isArray(data.items)
+            ? data.items
+            : [];
+
+  return rawItems.filter(
+    (item): item is BPConversationSummary =>
+      !!item && typeof item === 'object' && !Array.isArray(item)
+  );
 }
 
 function getInitial(value: string): string {
   const safeValue = value.trim();
   return safeValue ? safeValue[0].toUpperCase() : 'C';
+}
+
+function toNumberOrNull(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
 }
 
 function StateCard({
@@ -128,20 +151,63 @@ function StateCard({
 }
 
 export default function MessagesScreen() {
-  const { sent } = useLocalSearchParams<{ sent?: string | string[] }>();
+  const { sent, deleted } = useLocalSearchParams<{
+    sent?: string | string[];
+    deleted?: string | string[];
+  }>();
   const { token, userId, profile } = useAuth();
   const { data, isLoading, isRefetching, error, refetch } = useConversations(token);
+  const deleteConversationMutation = useDeleteConversation(token);
   const [showSentNotice, setShowSentNotice] = useState(false);
+  const [showDeletedNotice, setShowDeletedNotice] = useState(false);
+  const [deleteErrorMessage, setDeleteErrorMessage] = useState('');
+  const [threadPendingDelete, setThreadPendingDelete] = useState<number | null>(null);
 
-  const conversations = useMemo(() => getConversationItems(data), [data]);
+  const conversations = useMemo(() => dedupeConversationSummaries(getConversationItems(data), {
+    excludeNames: [profile?.user_display_name],
+    excludeUserIds: [userId],
+  }), [data]);
   const isRefreshing = isRefetching && !isLoading;
   const sentValue = Array.isArray(sent) ? sent[0] : sent;
+  const deletedValue = Array.isArray(deleted) ? deleted[0] : deleted;
+  const deletingThreadId = deleteConversationMutation.isPending
+    ? deleteConversationMutation.variables ?? null
+    : null;
 
   useEffect(() => {
     if (sentValue === '1') {
       setShowSentNotice(true);
     }
   }, [sentValue]);
+
+  useEffect(() => {
+    if (deletedValue === '1') {
+      setShowDeletedNotice(true);
+    }
+  }, [deletedValue]);
+
+  function handleDeleteConversation(threadId: number) {
+    setDeleteErrorMessage('');
+    setThreadPendingDelete(threadId);
+  }
+
+  function confirmDeleteConversation() {
+    if (threadPendingDelete == null) return;
+
+    deleteConversationMutation.mutate(threadPendingDelete, {
+      onSuccess: () => {
+        setThreadPendingDelete(null);
+        setShowDeletedNotice(true);
+        setDeleteErrorMessage('');
+      },
+      onError: (deleteError) => {
+        setThreadPendingDelete(null);
+        setDeleteErrorMessage(
+          deleteError.message || 'Could not delete the conversation.'
+        );
+      },
+    });
+  }
 
   useEffect(() => {
     if (!data) return;
@@ -152,6 +218,17 @@ export default function MessagesScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, padding: 16, backgroundColor: '#f8fafc' }}>
+      <DeleteConversationModal
+        visible={threadPendingDelete != null}
+        isDeleting={deleteConversationMutation.isPending}
+        onCancel={() => {
+          if (!deleteConversationMutation.isPending) {
+            setThreadPendingDelete(null);
+          }
+        }}
+        onConfirm={confirmDeleteConversation}
+      />
+
       <View
         style={{
           flexDirection: 'row',
@@ -184,6 +261,27 @@ export default function MessagesScreen() {
             setShowSentNotice(false);
             router.replace('/messages');
           }}
+        />
+      )}
+
+      {showDeletedNotice && (
+        <MessageNotice
+          tone="success"
+          title="Conversation deleted"
+          description="The conversation was removed from your inbox."
+          onDismiss={() => {
+            setShowDeletedNotice(false);
+            router.replace('/messages');
+          }}
+        />
+      )}
+
+      {!!deleteErrorMessage && (
+        <MessageNotice
+          tone="error"
+          title="Could not delete conversation"
+          description={deleteErrorMessage}
+          onDismiss={() => setDeleteErrorMessage('')}
         />
       )}
 
@@ -287,6 +385,7 @@ export default function MessagesScreen() {
             String(item.id ?? item.thread_id ?? index)
           }
           renderItem={({ item, index }) => {
+            const threadId = toNumberOrNull(item.id ?? item.thread_id);
             const participantNames = extractConversationParticipantNames(item, {
               excludeNames: [profile?.user_display_name],
               excludeUserIds: [userId],
@@ -298,14 +397,10 @@ export default function MessagesScreen() {
             );
             const preview = getPreviewText(item.last_message_content) || 'Open conversation';
             const unreadCount = getCurrentUserUnreadCount(item, userId);
+            const isDeleting = deletingThreadId === threadId;
 
             return (
-              <Pressable
-                onPress={() =>
-                  router.push(
-                    `/messages/${String(item.id ?? item.thread_id ?? index)}`
-                  )
-                }
+              <View
                 style={{
                   flexDirection: 'row',
                   alignItems: 'center',
@@ -322,64 +417,120 @@ export default function MessagesScreen() {
                   elevation: 1,
                 }}
               >
-                <View
+                <Pressable
+                  onPress={() => {
+                    if (threadId != null) {
+                      router.push(`/messages/${threadId}`);
+                      return;
+                    }
+
+                    router.push(
+                      `/messages/${String(item.id ?? item.thread_id ?? index)}`
+                    );
+                  }}
+                  disabled={isDeleting}
                   style={{
-                    width: 44,
-                    height: 44,
-                    borderRadius: 22,
-                    backgroundColor: '#e0f2fe',
+                    flex: 1,
+                    flexDirection: 'row',
                     alignItems: 'center',
-                    justifyContent: 'center',
-                    marginRight: 12,
+                    minWidth: 0,
+                    opacity: isDeleting ? 0.6 : 1,
                   }}
                 >
-                  <Text style={{ fontSize: 18, fontWeight: '700', color: '#0369a1' }}>
-                    {getInitial(title)}
-                  </Text>
-                </View>
-
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text
-                    numberOfLines={1}
-                    style={{
-                      fontWeight: '700',
-                      marginBottom: 4,
-                      color: '#0f172a',
-                    }}
-                  >
-                    {title}
-                  </Text>
-
-                  <Text
-                    numberOfLines={2}
-                    style={{
-                      color: '#64748b',
-                      lineHeight: 19,
-                    }}
-                  >
-                    {preview}
-                  </Text>
-                </View>
-
-                {unreadCount > 0 && (
                   <View
                     style={{
-                      minWidth: 22,
-                      height: 22,
-                      paddingHorizontal: 6,
-                      borderRadius: 11,
-                      backgroundColor: '#0284c7',
+                      width: 44,
+                      height: 44,
+                      borderRadius: 22,
+                      backgroundColor: '#e0f2fe',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      marginLeft: 12,
+                      marginRight: 12,
                     }}
                   >
-                    <Text style={{ color: '#ffffff', fontSize: 12, fontWeight: '700' }}>
-                      {unreadCount}
+                    <Text style={{ fontSize: 18, fontWeight: '700', color: '#0369a1' }}>
+                      {getInitial(title)}
                     </Text>
                   </View>
-                )}
-              </Pressable>
+
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text
+                      numberOfLines={1}
+                      style={{
+                        fontWeight: '700',
+                        marginBottom: 4,
+                        color: '#0f172a',
+                      }}
+                    >
+                      {title}
+                    </Text>
+
+                    <Text
+                      numberOfLines={2}
+                      style={{
+                        color: '#64748b',
+                        lineHeight: 19,
+                      }}
+                    >
+                      {preview}
+                    </Text>
+                  </View>
+                </Pressable>
+
+                <View style={{ marginLeft: 12, alignItems: 'flex-end' }}>
+                  {unreadCount > 0 && (
+                    <View
+                      style={{
+                        minWidth: 22,
+                        height: 22,
+                        paddingHorizontal: 6,
+                        borderRadius: 11,
+                        backgroundColor: '#0284c7',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        marginBottom: threadId != null ? 10 : 0,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          color: '#ffffff',
+                          fontSize: 12,
+                          fontWeight: '700',
+                        }}
+                      >
+                        {unreadCount}
+                      </Text>
+                    </View>
+                  )}
+
+                  {threadId != null && (
+                    <Pressable
+                      onPress={() => handleDeleteConversation(threadId)}
+                      disabled={isDeleting}
+                      hitSlop={8}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Delete conversation ${title}`}
+                      style={{
+                        width: 34,
+                        height: 34,
+                        borderRadius: 17,
+                        borderWidth: 1,
+                        borderColor: '#fecaca',
+                        backgroundColor: isDeleting ? '#fef2f2' : '#fff5f5',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        opacity: isDeleting ? 0.65 : 1,
+                      }}
+                    >
+                      <Ionicons
+                        name={isDeleting ? 'hourglass-outline' : 'trash-outline'}
+                        size={17}
+                        color="#dc2626"
+                      />
+                    </Pressable>
+                  )}
+                </View>
+              </View>
             );
           }}
         />

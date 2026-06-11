@@ -8,6 +8,7 @@ import { Tabs, Redirect, router } from 'expo-router';
 import { Pressable, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../lib/auth';
+import BackButton from '../../components/BackButton';
 import { useMe, usePendingFriendRequests, useFriendsList } from '../../hooks/useQueries';
 import { useConversations } from '../../hooks/useMessages';
 import { TAB_SCREENS, DEFAULT_HEADER_OPTIONS, ROUTES } from '../../constants/navigation';
@@ -106,6 +107,9 @@ export default function TabsLayout() {
       options={{
         href: null,
         title: 'Conversation',
+        headerLeft: () => (
+          <BackButton fallbackRoute={ROUTES.MESSAGES} useHistory={false} />
+        ),
       }}
     />
       <Tabs.Screen
@@ -113,6 +117,9 @@ export default function TabsLayout() {
       options={{
         href: null,
         title: 'New Message',
+        headerLeft: () => (
+          <BackButton fallbackRoute={ROUTES.MESSAGES} useHistory={false} />
+        ),
       }}
     />
       </Tabs>);

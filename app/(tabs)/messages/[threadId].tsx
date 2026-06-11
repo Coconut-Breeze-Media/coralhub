@@ -1,19 +1,24 @@
 import {
+  ActivityIndicator,
   KeyboardAvoidingView,
+  NativeSyntheticEvent,
   Platform,
   Pressable,
   RefreshControl,
   ScrollView,
   Text,
   TextInput,
+  TextInputKeyPressEventData,
   View,
 } from 'react-native';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, Stack, useLocalSearchParams } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 
 import { useAuth } from '../../../lib/auth';
 import {
+  useDeleteConversation,
   useMarkConversationAsRead,
   useMessages,
   useReplyToThread,
@@ -34,6 +39,7 @@ import {
 import { MessageEmojiPicker } from '../../../components/MessageEmojiPicker';
 import { MessageMarkdownText } from '../../../components/MessageMarkdownText';
 import { MessageNotice } from '../../../components/MessageNotice';
+import DeleteConversationModal from '../../../components/DeleteConversationModal';
 
 type NormalizedMessage = {
   id: string;
@@ -42,6 +48,10 @@ type NormalizedMessage = {
   sentAt: string;
   isOwn: boolean;
 };
+
+type ComposerKeyPressEvent = NativeSyntheticEvent<
+  TextInputKeyPressEventData & { shiftKey?: boolean }
+>;
 
 function getArrayFromCandidate(value: unknown): Record<string, unknown>[] {
   if (Array.isArray(value)) {
@@ -163,6 +173,14 @@ function normalizeMessages(
   });
 }
 
+function shouldSendOnEnterPress(event: ComposerKeyPressEvent): boolean {
+  if (event.nativeEvent.key !== 'Enter') return false;
+  if (event.nativeEvent.shiftKey) return false;
+
+  event.preventDefault();
+  return true;
+}
+
 export default function ThreadScreen() {
   const { threadId, sent } = useLocalSearchParams<{
     threadId?: string | string[];
@@ -174,6 +192,7 @@ export default function ThreadScreen() {
   const sentValue = Array.isArray(sent) ? sent[0] : sent;
 
   const { token, userId, profile } = useAuth();
+  const deleteConversationMutation = useDeleteConversation(token);
   const { mutate: markConversationAsRead } = useMarkConversationAsRead(token);
   const replyToThreadMutation = useReplyToThread(token);
   const scrollViewRef = useRef<ScrollView | null>(null);
@@ -183,11 +202,14 @@ export default function ThreadScreen() {
     start: 0,
     end: 0,
   });
+  const [requestedSelection, setRequestedSelection] = useState<ComposerSelection | undefined>();
+  const [isDeleteConfirmVisible, setIsDeleteConfirmVisible] = useState(false);
   const { data, isLoading, isRefetching, error, refetch } = useMessages(
     Number.isFinite(parsedThreadId) ? parsedThreadId : null,
     token
   );
   const [showSentNotice, setShowSentNotice] = useState(false);
+  const [deleteErrorMessage, setDeleteErrorMessage] = useState('');
 
   const threadItems = getThreadItems(data);
   const threadRecord = unwrapThreadRecord(data);
@@ -215,6 +237,8 @@ export default function ThreadScreen() {
     replyRecipientIds.length > 0 &&
     !!message.trim() &&
     !replyToThreadMutation.isPending;
+  const canDeleteConversation =
+    Number.isFinite(parsedThreadId) && !deleteConversationMutation.isPending;
 
   useEffect(() => {
     if (!data) return;
@@ -270,9 +294,14 @@ export default function ThreadScreen() {
 
   function applyComposerChange(nextText: string, nextSelection: ComposerSelection) {
     setMessage(nextText);
+    setSelection(nextSelection);
+    setRequestedSelection(nextSelection);
+
     requestAnimationFrame(() => {
-      setSelection(nextSelection);
       composerInputRef.current?.focus();
+      requestAnimationFrame(() => {
+        setRequestedSelection(undefined);
+      });
     });
   }
 
@@ -294,8 +323,90 @@ export default function ThreadScreen() {
     applyComposerChange(next.text, next.selection);
   }
 
+  function handleDeleteConversation() {
+    if (!Number.isFinite(parsedThreadId)) return;
+
+    setDeleteErrorMessage('');
+    setIsDeleteConfirmVisible(true);
+  }
+
+  function confirmDeleteConversation() {
+    if (!Number.isFinite(parsedThreadId)) return;
+
+    deleteConversationMutation.mutate(parsedThreadId, {
+      onSuccess: () => {
+        setIsDeleteConfirmVisible(false);
+        router.replace('/messages?deleted=1');
+      },
+      onError: (deleteError) => {
+        setIsDeleteConfirmVisible(false);
+        setDeleteErrorMessage(
+          deleteError.message || 'Could not delete the conversation.'
+        );
+      },
+    });
+  }
+
+  function handleSendReply() {
+    if (!Number.isFinite(parsedThreadId) || !message.trim()) return;
+    if (replyRecipientIds.length === 0 || replyToThreadMutation.isPending) return;
+
+    replyToThreadMutation.mutate(
+      {
+        threadId: parsedThreadId,
+        message: message.trim(),
+        recipients: replyRecipientIds,
+      },
+      {
+        onSuccess: () => {
+          setMessage('');
+          setSelection({ start: 0, end: 0 });
+          setRequestedSelection(undefined);
+        },
+      }
+    );
+  }
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#f8fafc' }}>
+      <DeleteConversationModal
+        visible={isDeleteConfirmVisible}
+        isDeleting={deleteConversationMutation.isPending}
+        onCancel={() => {
+          if (!deleteConversationMutation.isPending) {
+            setIsDeleteConfirmVisible(false);
+          }
+        }}
+        onConfirm={confirmDeleteConversation}
+      />
+
+      <Stack.Screen
+        options={{
+          title: 'Conversation',
+          headerRight: Number.isFinite(parsedThreadId)
+            ? () => (
+                <Pressable
+                  onPress={deleteConversationMutation.isPending ? undefined : handleDeleteConversation}
+                  disabled={!canDeleteConversation}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel="Delete conversation"
+                  style={{
+                    paddingHorizontal: 4,
+                    opacity: canDeleteConversation ? 1 : 0.45,
+                  }}
+                >
+                  {deleteConversationMutation.isPending ? (
+                    <ActivityIndicator size="small" color="#dc2626" />
+                  ) : (
+                    <Ionicons name="trash-outline" size={20} color="#dc2626" />
+                  )}
+                </Pressable>
+              )
+            : undefined,
+        }}
+      />
+
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -313,6 +424,15 @@ export default function ThreadScreen() {
                   router.replace(`/messages/${parsedThreadId}`);
                 }
               }}
+            />
+          )}
+
+          {!!deleteErrorMessage && (
+            <MessageNotice
+              tone="error"
+              title="Could not delete conversation"
+              description={deleteErrorMessage}
+              onDismiss={() => setDeleteErrorMessage('')}
             />
           )}
 
@@ -589,10 +709,14 @@ export default function ThreadScreen() {
               onSelectionChange={(event) => {
                 setSelection(event.nativeEvent.selection);
               }}
+              onKeyPress={(event) => {
+                if (!shouldSendOnEnterPress(event) || !canSendReply) return;
+                handleSendReply();
+              }}
               placeholder="Type a message..."
               multiline
               editable={!replyToThreadMutation.isPending}
-              selection={selection}
+              selection={requestedSelection}
               textAlignVertical="top"
               style={{
                 flex: 1,
@@ -610,23 +734,7 @@ export default function ThreadScreen() {
 
             <Pressable
               disabled={!canSendReply}
-              onPress={() => {
-                if (!Number.isFinite(parsedThreadId) || !message.trim()) return;
-
-                replyToThreadMutation.mutate(
-                  {
-                    threadId: parsedThreadId,
-                    message: message.trim(),
-                    recipients: replyRecipientIds,
-                  },
-                  {
-                    onSuccess: () => {
-                      setMessage('');
-                      setSelection({ start: 0, end: 0 });
-                    },
-                  }
-                );
-              }}
+              onPress={handleSendReply}
               style={{
                 backgroundColor: canSendReply ? '#0284c7' : '#94a3b8',
                 minHeight: 46,
