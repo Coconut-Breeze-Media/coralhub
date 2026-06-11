@@ -2,7 +2,13 @@
 import * as SecureStore from 'expo-secure-store';
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { Platform } from 'react-native';
-import { getMembershipStatus, getCurrentMember, ApiError } from './api';
+import {
+  getMembershipStatus,
+  getCurrentMember,
+  validateJwtToken,
+  refreshCoralToken,
+  ApiError,
+} from './api';
 import type { 
   JWTPayload, 
   MembershipResponse, 
@@ -48,9 +54,28 @@ const AuthContext = createContext<AuthContextState>({
   lastMembershipCheckAt: undefined,
 });
 
+const STORAGE_KEYS = {
+  jwt: 'jwt',
+  refreshToken: 'refresh_token',
+  userEmail: 'user_email',
+  userDisplayName: 'user_display_name',
+  userId: 'user_id',
+} as const;
+
+async function clearStoredAuth(): Promise<void> {
+  await Promise.all([
+    deleteStorageItem(STORAGE_KEYS.jwt),
+    deleteStorageItem(STORAGE_KEYS.refreshToken),
+    deleteStorageItem(STORAGE_KEYS.userEmail),
+    deleteStorageItem(STORAGE_KEYS.userDisplayName),
+    deleteStorageItem(STORAGE_KEYS.userId),
+  ]);
+}
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   console.log('[auth] provider mounted'); 
   const [token, setToken] = useState<string | null>(null);
+  const [refreshToken, setRefreshToken] = useState<string | null>(null);
   const [userId, setUserId] = useState<number | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isMember, setIsMember] = useState<boolean | null>(null);
@@ -79,12 +104,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     (async () => {
       console.log('[auth] restore start');
       try {
-        const t = await getStorageItem('jwt');
-        const email = await getStorageItem('user_email');
-        const name = await getStorageItem('user_display_name');
-        const uid = await getStorageItem('user_id');
+        let t = await getStorageItem(STORAGE_KEYS.jwt);
+        let rt = await getStorageItem(STORAGE_KEYS.refreshToken);
+        const email = await getStorageItem(STORAGE_KEYS.userEmail);
+        const name = await getStorageItem(STORAGE_KEYS.userDisplayName);
+        const uid = await getStorageItem(STORAGE_KEYS.userId);
+
         if (t) {
+          const isTokenValid = await validateJwtToken(t);
+
+          if (!isTokenValid && rt) {
+            const refreshed = await refreshCoralToken(rt);
+            t = refreshed.token;
+            rt = refreshed.refresh_token ?? rt;
+
+            await setStorageItem(STORAGE_KEYS.jwt, t);
+            await setStorageItem(STORAGE_KEYS.refreshToken, rt);
+          }
+
+          if (!isTokenValid && !rt) {
+            await clearStoredAuth();
+            return;
+          }
+
           setToken(t);
+          setRefreshToken(rt);
           if (uid) {
             setUserId(parseInt(uid, 10));
           }
@@ -92,6 +136,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       } catch (e) {
         console.warn('Auth restore failed:', e);
+        await clearStoredAuth();
+        setToken(null);
+        setRefreshToken(null);
+        setUserId(null);
+        setProfile(null);
+        setIsMember(null);
       } finally {
         setReady(true); // <-- ensure this always runs
       }
@@ -100,17 +150,44 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // membership checker (callable + used internally)
   const refreshMembership = useCallback(async () => {
-    if (!token) {
+    let activeToken = token;
+
+    if (!activeToken) {
       setIsMember(null);
       return;
     }
+
     setCheckingMembership(true);
     try {
-      const res: MembershipResponse = await getMembershipStatus(token);
+      const isTokenValid = await validateJwtToken(activeToken);
+
+      if (!isTokenValid) {
+        if (!refreshToken) {
+          setToken(null);
+          setRefreshToken(null);
+          setUserId(null);
+          setProfile(null);
+          setIsMember(null);
+          setLastMembershipCheckAt(undefined);
+          await clearStoredAuth();
+          return;
+        }
+
+        const refreshed = await refreshCoralToken(refreshToken);
+        activeToken = refreshed.token;
+        const nextRefreshToken = refreshed.refresh_token ?? refreshToken;
+
+        setToken(activeToken);
+        setRefreshToken(nextRefreshToken);
+        await setStorageItem(STORAGE_KEYS.jwt, activeToken);
+        await setStorageItem(STORAGE_KEYS.refreshToken, nextRefreshToken);
+      }
+
+      const res: MembershipResponse = await getMembershipStatus(activeToken);
       setIsMember(!!res.is_member);
       setLastMembershipCheckAt(Date.now());
     } catch (e) {
-      // if unauthorized, clear member flag but keep token as-is (UI can react)
+      // if unauthorized, clear member flag but keep token as-is unless validation/refresh failed
       if (e instanceof ApiError && e.status === 401) {
         setIsMember(null);
       } else {
@@ -120,7 +197,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } finally {
       setCheckingMembership(false);
     }
-  }, [token]);
+  }, [token, refreshToken]);
 
   // When token is restored or changes, check membership (once ready)
   useEffect(() => {
@@ -136,40 +213,57 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Login setter
   const setAuth = async (payload: JWTPayload) => {
     setToken(payload.token);
+    setRefreshToken(payload.refresh_token ?? null);
     setProfile({ user_email: payload.user_email, user_display_name: payload.user_display_name });
 
-    await setStorageItem('jwt', payload.token);
-    await setStorageItem('user_email', payload.user_email);
-    await setStorageItem('user_display_name', payload.user_display_name);
+    await setStorageItem(STORAGE_KEYS.jwt, payload.token);
+    await setStorageItem(STORAGE_KEYS.userEmail, payload.user_email);
+    await setStorageItem(STORAGE_KEYS.userDisplayName, payload.user_display_name);
+    if (payload.refresh_token) {
+      await setStorageItem(STORAGE_KEYS.refreshToken, payload.refresh_token);
+    } else {
+      await deleteStorageItem(STORAGE_KEYS.refreshToken);
+    }
 
     // Fetch user ID from BuddyPress
     try {
       const member = await getCurrentMember(payload.token);
       if (member?.id) {
         setUserId(member.id);
-        await setStorageItem('user_id', member.id.toString());
+        await setStorageItem(STORAGE_KEYS.userId, member.id.toString());
         setProfile(prev => ({ ...prev!, user_id: member.id }));
       }
     } catch (e) {
       console.warn('Failed to fetch user ID:', e);
     }
 
-    // Immediately check membership after login
-    await refreshMembership();
+    // Immediately check membership with the newly issued token.
+    setCheckingMembership(true);
+    try {
+      const res: MembershipResponse = await getMembershipStatus(payload.token);
+      setIsMember(!!res.is_member);
+      setLastMembershipCheckAt(Date.now());
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 401) {
+        setIsMember(null);
+      } else {
+        console.warn('Membership check failed:', e);
+      }
+    } finally {
+      setCheckingMembership(false);
+    }
   };
 
   // Logout
   const clearAuth = async () => {
     setToken(null);
+    setRefreshToken(null);
     setUserId(null);
     setProfile(null);
     setIsMember(null);
     setLastMembershipCheckAt(undefined);
 
-    await deleteStorageItem('jwt');
-    await deleteStorageItem('user_email');
-    await deleteStorageItem('user_display_name');
-    await deleteStorageItem('user_id');
+    await clearStoredAuth();
   };
 
   return (

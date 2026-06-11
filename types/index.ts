@@ -12,9 +12,15 @@
  */
 export interface JWTPayload {
   token: string;
+  refresh_token?: string;
   user_email: string;
   user_nicename: string;
   user_display_name: string;
+}
+
+export interface TokenRefreshPayload {
+  token: string;
+  refresh_token?: string;
 }
 
 /**

@@ -2,6 +2,7 @@
 import { Platform } from 'react-native';
 import type {
   JWTPayload,
+  TokenRefreshPayload,
   MembershipResponse,
   WPPage,
   WPPost,
@@ -74,13 +75,51 @@ const sharePostRequestsInFlight = new Map<string, Promise<import('../types').BPA
 
 // ---------- auth ----------
 export async function wpLogin(username: string, password: string): Promise<JWTPayload> {
-  const res = await fetchWithTimeout(`${API}/jwt-auth/v1/token`, {
+  const body = JSON.stringify({ username, password });
+  const coralAuthRes = await fetchWithTimeout(`${API}/coral-auth/v1/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, password }),
+    body,
   });
-  await assertOk(res);       // throws ApiError with clean message if not OK
-  return res.json();         // safe: body not consumed by assertOk
+
+  if (coralAuthRes.ok) {
+    return coralAuthRes.json();
+  }
+
+  if (coralAuthRes.status !== 404 && coralAuthRes.status !== 405) {
+    await assertOk(coralAuthRes);
+  }
+
+  const jwtAuthRes = await fetchWithTimeout(`${API}/jwt-auth/v1/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body,
+  });
+  await assertOk(jwtAuthRes);       // throws ApiError with clean message if not OK
+  return jwtAuthRes.json();         // safe: body not consumed by assertOk
+}
+
+export async function validateJwtToken(token: string): Promise<boolean> {
+  const res = await fetchWithTimeout(`${API}/jwt-auth/v1/token/validate`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (res.ok) return true;
+  if (res.status === 401 || res.status === 403) return false;
+
+  await assertOk(res);
+  return true;
+}
+
+export async function refreshCoralToken(refreshToken: string): Promise<TokenRefreshPayload> {
+  const res = await fetchWithTimeout(`${API}/coral-auth/v1/token/refresh`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refresh_token: refreshToken }),
+  });
+  await assertOk(res);
+  return res.json();
 }
 
 // ---------- taxonomies ----------
