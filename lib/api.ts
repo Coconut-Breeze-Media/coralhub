@@ -559,24 +559,30 @@ export async function getFriendsList(
   const friendships = await getFriendshipRelationships(userId, token);
   console.log('[getFriendsList] Friendships found:', friendships.length);
   console.log('[getFriendsList] Friendships data:', JSON.stringify(friendships, null, 2));
-  
-  // Step 2: Get friends with full member details
-  const res = await fetchWithTimeout(
-    `${API}/buddypress/v1/members?user_id=${userId}&populate_extras=true&per_page=${perPage}&page=${page}`,
-    {
-      headers: { Authorization: `Bearer ${token}` },
-    }
+
+  const total = friendships.length;
+  const pages = Math.max(1, Math.ceil(total / perPage));
+  const start = (page - 1) * perPage;
+  const pagedFriendships = friendships.slice(start, start + perPage);
+  const friendIds = pagedFriendships
+    .map((friendship) => friendship.initiator_id === userId ? friendship.friend_id : friendship.initiator_id)
+    .filter((friendId) => friendId && friendId !== userId);
+
+  // Step 2: Get friends with full member details. BuddyPress members does not
+  // accept user_id as a friendship filter, so load the related member records.
+  const members = await Promise.all(
+    friendIds.map((friendId) =>
+      getMemberById(friendId, token).catch((error) => {
+        console.warn(`[getFriendsList] Failed to fetch member ${friendId}:`, error);
+        return null;
+      })
+    )
   );
-  await assertOk(res);
-  const members: import('../types').BPMember[] = await res.json();
-  console.log('[getFriendsList] Members found:', members.length);
-  
-  // Get pagination info from headers
-  const total = parseInt(res.headers.get('X-WP-Total') || '0', 10);
-  const pages = parseInt(res.headers.get('X-WP-TotalPages') || '1', 10);
-  
+  const validMembers = members.filter((member): member is import('../types').BPMember => !!member);
+  console.log('[getFriendsList] Members found:', validMembers.length);
+
   // Step 3: Merge friendship dates with member data
-  const friendsWithDetails: import('../types').FriendWithDetails[] = members.map((member) => {
+  const friendsWithDetails: import('../types').FriendWithDetails[] = validMembers.map((member) => {
     // Find the friendship relationship for this member
     const friendship = friendships.find(
       (f) => 
