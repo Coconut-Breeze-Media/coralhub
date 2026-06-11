@@ -111,16 +111,6 @@ export const PROFILE_MENU_ITEMS: ReadonlyArray<ProfileMenuItem> = [
     icon: 'link-outline',
   },
   {
-    label: 'Account Settings',
-    href: '/profile/account-settings',
-    icon: 'settings-outline',
-  },
-  {
-    label: 'Account',
-    href: '/profile/account',
-    icon: 'card-outline',
-  },
-  {
     label: 'Credits',
     href: '/profile/credits',
     icon: 'ribbon-outline',
