@@ -32,7 +32,8 @@ import type {
 export function useActivityFeed(
   token: string | null,
   scope?: 'just-me' | 'friends' | 'groups',
-  userId?: number
+  userId?: number,
+  enabled: boolean = true
 ) {
   return useInfiniteQuery({
     queryKey: ['activity', 'feed', scope || 'all', userId || 'all'] as const,
@@ -46,9 +47,10 @@ export function useActivityFeed(
         component: 'activity' // Only fetch activities with component 'activity'
       });
     },
-    enabled: !!token,
-    staleTime: 30000, // 30 seconds
-    refetchOnWindowFocus: true,
+    enabled: !!token && enabled,
+    staleTime: 2 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    refetchOnWindowFocus: false,
     initialPageParam: 1,
     getNextPageParam: (lastPage, allPages) => {
       // Check if there are more pages
@@ -75,7 +77,8 @@ export function useActivityById(token: string | null, activityId: number | null 
       return getActivityById(activityId, token);
     },
     enabled: !!token && !!activityId,
-    staleTime: 30000,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
   });
 }
 
@@ -217,7 +220,8 @@ export function usePostComments(token: string | null, postId: number | null) {
       return getPostComments(postId, token);
     },
     enabled: !!token && !!postId,
-    staleTime: 30000,
+    staleTime: 60 * 1000,
+    gcTime: 5 * 60 * 1000,
   });
 }
 
@@ -327,6 +331,7 @@ export function useSearchUsers(token: string | null, query: string | null) {
       return searchUsers(query, token);
     },
     enabled: !!token && !!query && query.length >= 1,
-    staleTime: 30000,
+    staleTime: 2 * 60 * 1000,
+    gcTime: 5 * 60 * 1000,
   });
 }

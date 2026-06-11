@@ -159,10 +159,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     setCheckingMembership(true);
     try {
-      const isTokenValid = await validateJwtToken(activeToken);
+      const res: MembershipResponse = await getMembershipStatus(activeToken);
+      setIsMember(!!res.is_member);
+      setLastMembershipCheckAt(Date.now());
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 401 && refreshToken) {
+        try {
+          const refreshed = await refreshCoralToken(refreshToken);
+          activeToken = refreshed.token;
+          const nextRefreshToken = refreshed.refresh_token ?? refreshToken;
 
-      if (!isTokenValid) {
-        if (!refreshToken) {
+          setToken(activeToken);
+          setRefreshToken(nextRefreshToken);
+          await setStorageItem(STORAGE_KEYS.jwt, activeToken);
+          await setStorageItem(STORAGE_KEYS.refreshToken, nextRefreshToken);
+
+          const res: MembershipResponse = await getMembershipStatus(activeToken);
+          setIsMember(!!res.is_member);
+          setLastMembershipCheckAt(Date.now());
+          return;
+        } catch (refreshError) {
+          console.warn('Token refresh failed:', refreshError);
           setToken(null);
           setRefreshToken(null);
           setUserId(null);
@@ -172,28 +189,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           await clearStoredAuth();
           return;
         }
-
-        const refreshed = await refreshCoralToken(refreshToken);
-        activeToken = refreshed.token;
-        const nextRefreshToken = refreshed.refresh_token ?? refreshToken;
-
-        setToken(activeToken);
-        setRefreshToken(nextRefreshToken);
-        await setStorageItem(STORAGE_KEYS.jwt, activeToken);
-        await setStorageItem(STORAGE_KEYS.refreshToken, nextRefreshToken);
       }
 
-      const res: MembershipResponse = await getMembershipStatus(activeToken);
-      setIsMember(!!res.is_member);
-      setLastMembershipCheckAt(Date.now());
-    } catch (e) {
-      // if unauthorized, clear member flag but keep token as-is unless validation/refresh failed
       if (e instanceof ApiError && e.status === 401) {
         setIsMember(null);
-      } else {
-        // network/other errors: keep previous value, optionally log
-        console.warn('Membership check failed:', e);
+        return;
       }
+
+      // network/other errors: keep previous value, optionally log
+      console.warn('Membership check failed:', e);
     } finally {
       setCheckingMembership(false);
     }

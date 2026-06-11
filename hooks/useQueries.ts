@@ -188,7 +188,9 @@ export function useFriendsList(userId?: number, page = 1, perPage = 20) {
       return getFriendsList(userId, token, page, perPage);
     },
     enabled: !!token && !!userId,
-    staleTime: 3 * 60 * 1000, // 3 minutes
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -208,6 +210,8 @@ export function useFriendshipRelationships(userId?: number) {
     },
     enabled: !!token && !!userId,
     staleTime: 5 * 60 * 1000, // 5 minutes
+    gcTime: 10 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -255,7 +259,9 @@ export function usePendingFriendRequests(userId?: number) {
       return getPendingFriendRequests(userId, token);
     },
     enabled: !!token && !!userId,
-    staleTime: 30 * 1000, // 30 seconds - refresh frequently for friend requests
+    staleTime: 60 * 1000,
+    gcTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -357,6 +363,7 @@ export function useSendFriendRequest() {
       // Invalidate pending requests to show the new request
       queryClient.invalidateQueries({
         queryKey: ['friends', 'pending'],
+        refetchType: 'inactive',
       });
     },
   });

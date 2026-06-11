@@ -181,6 +181,9 @@ export function useConversations(token: string | null) {
       return getConversations(token);
     },
     enabled: !!token,
+    staleTime: 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -194,6 +197,9 @@ export function useMessages(threadId: number | null, token: string | null) {
       return getMessages(threadId, token);
     },
     enabled: !!token && !!threadId,
+    staleTime: 30 * 1000,
+    gcTime: 10 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -234,6 +240,7 @@ export function useSendMessage(token: string | null) {
           predicate: (query) =>
             query.queryKey[0] === 'messages' &&
             typeof query.queryKey[1] === 'number',
+          refetchType: 'none',
         }),
       ]);
     },
@@ -274,6 +281,7 @@ export function useReplyToThread(token: string | null) {
         queryClient.invalidateQueries({
           queryKey: ['messages', 'conversations'],
           exact: true,
+          refetchType: 'none',
         }),
         queryClient.invalidateQueries({
           queryKey: ['messages', variables.threadId],
@@ -306,6 +314,7 @@ export function useReplyToConversation(token: string | null) {
         queryClient.invalidateQueries({
           queryKey: ['messages', 'conversations'],
           exact: true,
+          refetchType: 'none',
         }),
         queryClient.invalidateQueries({
           queryKey: ['messages', variables.threadId],
@@ -330,6 +339,7 @@ export function useMarkConversationAsRead(token: string | null) {
         queryClient.invalidateQueries({
           queryKey: ['messages', 'conversations'],
           exact: true,
+          refetchType: 'none',
         }),
         queryClient.invalidateQueries({
           queryKey: ['messages', threadId],
@@ -365,6 +375,7 @@ export function useDeleteConversation(token: string | null) {
         queryClient.invalidateQueries({
           queryKey: ['messages', 'conversations'],
           exact: true,
+          refetchType: 'none',
         }),
         queryClient.removeQueries({
           queryKey: ['messages', threadId],

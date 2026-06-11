@@ -31,6 +31,7 @@ export function useAllGroups(
     enabled: !!token,
     staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -49,6 +50,7 @@ export function useMyGroups(token: string | null, max?: number) {
     enabled: !!token,
     staleTime: 5 * 60 * 1000, // 5 minutes - groups don't change frequently
     gcTime: 10 * 60 * 1000, // 10 minutes - keep in cache
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -73,6 +75,7 @@ export function useUserGroups(
     enabled: !!token && !!userId,
     staleTime: 5 * 60 * 1000, // 5 minutes
     gcTime: 10 * 60 * 1000, // 10 minutes
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -97,6 +100,7 @@ export function useGroup(
     enabled: !!token && !!groupId,
     staleTime: 5 * 60 * 1000, // 5 minutes
     gcTime: 10 * 60 * 1000, // 10 minutes
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -119,8 +123,9 @@ export function useGroupActivity(
       return getGroupActivity(groupId, token, { per_page: perPage });
     },
     enabled: !!token && !!groupId,
-    staleTime: 30000, // 30 seconds - activity updates frequently
+    staleTime: 2 * 60 * 1000,
     gcTime: 5 * 60 * 1000, // 5 minutes
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -145,6 +150,7 @@ export function useGroupMembers(
     enabled: !!token && !!groupId,
     staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000,
+    refetchOnWindowFocus: false,
     // Don't retry on 403 — private group non-member access is intentionally denied
     retry: (count, error: any) => {
       if (error?.status === 403) return false;
@@ -220,7 +226,9 @@ export function useMyMembershipRequest(
       return getMyMembershipRequest(userId, groupId, token);
     },
     enabled: !!token && !!userId && !!groupId,
-    staleTime: 30 * 1000,
+    staleTime: 60 * 1000,
+    gcTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -236,7 +244,9 @@ export function useGroupMembershipRequests(
       return getGroupMembershipRequests(groupId, token);
     },
     enabled: !!token && !!groupId,
-    staleTime: 30 * 1000,
+    staleTime: 60 * 1000,
+    gcTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
     retry: (count, error: any) => {
       if (error?.status === 404 || error?.status === 403) return false;
       return count < 3;

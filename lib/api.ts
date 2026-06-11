@@ -558,7 +558,6 @@ export async function getFriendsList(
   console.log('[getFriendsList] Fetching friendships for user:', userId);
   const friendships = await getFriendshipRelationships(userId, token);
   console.log('[getFriendsList] Friendships found:', friendships.length);
-  console.log('[getFriendsList] Friendships data:', JSON.stringify(friendships, null, 2));
 
   const total = friendships.length;
   const pages = Math.max(1, Math.ceil(total / perPage));
@@ -569,16 +568,36 @@ export async function getFriendsList(
     .filter((friendId) => friendId && friendId !== userId);
 
   // Step 2: Get friends with full member details. BuddyPress members does not
-  // accept user_id as a friendship filter, so load the related member records.
-  const members = await Promise.all(
-    friendIds.map((friendId) =>
-      getMemberById(friendId, token).catch((error) => {
-        console.warn(`[getFriendsList] Failed to fetch member ${friendId}:`, error);
-        return null;
-      })
-    )
-  );
-  const validMembers = members.filter((member): member is import('../types').BPMember => !!member);
+  // accept user_id as a friendship filter, so request the related member IDs.
+  let validMembers: import('../types').BPMember[] = [];
+
+  if (friendIds.length > 0) {
+    const params = new URLSearchParams({
+      include: friendIds.join(','),
+      populate_extras: 'true',
+      per_page: String(friendIds.length),
+      page: '1',
+    });
+    const batchRes = await fetchWithTimeout(`${API}/buddypress/v1/members?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (batchRes.ok) {
+      validMembers = await batchRes.json();
+    } else {
+      console.warn('[getFriendsList] Batch member fetch failed; falling back to per-member requests');
+      const members = await Promise.all(
+        friendIds.map((friendId) =>
+          getMemberById(friendId, token).catch((error) => {
+            console.warn(`[getFriendsList] Failed to fetch member ${friendId}:`, error);
+            return null;
+          })
+        )
+      );
+      validMembers = members.filter((member): member is import('../types').BPMember => !!member);
+    }
+  }
+
   console.log('[getFriendsList] Members found:', validMembers.length);
 
   // Step 3: Merge friendship dates with member data
@@ -589,11 +608,6 @@ export async function getFriendsList(
         (f.initiator_id === userId && f.friend_id === member.id) ||
         (f.friend_id === userId && f.initiator_id === member.id)
     );
-    
-    console.log(`[getFriendsList] Mapping member ${member.id} (${member.name}):`, {
-      friendship_id: friendship?.id,
-      has_friendship: !!friendship,
-    });
     
     return {
       ...member,
@@ -802,7 +816,6 @@ export async function getActivityFeed(
   if (component) params.append('component', component);
   
   const url = `/buddypress/v1/activity?${params.toString()}`;
-  console.log('[getActivityFeed] Fetching:', url);
   
   const res = await fetchWithTimeout(`${API}${url}`, {
     headers: { Authorization: `Bearer ${token}` },
@@ -813,8 +826,6 @@ export async function getActivityFeed(
   
   const total = parseInt(res.headers.get('X-WP-Total') || '0', 10);
   const pages = parseInt(res.headers.get('X-WP-TotalPages') || '1', 10);
-  
-  console.log('[getActivityFeed] Found:', activities.length, 'activities');
   
   return {
     activities,

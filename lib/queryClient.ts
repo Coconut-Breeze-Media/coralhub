@@ -17,14 +17,17 @@ const DEFAULT_QUERY_OPTIONS = {
     // Keep unused data in cache for 10 minutes
     gcTime: 10 * 60 * 1000,
     
-    // Retry failed requests up to 3 times
-    retry: 3,
+    // Retry transient/server failures once. Do not retry 4xx API errors.
+    retry: (failureCount: number, error: any) => {
+      if (error?.status >= 400 && error?.status < 500) return false;
+      return failureCount < 1;
+    },
     
     // Exponential backoff for retries
     retryDelay: (attemptIndex: number) => Math.min(1000 * 2 ** attemptIndex, 30000),
     
-    // Refetch on window focus (useful for web)
-    refetchOnWindowFocus: true,
+    // Avoid global refetch storms when navigating between tabs/windows.
+    refetchOnWindowFocus: false,
     
     // Don't refetch on reconnect by default (can be overridden per query)
     refetchOnReconnect: false,
@@ -33,8 +36,8 @@ const DEFAULT_QUERY_OPTIONS = {
     refetchOnMount: true,
   },
   mutations: {
-    // Retry mutations only once
-    retry: 1,
+    // Avoid duplicate writes such as friend requests, messages, and posts.
+    retry: false,
     
     // Shorter retry delay for mutations
     retryDelay: 1000,

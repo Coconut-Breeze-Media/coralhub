@@ -713,7 +713,7 @@ function CommunityScreen() {
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage
-  } = useActivityFeed(token, scope, filterUserId);
+  } = useActivityFeed(token, scope, filterUserId, activeTab !== 'groups-feed');
   
   // Flatten all activities from all pages
   let allActivities = feedData?.pages?.flatMap(page => page.activities) || [];
