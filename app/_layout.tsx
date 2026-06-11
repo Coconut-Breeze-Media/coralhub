@@ -17,22 +17,17 @@ export default function RootLayout() {
   const { expoPushToken, notification } = useNotifications();
 
   useEffect(() => {
-    console.log('🔔 RootLayout: Notification hook initialized');
-    console.log('📱 Push Token Status:', expoPushToken ? 'RECEIVED' : 'PENDING');
   }, []);
 
   useEffect(() => {
     if (expoPushToken) {
-      console.log('✅ Expo Push Token:', expoPushToken);
       // TODO: Send token to your backend server
     } else {
-      console.log('⏳ Waiting for push token...');
     }
   }, [expoPushToken]);
 
   useEffect(() => {
     if (notification) {
-      console.log('📬 Notification received:', notification);
       // TODO: Handle notification
     }
   }, [notification]);

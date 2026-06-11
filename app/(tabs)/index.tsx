@@ -324,29 +324,9 @@ function PostItem({
         Alert.alert('Error', 'Cannot open this link');
       }
     } catch (error) {
-      console.error('Error opening link:', error);
       Alert.alert('Error', 'Failed to open link');
     }
   };
-  
-  // Log each post being rendered
-  console.log('[PostItem] Rendering post:', {
-    id: item.id,
-    user_id: item.user_id,
-    user_name: userName,
-    user_avatar: userAvatar,
-    memberData,
-    content: item.content,
-    date: item.date,
-    favorited: item.favorited,
-    favorite_count: item.favorite_count,
-    component: item.component,
-    type: item.type,
-    primary_item_id: item.primary_item_id,
-    secondary_item_id: item.secondary_item_id,
-    isCurrentUserPost,
-    isLiked,
-  });
   
   return (
     <View style={styles.postCard}>
@@ -789,7 +769,6 @@ function CommunityScreen() {
       
       // Upload images to WordPress first and get public URLs
       if (selectedImages.length > 0) {
-        console.log('[handleCreatePost] Uploading', selectedImages.length, 'images...');
         
         const uploadedUrls: string[] = [];
         
@@ -798,12 +777,9 @@ function CommunityScreen() {
           const fileName = `post-image-${Date.now()}-${i}.jpg`;
           
           try {
-            console.log(`[handleCreatePost] Uploading image ${i + 1}/${selectedImages.length}...`);
             const result = await uploadImage(token!, imageUri, fileName);
             uploadedUrls.push(result.source_url);
-            console.log(`[handleCreatePost] Image ${i + 1} uploaded:`, result.source_url);
           } catch (error) {
-            console.error(`[handleCreatePost] Failed to upload image ${i + 1}:`, error);
             throw new Error(`Failed to upload image ${i + 1}`);
           }
         }
@@ -818,8 +794,6 @@ function CommunityScreen() {
         }
       }
       
-      console.log('[handleCreatePost] Creating post with content:', fullContent);
-      
       await createPostMutation.mutateAsync({
         content: fullContent,
       });
@@ -831,7 +805,6 @@ function CommunityScreen() {
       Alert.alert('Success', 'Post created successfully!');
     } catch (error) {
       Alert.alert('Error', error instanceof Error ? error.message : 'Failed to create post');
-      console.error('Create post error:', error);
     }
   };
   
@@ -861,7 +834,6 @@ function CommunityScreen() {
         setSelectedImages([...selectedImages, ...newImages]);
       }
     } catch (error) {
-      console.error('Image picker error:', error);
       Alert.alert('Error', 'Failed to select images');
     }
   };
@@ -885,7 +857,6 @@ function CommunityScreen() {
       await likePostMutation.mutateAsync({ activityId, isLiked });
     } catch (error) {
       Alert.alert('Error', 'Failed to like post');
-      console.error('Like post error:', error);
     }
   };
   
@@ -909,7 +880,6 @@ function CommunityScreen() {
       Alert.alert('Success', 'Post deleted successfully!');
     } catch (error) {
       Alert.alert('Error', 'Failed to delete post');
-      console.error('Delete post error:', error);
       closeDeleteModal();
     }
   };
@@ -950,7 +920,6 @@ function CommunityScreen() {
       Alert.alert('Success', 'Post updated successfully!');
     } catch (error: any) {
       Alert.alert('Error', error?.message || 'Failed to update post');
-      console.error('Update post error:', error);
     }
   };
   

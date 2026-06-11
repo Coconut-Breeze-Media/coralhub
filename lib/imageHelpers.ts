@@ -20,7 +20,6 @@ export async function convertToJPEG(
   quality: number = 0.8
 ): Promise<string> {
   try {
-    console.log('🔄 Converting image to JPEG:', imageUri);
     
     const result = await ImageManipulator.manipulateAsync(
       imageUri,
@@ -31,12 +30,8 @@ export async function convertToJPEG(
       }
     );
     
-    console.log('✅ Image converted to JPEG:', result.uri);
-    console.log('📏 Dimensions:', result.width, 'x', result.height);
-    
     return result.uri;
   } catch (error) {
-    console.error('❌ Error converting image to JPEG:', error);
     // If conversion fails, return original URI
     return imageUri;
   }
@@ -57,7 +52,6 @@ export async function optimizeAvatarImage(
   quality: number = 0.8
 ): Promise<string> {
   try {
-    console.log('🎨 Optimizing avatar image:', imageUri);
     
     const result = await ImageManipulator.manipulateAsync(
       imageUri,
@@ -68,12 +62,8 @@ export async function optimizeAvatarImage(
       }
     );
     
-    console.log('✅ Avatar optimized:', result.uri);
-    console.log('📏 Final size:', result.width, 'x', result.height);
-    
     return result.uri;
   } catch (error) {
-    console.error('❌ Error optimizing avatar:', error);
     return imageUri;
   }
 }
@@ -93,7 +83,6 @@ export async function optimizeCoverImage(
   quality: number = 0.8
 ): Promise<string> {
   try {
-    console.log('🎨 Optimizing cover image:', imageUri);
     
     const result = await ImageManipulator.manipulateAsync(
       imageUri,
@@ -104,12 +93,8 @@ export async function optimizeCoverImage(
       }
     );
     
-    console.log('✅ Cover optimized:', result.uri);
-    console.log('📏 Final size:', result.width, 'x', result.height);
-    
     return result.uri;
   } catch (error) {
-    console.error('❌ Error optimizing cover:', error);
     return imageUri;
   }
 }
@@ -134,7 +119,6 @@ export async function getImageInfo(imageUri: string): Promise<{
       type: blob.type,
     };
   } catch (error) {
-    console.error('Error getting image info:', error);
     return {};
   }
 }

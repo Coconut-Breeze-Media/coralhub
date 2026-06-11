@@ -30,7 +30,6 @@ export async function registerForPushNotificationsAsync(): Promise<string | unde
 
   // Only works on physical devices
   if (!Device.isDevice) {
-    console.warn('Push notifications only work on physical devices');
     return;
   }
 
@@ -46,7 +45,6 @@ export async function registerForPushNotificationsAsync(): Promise<string | unde
 
   // If permission denied, exit
   if (finalStatus !== 'granted') {
-    console.warn('Push notification permissions not granted');
     return;
   }
 
@@ -59,9 +57,7 @@ export async function registerForPushNotificationsAsync(): Promise<string | unde
     }
 
     token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
-    console.log('Expo Push Token:', token);
   } catch (error) {
-    console.error('Error getting push token:', error);
     throw error;
   }
 

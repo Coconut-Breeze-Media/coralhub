@@ -36,9 +36,6 @@ export default function ExploreGroupsScreen() {
     search: debouncedSearch || undefined,
   });
 
-
-  console.log('Grupos:', groups);
-
   const handleSearchChange = (text: string) => {
     setSearch(text);
     if (debounceRef[0]) clearTimeout(debounceRef[0]);

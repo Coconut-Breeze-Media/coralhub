@@ -108,65 +108,24 @@ export default function GroupDetailScreen() {
   // Log group data when loaded
   useEffect(() => {
     if (group) {
-      console.log('========== GROUP INFO ==========');
-      console.log('✓ Group ID:', group.id);
-      console.log('✓ Group Name:', group.name);
-      console.log('✓ Status:', group.status);
-      console.log('✓ Description (raw):', group.description?.raw || 'N/A');
-      console.log('✓ Total Members:', group.total_member_count);
-      console.log('✓ Creator ID:', group.creator_id);
-      console.log('✓ Date Created:', group.date_created);
-      console.log('✓ Last Activity:', group.last_activity);
-      console.log('✓ Last Activity Diff:', group.last_activity_diff);
-      console.log('✓ Avatar URLs:', group.avatar_urls);
-      console.log('✓ Cover Image:', group.cover_image);
-      console.log('✓ Link:', group.link);
-      console.log('✓ Slug:', group.slug);
-      console.log('✓ Types:', group.types);
-      console.log('================================');
     }
   }, [group]);
 
   // Log activity data when loaded
   useEffect(() => {
     if (activityData) {
-      console.log('========== GROUP ACTIVITY ==========');
-      console.log('📊 Total Activities:', activityData.total);
-      console.log('📄 Total Pages:', activityData.pages);
-      console.log('📝 Activities Count:', activityData.activities?.length || 0);
       if (activityData.activities && activityData.activities.length > 0) {
-        console.log('🔍 First Activity:');
         const first = activityData.activities[0];
-        console.log('   - Type:', first.type);
-        console.log('   - User ID:', first.user_id);
-        console.log('   - Component:', first.component);
-        console.log('   - Date:', first.date);
-        console.log('   - Title:', first.title);
-        console.log('   - Content:', first.content);
-        console.log('   - Full Data:', first);
       } else {
-        console.log('⚠️ No activities found for this group');
       }
-      console.log('====================================');
     }
   }, [activityData]);
 
   // Log members data
   useEffect(() => {
     if (members) {
-      console.log('========== GROUP MEMBERS ==========');
-      console.log('👥 Total Members Received:', members.length);
-      console.log('👥 Group Member Count:', group?.total_member_count);
       members.forEach((member, index) => {
-        console.log(`\n📋 Member ${index + 1}:`);
-        console.log('   - Name:', member.name);
-        console.log('   - ID:', member.id);
-        console.log('   - Roles:', member.roles);
-        console.log('   - Has roles array:', Array.isArray(member.roles));
-        console.log('   - Role detection:', getMemberRole(member.roles));
       });
-      console.log('\n📝 Full Members Data:', JSON.stringify(members, null, 2));
-      console.log('====================================');
     }
   }, [members, group?.total_member_count]);
 
@@ -201,7 +160,6 @@ export default function GroupDetailScreen() {
         setSelectedImages(prev => [...prev, ...newImages].slice(0, 5)); // Max 5 images
       }
     } catch (error) {
-      console.error('Error picking image:', error);
       Alert.alert('Error', 'Failed to pick image');
     }
   };
@@ -230,7 +188,6 @@ export default function GroupDetailScreen() {
       
       // Upload images to WordPress first and get public URLs
       if (selectedImages.length > 0) {
-        console.log('[handleCreatePost] Uploading', selectedImages.length, 'images...');
         
         const uploadedUrls: string[] = [];
         
@@ -239,12 +196,9 @@ export default function GroupDetailScreen() {
           const fileName = `group-post-image-${Date.now()}-${i}.jpg`;
           
           try {
-            console.log(`[handleCreatePost] Uploading image ${i + 1}/${selectedImages.length}...`);
             const result = await uploadImage(token!, imageUri, fileName);
             uploadedUrls.push(result.source_url);
-            console.log(`[handleCreatePost] Image ${i + 1} uploaded:`, result.source_url);
           } catch (error) {
-            console.error(`[handleCreatePost] Failed to upload image ${i + 1}:`, error);
             throw new Error(`Failed to upload image ${i + 1}`);
           }
         }
@@ -259,8 +213,6 @@ export default function GroupDetailScreen() {
         }
       }
       
-      console.log('[handleCreatePost] Creating group post with content:', fullContent);
-      
       await createGroupPostMutation.mutateAsync({
         groupId,
         content: fullContent,
@@ -274,7 +226,6 @@ export default function GroupDetailScreen() {
       await refetchActivity();
       Alert.alert('Success', 'Post created successfully!');
     } catch (error: any) {
-      console.error('Error creating post:', error);
       Alert.alert('Error', error.message || 'Failed to create post');
     } finally {
       setIsPostingActivity(false);
@@ -478,7 +429,6 @@ export default function GroupDetailScreen() {
                   {isMember ? (
                     <TouchableOpacity
                       onPress={() => {
-                        console.log('[LeaveGroup] Button pressed — opening confirmation modal');
                         setShowLeaveModal(true);
                       }}
                       disabled={leaveGroupMutation.isPending}
@@ -523,16 +473,13 @@ export default function GroupDetailScreen() {
                         {myPendingRequestId && (
                           <TouchableOpacity
                             onPress={() => {
-                              console.log('[CancelRequest] requestId:', myPendingRequestId);
                               rejectRequestMutation.mutate(
                                 { groupId: groupId!, requestId: myPendingRequestId },
                                 {
                                   onSuccess: () => {
-                                    console.log('[CancelRequest] ✅ Cancelled');
                                     Alert.alert('Cancelled', 'Your membership request has been cancelled.');
                                   },
                                   onError: (err: any) => {
-                                    console.log('[CancelRequest] ❌ Error:', err?.message);
                                     Alert.alert('Error', err.message || 'Could not cancel the request.');
                                   },
                                 }
@@ -556,16 +503,13 @@ export default function GroupDetailScreen() {
                     ) : (
                       <TouchableOpacity
                         onPress={() => {
-                          console.log('[RequestMembership] groupId:', groupId, '| userId:', userId);
                           requestMembershipMutation.mutate(
                             { groupId: groupId!, userId: userId! },
                             {
                               onSuccess: () => {
-                                console.log('[RequestMembership] ✅ Request sent');
                                 Alert.alert('Request Sent', 'Your membership request is pending approval by an admin.');
                               },
                               onError: (err: any) => {
-                                console.log('[RequestMembership] ❌ Error:', err?.message, err);
                                 Alert.alert('Error', err.message || 'Could not send the request.');
                               },
                             }
@@ -592,16 +536,13 @@ export default function GroupDetailScreen() {
                     /* ── PUBLIC GROUP: Join directly ── */
                     <TouchableOpacity
                       onPress={() => {
-                        console.log('[JoinGroup] groupId:', groupId, '| userId:', userId);
                         joinGroupMutation.mutate(
                           { groupId: groupId!, userId: userId! },
                           {
                             onSuccess: (data) => {
-                              console.log('[JoinGroup] ✅ Success:', data);
                               Alert.alert('Welcome!', `You joined "${group.name}".`);
                             },
                             onError: (err: any) => {
-                              console.log('[JoinGroup] ❌ Error:', err?.message, err);
                               Alert.alert('Error', err.message || 'Could not join the group.');
                             },
                           }
@@ -1410,7 +1351,6 @@ export default function GroupDetailScreen() {
             <View style={{ flexDirection: 'row', gap: 12 }}>
               <TouchableOpacity
                 onPress={() => {
-                  console.log('[LeaveGroup] Modal — cancelled');
                   setShowLeaveModal(false);
                 }}
                 disabled={leaveGroupMutation.isPending}
@@ -1427,17 +1367,14 @@ export default function GroupDetailScreen() {
 
               <TouchableOpacity
                 onPress={() => {
-                  console.log('[LeaveGroup] Confirmed — groupId:', groupId, '| userId:', userId);
                   leaveGroupMutation.mutate(
                     { groupId: groupId!, userId: userId! },
                     {
                       onSuccess: (data) => {
-                        console.log('[LeaveGroup] ✅ Success — left group', groupId, data);
                         setShowLeaveModal(false);
                         Alert.alert('Done', 'You have left the group.');
                       },
                       onError: (err: any) => {
-                        console.log('[LeaveGroup] ❌ Error:', err?.message, err);
                         setShowLeaveModal(false);
                         Alert.alert('Error', err.message || 'Could not leave the group.');
                       },
@@ -1509,12 +1446,11 @@ function MembershipRequestCard({
       <View style={{ flexDirection: 'row', gap: 10 }}>
         <TouchableOpacity
           onPress={() => {
-            console.log('[AcceptRequest] requestId:', request.id, 'userId:', request.user_id);
             acceptMutation.mutate(
               { groupId, requestId: request.id },
               {
-                onSuccess: () => { console.log('[AcceptRequest] ✅ Accepted'); Alert.alert('Accepted', `${name} is now a member.`); },
-                onError: (err: any) => { console.log('[AcceptRequest] ❌ Error:', err?.message); Alert.alert('Error', err.message || 'Could not accept.'); },
+                onSuccess: () => { Alert.alert('Accepted', `${name} is now a member.`); },
+                onError: (err: any) => { Alert.alert('Error', err.message || 'Could not accept.'); },
               }
             );
           }}
@@ -1530,12 +1466,11 @@ function MembershipRequestCard({
         </TouchableOpacity>
         <TouchableOpacity
           onPress={() => {
-            console.log('[RejectRequest] requestId:', request.id);
             rejectMutation.mutate(
               { groupId, requestId: request.id },
               {
-                onSuccess: () => { console.log('[RejectRequest] ✅ Rejected'); Alert.alert('Rejected', 'Membership request rejected.'); },
-                onError: (err: any) => { console.log('[RejectRequest] ❌ Error:', err?.message); Alert.alert('Error', err.message || 'Could not reject.'); },
+                onSuccess: () => { Alert.alert('Rejected', 'Membership request rejected.'); },
+                onError: (err: any) => { Alert.alert('Error', err.message || 'Could not reject.'); },
               }
             );
           }}
@@ -1650,7 +1585,6 @@ function ActivityCard({
         isLiked: isLiked,
       });
     } catch (error) {
-      console.error('Error toggling like:', error);
       // Revert on error
       setIsLiked(!isLiked);
       setLikeCount(activity.favorite_count || 0);
@@ -1681,7 +1615,6 @@ function ActivityCard({
       onActivityUpdate();
       Alert.alert('Success', 'Post updated successfully!');
     } catch (error: any) {
-      console.error('Error updating post:', error);
       Alert.alert('Error', error.message || 'Failed to update post');
     } finally {
       setIsUpdating(false);
@@ -1700,7 +1633,6 @@ function ActivityCard({
       onActivityUpdate();
       Alert.alert('Success', 'Post deleted successfully!');
     } catch (error: any) {
-      console.error('Error deleting post:', error);
       Alert.alert('Error', error.message || 'Failed to delete post');
       setIsDeleteModalVisible(false);
     } finally {

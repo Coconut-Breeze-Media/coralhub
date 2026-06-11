@@ -45,7 +45,6 @@ export default function NotificationTestScreen() {
       Alert.alert('Success', 'Notification scheduled for 2 seconds from now');
     } catch (error) {
       Alert.alert('Error', 'Failed to schedule notification');
-      console.error(error);
     }
   };
 

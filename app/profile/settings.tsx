@@ -88,7 +88,6 @@ export default function ProfileSettingsScreen() {
         }
       }
     } catch (error) {
-      console.error('Error picking image:', error);
       Alert.alert('Error', 'Failed to pick image. Please try again.');
     }
   };
@@ -97,20 +96,14 @@ export default function ProfileSettingsScreen() {
     if (!member?.id) return;
 
     try {
-      console.log('📤 Starting avatar upload for user', member.id);
-      console.log('📷 Image URI:', imageUri);
       
       const response = await uploadAvatar.mutateAsync({ 
         userId: member.id, 
         imageUri 
       });
       
-      console.log('✅ Avatar uploaded successfully');
-      console.log('Avatar URLs:', response.full, response.thumb);
-      
       Alert.alert('Success', 'Profile picture updated successfully');
     } catch (error: any) {
-      console.error('❌ Error uploading avatar:', error);
       
       let errorMessage = 'Failed to update profile picture';
       if (error?.message) {
@@ -125,8 +118,6 @@ export default function ProfileSettingsScreen() {
     if (!member?.id) return;
 
     try {
-      console.log('📤 Starting cover upload for user', member.id);
-      console.log('📷 Image URI:', imageUri);
       
       // Create form data for cover (keeping old implementation for now)
       const formData = new FormData();
@@ -150,11 +141,9 @@ export default function ProfileSettingsScreen() {
       }
       
       await uploadCover.mutateAsync({ userId: member.id, formData });
-      console.log('✅ Cover uploaded successfully');
       
       Alert.alert('Success', 'Cover image updated successfully');
     } catch (error: any) {
-      console.error('❌ Error uploading cover:', error);
       
       let errorMessage = 'Failed to update cover image';
       if (error?.message) {
@@ -189,7 +178,6 @@ export default function ProfileSettingsScreen() {
               }
               Alert.alert('Success', `${type === 'avatar' ? 'Profile picture' : 'Cover image'} deleted`);
             } catch (error) {
-              console.error(`Error deleting ${type}:`, error);
               Alert.alert('Error', `Failed to delete ${type === 'avatar' ? 'profile picture' : 'cover image'}`);
             }
           },
@@ -209,7 +197,6 @@ export default function ProfileSettingsScreen() {
       setIsEditing(false);
       Alert.alert('Success', 'Display name updated successfully');
     } catch (error) {
-      console.error('Error updating name:', error);
       Alert.alert('Error', 'Failed to update display name');
     }
   };

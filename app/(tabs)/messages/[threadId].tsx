@@ -242,36 +242,17 @@ export default function ThreadScreen() {
 
   useEffect(() => {
     if (!data) return;
-
-    console.log('[ThreadScreen] raw thread response:', data);
-    console.log('[ThreadScreen] thread id:', parsedThreadId);
-    console.log('[ThreadScreen] raw message items:', threadItems);
-    console.log('[ThreadScreen] normalized messages:', messages);
   }, [data, messages, parsedThreadId, threadItems]);
 
   useEffect(() => {
     if (!Number.isFinite(parsedThreadId)) {
-      console.log('[ThreadScreen] mark as read skipped: invalid thread id', {
-        threadId,
-      });
       return;
     }
 
-    console.log('[ThreadScreen] marking conversation as read:', {
-      threadId: parsedThreadId,
-    });
-
     markConversationAsRead(parsedThreadId, {
       onSuccess: () => {
-        console.log('[ThreadScreen] conversation marked as read:', {
-          threadId: parsedThreadId,
-        });
       },
       onError: (error) => {
-        console.log('[ThreadScreen] failed to mark conversation as read:', {
-          threadId: parsedThreadId,
-          error: error instanceof Error ? error.message : error,
-        });
       },
     });
   }, [parsedThreadId, markConversationAsRead, threadId]);

@@ -59,7 +59,6 @@ export function usePrefetchMembers(token: string | null, userIds: number[]) {
       // Fetch all members in parallel
       const memberPromises = uniqueUserIds.map(userId => 
         getMemberById(userId, token).catch(error => {
-          console.error(`Failed to fetch member ${userId}:`, error);
           return null; // Return null for failed requests
         })
       );

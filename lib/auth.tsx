@@ -72,8 +72,7 @@ async function clearStoredAuth(): Promise<void> {
   ]);
 }
 
-export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  console.log('[auth] provider mounted'); 
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => { 
   const [token, setToken] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState<string | null>(null);
   const [userId, setUserId] = useState<number | null>(null);
@@ -102,7 +101,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     (async () => {
-      console.log('[auth] restore start');
       try {
         let t = await getStorageItem(STORAGE_KEYS.jwt);
         let rt = await getStorageItem(STORAGE_KEYS.refreshToken);
@@ -135,7 +133,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setProfile(email && name ? { user_email: email, user_display_name: name, user_id: uid ? parseInt(uid, 10) : undefined } : null);
         }
       } catch (e) {
-        console.warn('Auth restore failed:', e);
         await clearStoredAuth();
         setToken(null);
         setRefreshToken(null);
@@ -179,7 +176,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setLastMembershipCheckAt(Date.now());
           return;
         } catch (refreshError) {
-          console.warn('Token refresh failed:', refreshError);
           setToken(null);
           setRefreshToken(null);
           setUserId(null);
@@ -195,9 +191,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setIsMember(null);
         return;
       }
-
-      // network/other errors: keep previous value, optionally log
-      console.warn('Membership check failed:', e);
     } finally {
       setCheckingMembership(false);
     }
@@ -238,7 +231,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setProfile(prev => ({ ...prev!, user_id: member.id }));
       }
     } catch (e) {
-      console.warn('Failed to fetch user ID:', e);
     }
 
     // Immediately check membership with the newly issued token.
@@ -251,7 +243,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (e instanceof ApiError && e.status === 401) {
         setIsMember(null);
       } else {
-        console.warn('Membership check failed:', e);
       }
     } finally {
       setCheckingMembership(false);

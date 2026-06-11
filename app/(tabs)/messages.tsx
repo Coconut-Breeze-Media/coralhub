@@ -211,9 +211,6 @@ export default function MessagesScreen() {
 
   useEffect(() => {
     if (!data) return;
-
-    console.log('[MessagesScreen] raw messages response:', data);
-    console.log('[MessagesScreen] messages:', conversations);
   }, [data, conversations]);
 
   return (

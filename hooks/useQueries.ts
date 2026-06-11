@@ -290,17 +290,14 @@ export function useAcceptFriendRequest() {
       // Optimistically remove the accepted request from the list
       queryClient.setQueryData(['friends', 'pending', userId], (old: any) => {
         if (!Array.isArray(old)) return old;
-        console.log('[Optimistic Update] Removing request from cache:', { otherUserId, userId, currentRequests: old.length });
         const filtered = old.filter((req: any) => {
           // Remove the request where the other user is involved
           const requestOtherUserId = req.initiator_id === userId ? req.friend_id : req.initiator_id;
           const shouldKeep = requestOtherUserId !== otherUserId;
           if (!shouldKeep) {
-            console.log('[Optimistic Update] Removing request:', req.id, 'with otherUserId:', requestOtherUserId);
           }
           return shouldKeep;
         });
-        console.log('[Optimistic Update] Remaining requests:', filtered.length);
         return filtered;
       });
       
@@ -309,13 +306,10 @@ export function useAcceptFriendRequest() {
     onError: (err, variables, context) => {
       // Rollback to previous state on error
       if (context?.previousRequests && context?.userId) {
-        console.log('[Optimistic Update] Rolling back due to error');
         queryClient.setQueryData(['friends', 'pending', context.userId], context.previousRequests);
       }
     },
     onSettled: (data, error, variables) => {
-      // Always refetch after error or success to ensure sync with server
-      console.log('[Optimistic Update] Settled, invalidating queries');
       queryClient.invalidateQueries({ queryKey: ['friends', 'pending', variables.userId] });
       queryClient.invalidateQueries({ queryKey: ['friends'] });
     },

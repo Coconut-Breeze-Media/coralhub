@@ -23,28 +23,22 @@ export function useNotifications() {
   const responseListener = useRef<Notifications.Subscription | undefined>(undefined);
 
   useEffect(() => {
-    console.log('🚀 Starting notification registration...');
     
     // Register for push notifications and get token
     registerForPushNotificationsAsync()
       .then(token => {
-        console.log('✅ Token registration successful!');
         setExpoPushToken(token);
       })
       .catch(error => {
-        console.error('❌ Failed to register for push notifications:', error);
-        console.error('Error details:', error.message || error);
       });
 
     // Listener for notifications received while app is in foreground
     notificationListener.current = Notifications.addNotificationReceivedListener((notification: Notifications.Notification) => {
-      console.log('Notification received:', notification);
       setNotification({ notification });
     });
 
     // Listener for user interactions with notifications
     responseListener.current = Notifications.addNotificationResponseReceivedListener((response: Notifications.NotificationResponse) => {
-      console.log('Notification response:', response);
       setNotification({
         notification: response.notification,
         response,

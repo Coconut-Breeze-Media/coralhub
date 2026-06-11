@@ -15,23 +15,18 @@ export default function App() {
   const { expoPushToken, notification } = useNotifications();
 
   useEffect(() => {
-    console.log('🔔 useNotifications hook initialized');
-    console.log('📱 Push Token Status:', expoPushToken ? 'RECEIVED' : 'PENDING');
   }, []);
 
   useEffect(() => {
     if (expoPushToken) {
-      console.log('✅ Expo Push Token:', expoPushToken);
       // TODO: Send token to your backend server to store it
       // Example: sendPushTokenToServer(expoPushToken);
     } else {
-      console.log('⏳ Waiting for push token...');
     }
   }, [expoPushToken]);
 
   useEffect(() => {
     if (notification) {
-      console.log('📬 Notification received in app:', notification);
       // TODO: Handle notification data (e.g., navigate to specific screen)
     }
   }, [notification]);

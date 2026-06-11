@@ -26,7 +26,6 @@ const API = process.env.EXPO_PUBLIC_WP_API!;
 const WP  = process.env.EXPO_PUBLIC_WP_URL!;
 
 if (!API) throw new Error('Missing EXPO_PUBLIC_WP_API');
-if (!WP)  console.warn('EXPO_PUBLIC_WP_URL is not set (ok if unused yet)');
 
 export class ApiError extends Error {
   status: number;
@@ -334,31 +333,21 @@ export async function uploadUserAvatar(
   token: string,
   imageUri: string
 ): Promise<BPAvatar> {
-  console.log('🔍 Platform detected:', Platform.OS);
-  console.log('📷 Image URI received:', imageUri);
   
   const formData = new FormData();
   
   if (Platform.OS === 'web') {
-    // Web: Convert URI to Blob and then to File
-    console.log('🌐 Processing for Web platform');
     const response = await fetch(imageUri);
     const blob = await response.blob();
-    console.log('📦 Blob created - size:', blob.size, 'type:', blob.type);
     
     // Detect actual MIME type from blob
     const mimeType = blob.type || 'image/jpeg';
     const extension = mimeType.split('/')[1] || 'jpg';
-    console.log('🎯 Detected MIME type:', mimeType, '- Extension:', extension);
     
     const file = new File([blob], `avatar.${extension}`, { type: mimeType });
-    console.log('📄 File created - name:', file.name, 'type:', file.type, 'size:', file.size);
     
     formData.append('file', file);
-    console.log('✅ FormData appended with file');
   } else {
-    // React Native (iOS/Android)
-    console.log('📱 Processing for Native platform');
     const uriParts = imageUri.split('.');
     const fileType = uriParts[uriParts.length - 1] || 'jpg';
     
@@ -373,7 +362,6 @@ export async function uploadUserAvatar(
     };
     
     const mimeType = mimeMap[fileType.toLowerCase()] || 'image/jpeg';
-    console.log('🎯 Detected extension:', fileType, '- MIME type:', mimeType);
     
     // @ts-ignore - React Native FormData accepts this format
     formData.append('file', {
@@ -381,10 +369,7 @@ export async function uploadUserAvatar(
       name: `avatar.${fileType}`,
       type: mimeType,
     });
-    console.log('✅ FormData appended with native file object');
   }
-  
-  console.log('🚀 Sending request to:', `${API}/coral/v1/users/${userId}/avatar`);
   
   const res = await fetchWithTimeout(`${API}/coral/v1/users/${userId}/avatar`, {
     method: 'POST',
@@ -393,14 +378,10 @@ export async function uploadUserAvatar(
       // Don't set Content-Type - browser/RN sets it automatically with boundary
     },
     body: formData,
-  }, 30000); // 30 second timeout for file uploads
-  
-  console.log('📡 Response status:', res.status);
+  }, 30000);
   
   await assertOk(res);
   const data = await res.json();
-  
-  console.log('✅ Upload successful - Avatar URLs:', data);
   
   return {
     full: data.full || '',
@@ -554,10 +535,7 @@ export async function getFriendsList(
   page: number = 1,
   perPage: number = 20
 ): Promise<import('../types').FriendsListResponse> {
-  // Step 1: Get friendship relationships to get dates
-  console.log('[getFriendsList] Fetching friendships for user:', userId);
   const friendships = await getFriendshipRelationships(userId, token);
-  console.log('[getFriendsList] Friendships found:', friendships.length);
 
   const total = friendships.length;
   const pages = Math.max(1, Math.ceil(total / perPage));
@@ -585,11 +563,9 @@ export async function getFriendsList(
     if (batchRes.ok) {
       validMembers = await batchRes.json();
     } else {
-      console.warn('[getFriendsList] Batch member fetch failed; falling back to per-member requests');
       const members = await Promise.all(
         friendIds.map((friendId) =>
           getMemberById(friendId, token).catch((error) => {
-            console.warn(`[getFriendsList] Failed to fetch member ${friendId}:`, error);
             return null;
           })
         )
@@ -597,8 +573,6 @@ export async function getFriendsList(
       validMembers = members.filter((member): member is import('../types').BPMember => !!member);
     }
   }
-
-  console.log('[getFriendsList] Members found:', validMembers.length);
 
   // Step 3: Merge friendship dates with member data
   const friendsWithDetails: import('../types').FriendWithDetails[] = validMembers.map((member) => {
@@ -616,8 +590,6 @@ export async function getFriendsList(
       friendship_date_gmt: friendship?.date_created_gmt,
     };
   });
-  
-  console.log('[getFriendsList] Returning friends with details:', friendsWithDetails.length);
   
   return {
     friends: friendsWithDetails,
@@ -649,13 +621,8 @@ export async function removeFriend(
   token: string,
   friendshipId?: number
 ): Promise<{ success: boolean; message: string }> {
-  console.log('[removeFriend] Attempting to remove friend:', {
-    friendUserId,
-    friendshipId,
-  });
   
   const url = `${API}/coralhub/v1/remove-friend?friend_id=${friendUserId}`;
-  console.log('[removeFriend] URL:', url);
   
   const res = await fetchWithTimeout(url, {
     method: 'DELETE',
@@ -667,7 +634,6 @@ export async function removeFriend(
   
   await assertOk(res);
   const result = await res.json();
-  console.log('[removeFriend] SUCCESS:', result);
   return result;
 }
 
@@ -681,12 +647,10 @@ export async function getPendingFriendRequests(
   userId: number,
   token: string
 ): Promise<import('../types').BPFriendship[]> {
-  console.log('[getPendingFriendRequests] Fetching pending requests for user:', userId);
   const result = await authedFetch<import('../types').BPFriendship[]>(
     `/buddypress/v1/friends?user_id=${userId}&is_confirmed=0`,
     token
   );
-  console.log('[getPendingFriendRequests] Found:', result.length, 'pending requests');
   return result;
 }
 
@@ -700,7 +664,6 @@ export async function acceptFriendRequest(
   otherUserId: number,
   token: string
 ): Promise<import('../types').BPFriendship> {
-  console.log('[acceptFriendRequest] Accepting friendship with user:', otherUserId);
   
   // PUT on the other user's ID to accept their friendship request
   const res = await fetchWithTimeout(
@@ -719,7 +682,6 @@ export async function acceptFriendRequest(
   
   await assertOk(res);
   const result = await res.json();
-  console.log('[acceptFriendRequest] Success:', result);
   return result;
 }
 
@@ -733,7 +695,6 @@ export async function rejectFriendRequest(
   otherUserId: number,
   token: string
 ): Promise<{ deleted: boolean; previous: import('../types').BPFriendship }> {
-  console.log('[rejectFriendRequest] Rejecting friend request with user:', otherUserId);
   
   // DELETE /friends/{user_id} - the id is the OTHER user's ID, not friendship_id
   const res = await fetchWithTimeout(
@@ -749,7 +710,6 @@ export async function rejectFriendRequest(
   
   await assertOk(res);
   const result = await res.json();
-  console.log('[rejectFriendRequest] Success:', result);
   return result;
 }
 
@@ -865,7 +825,6 @@ export async function uploadImage(
   fileName: string = 'post-image.jpg'
 ): Promise<{ source_url: string; id: number }> {
   try {
-    console.log('[uploadImage] Starting upload:', { imageUri, fileName });
 
     // Create FormData for multipart upload
     const formData = new FormData();
@@ -878,16 +837,10 @@ export async function uploadImage(
 
     // Check if it's a blob URI (for web/Expo Web)
     if (imageUri.startsWith('blob:')) {
-      console.log('[uploadImage] Detected blob URI, converting to Blob...');
       
       // Convert blob URI to actual Blob
       const blobResponse = await fetch(imageUri);
       const blob = await blobResponse.blob();
-      
-      console.log('[uploadImage] Blob details:', {
-        size: blob.size,
-        type: blob.type || mimeType,
-      });
       
       // Append blob to FormData
       formData.append('file', blob, fileName);
@@ -901,8 +854,6 @@ export async function uploadImage(
       });
     }
 
-    console.log('[uploadImage] Uploading to WordPress media endpoint...');
-
     const res = await fetchWithTimeout(`${API}/wp/v2/media`, {
       method: 'POST',
       headers: {
@@ -914,18 +865,12 @@ export async function uploadImage(
 
     await assertOk(res);
     const data = await res.json();
-    
-    console.log('[uploadImage] Upload successful:', {
-      id: data.id,
-      source_url: data.source_url
-    });
 
     return {
       source_url: data.source_url,
       id: data.id,
     };
   } catch (error) {
-    console.error('[uploadImage] Upload failed:', error);
     throw error;
   }
 }
@@ -947,8 +892,6 @@ export async function createPost(
     ...(payload.primary_item_id && { primary_item_id: payload.primary_item_id }),
   };
   
-  console.log('[createPost] Creating post:', data);
-  
   return authedFetch<import('../types').BPActivity>('/buddypress/v1/activity', token, {
     method: 'POST',
     body: JSON.stringify(data),
@@ -965,7 +908,6 @@ export async function likePost(
   activityId: number,
   token: string
 ): Promise<{ favorited: boolean }> {
-  console.log('[likePost] Favoriting activity:', activityId);
   
   return authedFetch<{ favorited: boolean }>(
     `/buddypress/v1/activity/${activityId}/favorite`,
@@ -986,7 +928,6 @@ export async function unlikePost(
   activityId: number,
   token: string
 ): Promise<{ favorited: boolean }> {
-  console.log('[unlikePost] Unfavoriting activity:', activityId);
   
   return authedFetch<{ favorited: boolean }>(
     `/buddypress/v1/activity/${activityId}/favorite`,
@@ -1035,8 +976,6 @@ export async function sharePost(
     data.content = trimmedContent;
   }
 
-  console.log('[sharePost] Sharing activity:', originalActivityId);
-
   const request = (async () => {
     const res = await fetchWithTimeout(`${API}/buddypress/v1/activity`, {
       method: 'POST',
@@ -1071,7 +1010,6 @@ export async function deletePost(
   activityId: number,
   token: string
 ): Promise<{ deleted: boolean; previous: import('../types').BPActivity }> {
-  console.log('[deletePost] Deleting activity:', activityId);
   
   return authedFetch<{ deleted: boolean; previous: import('../types').BPActivity }>(
     `/buddypress/v1/activity/${activityId}`,
@@ -1096,7 +1034,6 @@ export async function updatePost(
   token: string,
   options?: { component?: string; primary_item_id?: number }
 ): Promise<import('../types').BPActivity> {
-  console.log('[updatePost] Updating activity:', activityId, 'with options:', options);
   
   const data: any = {
     content,
@@ -1140,8 +1077,6 @@ export async function createGroupPost(
     primary_item_id: groupId,
   };
   
-  console.log('[createGroupPost] Creating post in group:', groupId, data);
-  
   return authedFetch<import('../types').BPActivity>('/buddypress/v1/activity', token, {
     method: 'POST',
     body: JSON.stringify(data),
@@ -1174,8 +1109,6 @@ export async function getMyGroups(
   
   const queryString = queryParams.toString();
   const endpoint = `/buddypress/v1/groups/me${queryString ? `?${queryString}` : ''}`;
-  
-  console.log('[getMyGroups] Fetching current user groups');
   
   return authedFetch<import('../types').BPGroup[]>(endpoint, token);
 }
@@ -1212,8 +1145,6 @@ export async function getAllGroups(
 
   const endpoint = `/buddypress/v1/groups?${queryParams.toString()}`;
 
-  console.log('[getAllGroups] Fetching all groups');
-
   return authedFetch<import('../types').BPGroup[]>(endpoint, token);
 }
 
@@ -1246,8 +1177,6 @@ export async function getUserGroups(
   const queryString = queryParams.toString();
   const endpoint = `/buddypress/v1/groups?${queryString}`;
   
-  console.log(`[getUserGroups] Fetching groups for user ${userId}`);
-  
   return authedFetch<import('../types').BPGroup[]>(endpoint, token);
 }
 
@@ -1266,13 +1195,10 @@ export async function getGroupById(
   const queryParams = populateExtras ? '?populate_extras=true' : '';
   const endpoint = `/buddypress/v1/groups/${groupId}${queryParams}`;
   
-  console.log(`[getGroupById] Fetching group ${groupId}`);
-  
   const response = await authedFetch<any>(endpoint, token);
   
   // BuddyPress API returns an array with single group, extract first element
   if (Array.isArray(response) && response.length > 0) {
-    console.log('[getGroupById] Response is array, extracting first element');
     return response[0] as import('../types').BPGroup;
   }
   
@@ -1307,13 +1233,10 @@ export async function getGroupActivity(
   const queryString = queryParams.toString();
   const endpoint = `/buddypress/v1/activity?${queryString}`;
   
-  console.log(`[getGroupActivity] Fetching activity for group ${groupId}`);
-  
   const response = await authedFetch<any>(endpoint, token);
   
   // Handle both array response and paginated response format
   if (Array.isArray(response)) {
-    console.log('[getGroupActivity] Response is array, converting to ActivityFeedResponse');
     return {
       activities: response,
       total: response.length,
@@ -1350,12 +1273,7 @@ export async function getGroupMembers(
   const queryString = queryParams.toString();
   const endpoint = `/buddypress/v1/groups/${groupId}/members?${queryString}`;
   
-  console.log(`[getGroupMembers] Fetching members for group ${groupId} with exclude_admins=false`);
-  
   const response = await authedFetch<import('../types').BPMember[]>(endpoint, token);
-  
-  console.log(`[getGroupMembers] Received ${response?.length || 0} members for group ${groupId}`);
-  console.log('[getGroupMembers] Members data:', JSON.stringify(response, null, 2));
 
   return response;
 }
@@ -1477,9 +1395,7 @@ export async function getPostComments(
   token: string
 ): Promise<import('../types').BPActivity[]> {
   const url = `/buddypress/v1/activity/${activityId}?display_comments=threaded`;
-  console.log('[getPostComments] Fetching comments for activityId:', activityId, '| URL:', url);
   const result = await authedFetch<any>(url, token);
-  console.log('[getPostComments] Raw result:', result);
   const activity = Array.isArray(result) ? result[0] : result;
   const rawComments = activity?.comments;
   const comments: import('../types').BPActivity[] = rawComments
@@ -1487,7 +1403,6 @@ export async function getPostComments(
       ? rawComments
       : Object.values(rawComments)
     : [];
-  console.log('[getPostComments] Extracted comments:', comments);
   return comments;
 }
 
@@ -1597,8 +1512,6 @@ export async function getConversations(token: string): Promise<BPConversationsRe
   await assertOk(res);
 
   const data = (await res.json()) as BPConversationsResponse;
-  console.log('[getConversations] url:', url);
-  console.log('[getConversations] response:', data);
 
   return data;
 }
@@ -1617,9 +1530,6 @@ export async function getMessages(
   await assertOk(res);
 
   const data = (await res.json()) as BPMessageThreadResult;
-  console.log('[getMessages] url:', url);
-  console.log('[getMessages] thread id:', threadId);
-  console.log('[getMessages] response:', data);
 
   return data;
 }
@@ -1656,11 +1566,6 @@ export async function replyToThread(
 ): Promise<BPMessageMutationResponse> {
   const url = `${API}/buddypress/v1/messages`;
 
-  console.log('[replyToThread] request started:', {
-    threadId,
-    url,
-  });
-
   const res = await fetchWithTimeout(url, {
     method: 'POST',
     headers: {
@@ -1678,11 +1583,6 @@ export async function replyToThread(
 
   const data = (await res.json()) as BPMessageMutationResponse;
 
-  console.log('[replyToThread] request succeeded:', {
-    threadId,
-    response: data,
-  });
-
   return data;
 }
 
@@ -1692,11 +1592,6 @@ export async function replyToConversation(
   message: string
 ): Promise<BPMessageMutationResponse> {
   const url = `${API}/buddypress/v1/messages`;
-
-  console.log('[replyToConversation] request started:', {
-    threadId,
-    url,
-  });
 
   const res = await fetchWithTimeout(url, {
     method: 'POST',
@@ -1715,11 +1610,6 @@ export async function replyToConversation(
 
   const data = (await res.json()) as BPMessageMutationResponse;
 
-  console.log('[replyToConversation] request succeeded:', {
-    threadId,
-    response: data,
-  });
-
   return data;
 }
 
@@ -1728,12 +1618,6 @@ export async function markConversationAsRead(
   token: string
 ): Promise<BPMessageMutationResponse> {
   const url = `${API}/buddypress/v1/messages/${threadId}`;
-
-  console.log('[markConversationAsRead] request started:', {
-    threadId,
-    url,
-    body: { read: true },
-  });
 
   try {
     const res = await fetchWithTimeout(url, {
@@ -1749,17 +1633,8 @@ export async function markConversationAsRead(
 
     const data = (await res.json()) as BPMessageMutationResponse;
 
-    console.log('[markConversationAsRead] request succeeded:', {
-      threadId,
-      response: data,
-    });
-
     return data;
   } catch (error) {
-    console.log('[markConversationAsRead] request failed:', {
-      threadId,
-      error: error instanceof Error ? error.message : error,
-    });
 
     throw error;
   }
