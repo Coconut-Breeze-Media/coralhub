@@ -169,7 +169,7 @@ export default function ResourcesScreen() {
           </Text>
         </View>
 
-        {isLoading ? (
+        {isLoading || (!resources && !error) ? (
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
             <ActivityIndicator />
             <Text style={{ marginTop: 8, color: MUTED }}>Loading resources…</Text>

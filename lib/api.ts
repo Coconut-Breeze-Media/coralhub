@@ -154,9 +154,9 @@ export async function getMembershipLevels(): Promise<MembershipLevel[]> {
 // Premium Resources (protected)
 // =========================
 /**
- * Fetch the premium-resource catalog with per-user lock state.
- * The server computes `unlocked` from the caller's tier; locked items
- * return an empty `url`.
+ * Fetch the premium-resource catalog with per-user lock state from the
+ * server (coral-membership v1.4+). Throws 404 on older plugin versions —
+ * callers fall back to the client-side catalog in constants/premiumResources.
  */
 export async function getPremiumResources(token: string): Promise<PremiumResource[]> {
   const res = await fetchWithTimeout(`${API}/coral/v1/premium-resources`, {
@@ -175,6 +175,40 @@ export async function getPremiumResources(token: string): Promise<PremiumResourc
     unlocked: Boolean(r?.unlocked),
     url: String(r?.url ?? ''),
   })) as PremiumResource[];
+}
+
+// =========================
+// PMPro built-in REST API (live on the site today)
+// =========================
+/**
+ * GET /pmpro/v1/me — PMPro's own endpoint returning the *current* user's
+ * membership info. Used to derive the tier when the coral-membership plugin
+ * on the server is the old v1.3 (which only returns { is_member }).
+ * Response shape varies across PMPro versions, so callers parse defensively.
+ */
+export async function getPmproMe(token: string): Promise<any> {
+  return authedFetch<any>('/pmpro/v1/me', token);
+}
+
+/**
+ * Pull a PMPro level id/name out of a /pmpro/v1/me response, tolerating the
+ * shape differences between PMPro versions (membership_level object,
+ * membership_levels array, or flat fields).
+ */
+export function extractPmproLevel(me: any): { id: number | null; name: string | null } {
+  const lvl =
+    me?.membership_level ??
+    (Array.isArray(me?.membership_levels) ? me.membership_levels[0] : null) ??
+    me?.level ??
+    null;
+
+  const id = Number(lvl?.id ?? lvl?.ID ?? me?.membership_level_id ?? NaN);
+  const name = lvl?.name ?? me?.membership_level_name ?? null;
+
+  return {
+    id: Number.isFinite(id) && id > 0 ? id : null,
+    name: typeof name === 'string' && name.trim() !== '' ? name : null,
+  };
 }
 
 /**

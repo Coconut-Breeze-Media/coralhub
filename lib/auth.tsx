@@ -2,12 +2,18 @@
 import * as SecureStore from 'expo-secure-store';
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { Platform } from 'react-native';
-import { getMembershipStatus, ApiError } from './api';
-import type { 
-  JWTPayload, 
-  MembershipResponse, 
-  UserProfile, 
-  AuthContextState 
+import { getMembershipStatus, getPmproMe, extractPmproLevel, ApiError } from './api';
+import {
+  LEVEL_ID_TIER_MAP,
+  tierFromLevelName,
+  allowedResourcesForTier,
+} from '../constants/premiumResources';
+import type {
+  JWTPayload,
+  MembershipResponse,
+  MembershipTier,
+  UserProfile,
+  AuthContextState,
 } from '../types';
 
 // Helper functions to handle storage on web vs native
@@ -105,8 +111,42 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setCheckingMembership(true);
     try {
       const res: MembershipResponse = await getMembershipStatus(token);
-      setMembership(res);
-      setIsMember(res.tier ? res.tier !== 'none' : !!res.is_member);
+
+      let full: MembershipResponse = res;
+      if (!res.tier) {
+        // Legacy server (coral-membership v1.3) only returns { is_member }.
+        // Derive the tier from PMPro's built-in /pmpro/v1/me endpoint and
+        // compute allowed resources client-side.
+        let tier: MembershipTier = res.is_member ? 'monthly' : 'none';
+        let levelId: number | null = null;
+        let levelName: string | null = null;
+        try {
+          const me = await getPmproMe(token);
+          const lvl = extractPmproLevel(me);
+          levelId = lvl.id;
+          levelName = lvl.name;
+          if (lvl.id != null && LEVEL_ID_TIER_MAP[lvl.id] != null) {
+            tier = LEVEL_ID_TIER_MAP[lvl.id];
+          } else {
+            const byName = tierFromLevelName(lvl.name);
+            if (byName) tier = byName;
+          }
+        } catch (err) {
+          // /pmpro/v1/me unavailable or denied — keep the is_member-based
+          // tier so paying users aren't locked out of monthly resources.
+          console.warn('pmpro/v1/me lookup failed; using is_member fallback:', err);
+        }
+        full = {
+          ...res,
+          tier,
+          level_id: levelId,
+          level_name: levelName,
+          allowed_resources: allowedResourcesForTier(tier),
+        };
+      }
+
+      setMembership(full);
+      setIsMember(full.tier !== 'none');
       setLastMembershipCheckAt(Date.now());
     } catch (e) {
       // if unauthorized, clear member flag but keep token as-is (UI can react)

@@ -248,6 +248,19 @@ In `constants/navigation.ts` the Resources/Networking tab icons appear swapped (
 
 All 13 resource URLs are now confirmed and wired into `coral_resource_urls()` defaults.
 
+## Zero-deploy mode (no website changes required)
+
+The WordPress site cannot currently be updated, so the app runs entirely on endpoints that are **already live**:
+
+- `GET /coral/v1/membership` (old v1.3 shape, `{ is_member }`) — basic membership check.
+- `GET /pmpro/v1/me` (PMPro's built-in REST API) — returns the current user's own membership level; the app maps level ID → tier locally (`constants/premiumResources.ts`, same `1/2/3/6` map).
+- The resource catalog (titles, URLs, tier rules) lives client-side in `constants/premiumResources.ts` and mirrors the plugin's table — **keep the two in sync**.
+- Tapping a resource opens the website page directly; the user logs into the website once in their browser (cookie persists). Real enforcement is the site's existing PMPro page restrictions.
+
+The app **prefers the server** wherever possible: if `coral/v1/membership` ever returns `tier` (v1.4 deployed), the client-side derivation is skipped; if `/coral/v1/premium-resources` stops 404ing, the server catalog wins; if `/coral/v1/app-login-link` exists, resource opens become seamless SSO. So deploying the v1.4 plugin later upgrades behavior with no app release.
+
+Fallback chain for tier: server `tier` → `/pmpro/v1/me` level ID → level name prefix → `is_member ? monthly : none`.
+
 ## Open items / remaining ops work
 1. **Confirm Stripe billing on each paid level** — Stripe is connected (✅). Verify Monthly $4.99/mo (ID 2), Annual $49.99/yr (ID 1), Group $199.99/yr (ID 3) each charge correctly via Stripe, and decide how existing PayPal subscribers are handled (let them ride out PayPal, or migrate).
 2. **PMPro per-page restrictions (A6):** set "Require Membership" on each of the 13 resource pages to match the access table — this is the real server-side enforcement behind the WebView.

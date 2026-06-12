@@ -63,18 +63,28 @@ export function useMembershipStatus() {
 
 /**
  * Hook to fetch the premium-resource catalog with per-user lock state.
- * Requires authentication token.
+ * Prefers the server endpoint (coral-membership v1.4+); on older servers
+ * (404) it builds the catalog client-side from the user's tier.
+ * Requires authentication token + resolved membership.
  */
 export function usePremiumResources() {
-  const { token } = useAuth();
+  const { token, membership } = useAuth();
+  const tier = membership?.tier ?? 'none';
 
   return useQuery({
-    queryKey: queryKeys.premiumResources.all(),
-    queryFn: () => {
+    queryKey: [...queryKeys.premiumResources.all(), tier] as const,
+    queryFn: async () => {
       if (!token) throw new Error('No authentication token');
-      return getPremiumResources(token);
+      try {
+        return await getPremiumResources(token);
+      } catch (e) {
+        // Old plugin on the server — fall back to the local catalog.
+        const { buildPremiumResources } = await import('../constants/premiumResources');
+        return buildPremiumResources(tier);
+      }
     },
-    enabled: !!token,
+    enabled: !!token && !!membership,
+    retry: false, // the fallback already handles failure; don't retry the 404
     staleTime: 5 * 60 * 1000, // 5 minutes
   });
 }
