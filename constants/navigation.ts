@@ -23,14 +23,14 @@ export const TAB_SCREENS: ReadonlyArray<TabNavItem> = [
   {
     name: 'resources',
     title: 'Resources',
-    icon: 'people',
-    iconOutline: 'people-outline',
+    icon: 'library',
+    iconOutline: 'library-outline',
   },
   {
     name: 'networking',
     title: 'Networking',
-    icon: 'book',
-    iconOutline: 'book-outline',
+    icon: 'people',
+    iconOutline: 'people-outline',
   },
   {
     name: 'messages',
