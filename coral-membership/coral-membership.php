@@ -521,8 +521,12 @@ if (!function_exists('coral_app_login_link_handler')) {
     $redirect = $request->get_param('redirect');
     $redirect = is_string($redirect) ? esc_url_raw($redirect) : '';
 
-    // Same-origin only — fall back to home for off-site or empty targets.
-    if (!$redirect || strpos($redirect, untrailingslashit(home_url())) !== 0) {
+    // Same-origin only — compare parsed hosts (a string-prefix check could be
+    // fooled by e.g. https://example.com.evil.com). Fall back to home for
+    // off-site or empty targets.
+    $home_host = wp_parse_url(home_url(), PHP_URL_HOST);
+    $r_host    = $redirect ? wp_parse_url($redirect, PHP_URL_HOST) : null;
+    if (!$redirect || !$r_host || strcasecmp($r_host, (string) $home_host) !== 0) {
       $redirect = $home;
     }
 

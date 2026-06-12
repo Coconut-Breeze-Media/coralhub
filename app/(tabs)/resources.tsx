@@ -121,8 +121,10 @@ export default function ResourcesScreen() {
   useFocusEffect(
     useCallback(() => {
       refreshMembership();
-      refetch();
-    }, [refreshMembership, refetch])
+      // Only refetch once the tier is known — refetch() bypasses `enabled`,
+      // and running before membership resolves would cache an all-locked list.
+      if (membership) refetch();
+    }, [refreshMembership, refetch, membership])
   );
 
   const openUnlocked = useCallback(
