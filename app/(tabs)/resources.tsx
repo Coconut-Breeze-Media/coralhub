@@ -12,12 +12,13 @@ import {
 import { router } from 'expo-router';
 import { useAuth } from '../../lib/auth';
 import { ROUTES } from '../../constants/navigation';
+import { siteUrl } from '../../lib/config';
 import HeroBackground from '../../components/ui/HeroBackground';
 import QuickLinksSection, { type QuickLinkData } from '../../components/ui/QuickLinksSection';
 
-const MAGAZINE_IMAGE = 'https://www.thecoralreefresearchhub.com/wp-content/uploads/2026/04/Issue-2-Cover-Image-212x300.png';
-const MAGAZINE_PDF   = 'https://www.thecoralreefresearchhub.com/wp-content/uploads/2026/01/Issue-1-Coral-Matters-Magazine.pdf';
-const MASTERCLASS_IMAGE = 'https://www.thecoralreefresearchhub.com/wp-content/uploads/2024/04/Masterclass-Thumbnail_SG.jpg';
+const MAGAZINE_IMAGE = siteUrl('/wp-content/uploads/2026/04/Issue-2-Cover-Image-212x300.png');
+const MAGAZINE_PDF = siteUrl('/wp-content/uploads/2026/01/Issue-1-Coral-Matters-Magazine.pdf');
+const MASTERCLASS_IMAGE = siteUrl('/wp-content/uploads/2024/04/Masterclass-Thumbnail_SG.jpg');
 
 const OTHER_QUICK_LINKS: QuickLinkData[] = [
   {
