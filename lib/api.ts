@@ -4,6 +4,7 @@ import type {
   JWTPayload,
   TokenRefreshPayload,
   MembershipResponse,
+  PremiumResource,
   WPPage,
   WPPost,
   WPUser,
@@ -21,6 +22,9 @@ import type {
   BPMessageDeleteResponse,
 } from '../types';
 import { encodeMessageForTransport } from './messagePresentation';
+
+// Re-export so callers can `import { MembershipLevel } from '../lib/api'`.
+export type { MembershipLevel, MembershipResponse, PremiumResource } from '../types';
 
 const API = process.env.EXPO_PUBLIC_WP_API!;
 const WP  = process.env.EXPO_PUBLIC_WP_URL!;
@@ -189,6 +193,82 @@ export async function getMembershipLevels(): Promise<MembershipLevel[]> {
           `${WP}/membership-account/membership-checkout/?level=${Number(l?.id ?? 0)}`
       ),
   }));
+}
+
+// =========================
+// Premium Resources (protected)
+// =========================
+/**
+ * Fetch the premium-resource catalog with per-user lock state from the
+ * server (coral-membership v1.4+). Throws 404 on older plugin versions —
+ * callers fall back to the client-side catalog in constants/premiumResources.
+ */
+export async function getPremiumResources(token: string): Promise<PremiumResource[]> {
+  const res = await fetchWithTimeout(`${API}/coral/v1/premium-resources`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  await assertOk(res);
+  const data = await res.json();
+
+  const list = Array.isArray(data?.resources) ? data.resources : [];
+  return list.map((r: any) => ({
+    key: String(r?.key ?? ''),
+    title: String(r?.title ?? ''),
+    required_tiers: Array.isArray(r?.required_tiers)
+      ? r.required_tiers.map((t: any) => String(t))
+      : [],
+    unlocked: Boolean(r?.unlocked),
+    url: String(r?.url ?? ''),
+  })) as PremiumResource[];
+}
+
+// =========================
+// PMPro built-in REST API (live on the site today)
+// =========================
+/**
+ * GET /pmpro/v1/me — PMPro's own endpoint returning the *current* user's
+ * membership info. Used to derive the tier when the coral-membership plugin
+ * on the server is the old v1.3 (which only returns { is_member }).
+ * Response shape varies across PMPro versions, so callers parse defensively.
+ */
+export async function getPmproMe(token: string): Promise<any> {
+  return authedFetch<any>('/pmpro/v1/me', token);
+}
+
+/**
+ * Pull a PMPro level id/name out of a /pmpro/v1/me response, tolerating the
+ * shape differences between PMPro versions (membership_level object,
+ * membership_levels array, or flat fields).
+ */
+export function extractPmproLevel(me: any): { id: number | null; name: string | null } {
+  const lvl =
+    me?.membership_level ??
+    (Array.isArray(me?.membership_levels) ? me.membership_levels[0] : null) ??
+    me?.level ??
+    null;
+
+  const id = Number(lvl?.id ?? lvl?.ID ?? me?.membership_level_id ?? NaN);
+  const name = lvl?.name ?? me?.membership_level_name ?? null;
+
+  return {
+    id: Number.isFinite(id) && id > 0 ? id : null,
+    name: typeof name === 'string' && name.trim() !== '' ? name : null,
+  };
+}
+
+/**
+ * Exchange the app's JWT session for a short-lived, single-use website
+ * login link that redirects to `redirectUrl` after setting the WP cookie.
+ * Used to open gated website pages already authenticated.
+ */
+export async function getAppLoginLink(
+  token: string,
+  redirectUrl: string
+): Promise<{ url: string }> {
+  return authedFetch<{ url: string }>('/coral/v1/app-login-link', token, {
+    method: 'POST',
+    body: JSON.stringify({ redirect: redirectUrl }),
+  });
 }
 
 // ---------- authedFetch + /users/me ----------

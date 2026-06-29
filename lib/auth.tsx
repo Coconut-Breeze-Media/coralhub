@@ -7,13 +7,21 @@ import {
   getCurrentMember,
   validateJwtToken,
   refreshCoralToken,
+  getPmproMe,
+  extractPmproLevel,
   ApiError,
 } from './api';
-import type { 
-  JWTPayload, 
-  MembershipResponse, 
-  UserProfile, 
-  AuthContextState 
+import {
+  LEVEL_ID_TIER_MAP,
+  tierFromLevelName,
+  allowedResourcesForTier,
+} from '../constants/premiumResources';
+import type {
+  JWTPayload,
+  MembershipResponse,
+  MembershipTier,
+  UserProfile,
+  AuthContextState,
 } from '../types';
 
 // Helper functions to handle storage on web vs native
@@ -40,12 +48,55 @@ async function deleteStorageItem(key: string): Promise<void> {
   }
 }
 
+/**
+ * Fetch membership and resolve the user's tier + allowed resources.
+ * New server (coral-membership v1.4+) returns tier/allowed_resources directly;
+ * on the legacy server (only { is_member }) the tier is derived from PMPro's
+ * built-in /pmpro/v1/me endpoint, falling back to the level-name prefix, then
+ * to is_member ? 'monthly' : 'none'. Shared by every membership-check path so
+ * token refreshes and fresh logins never leave membership stale.
+ */
+async function deriveMembership(activeToken: string): Promise<MembershipResponse> {
+  const res: MembershipResponse = await getMembershipStatus(activeToken);
+  if (res.tier) {
+    return res;
+  }
+
+  let tier: MembershipTier = res.is_member ? 'monthly' : 'none';
+  let levelId: number | null = null;
+  let levelName: string | null = null;
+  try {
+    const me = await getPmproMe(activeToken);
+    const lvl = extractPmproLevel(me);
+    levelId = lvl.id;
+    levelName = lvl.name;
+    if (lvl.id != null && LEVEL_ID_TIER_MAP[lvl.id] != null) {
+      tier = LEVEL_ID_TIER_MAP[lvl.id];
+    } else {
+      const byName = tierFromLevelName(lvl.name);
+      if (byName) tier = byName;
+    }
+  } catch {
+    // /pmpro/v1/me unavailable or denied — keep the is_member-based tier so
+    // paying users aren't locked out of monthly resources.
+  }
+
+  return {
+    ...res,
+    tier,
+    level_id: levelId,
+    level_name: levelName,
+    allowed_resources: allowedResourcesForTier(tier),
+  };
+}
 
 const AuthContext = createContext<AuthContextState>({
   token: null,
   userId: null,
   profile: null,
+  membership: null,
   isMember: null,
+  canAccess: () => false,
   refreshMembership: async () => {},
   setAuth: async () => {},
   clearAuth: async () => {},
@@ -72,32 +123,16 @@ async function clearStoredAuth(): Promise<void> {
   ]);
 }
 
-export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => { 
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [token, setToken] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState<string | null>(null);
   const [userId, setUserId] = useState<number | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [membership, setMembership] = useState<MembershipResponse | null>(null);
   const [isMember, setIsMember] = useState<boolean | null>(null);
   const [ready, setReady] = useState(false);
   const [checkingMembership, setCheckingMembership] = useState(false);
   const [lastMembershipCheckAt, setLastMembershipCheckAt] = useState<number | undefined>(undefined);
-
-  // Restore from SecureStore on app start
-  // useEffect(() => {
-  //   (async () => {
-  //     const t = await SecureStore.getItemAsync('jwt');
-  //     const email = await SecureStore.getItemAsync('user_email');
-  //     const name = await SecureStore.getItemAsync('user_display_name');
-
-  //     if (t) {
-  //       setToken(t);
-  //       setProfile(email && name ? { user_email: email, user_display_name: name } : null);
-  //     }
-  //     setReady(true);
-  //   })();
-  // }, []);
-
-
 
   useEffect(() => {
     (async () => {
@@ -138,6 +173,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setRefreshToken(null);
         setUserId(null);
         setProfile(null);
+        setMembership(null);
         setIsMember(null);
       } finally {
         setReady(true); // <-- ensure this always runs
@@ -150,14 +186,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     let activeToken = token;
 
     if (!activeToken) {
+      setMembership(null);
       setIsMember(null);
       return;
     }
 
     setCheckingMembership(true);
     try {
-      const res: MembershipResponse = await getMembershipStatus(activeToken);
-      setIsMember(!!res.is_member);
+      const full = await deriveMembership(activeToken);
+      setMembership(full);
+      setIsMember(full.tier !== 'none');
       setLastMembershipCheckAt(Date.now());
     } catch (e) {
       if (e instanceof ApiError && e.status === 401 && refreshToken) {
@@ -171,8 +209,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           await setStorageItem(STORAGE_KEYS.jwt, activeToken);
           await setStorageItem(STORAGE_KEYS.refreshToken, nextRefreshToken);
 
-          const res: MembershipResponse = await getMembershipStatus(activeToken);
-          setIsMember(!!res.is_member);
+          const full = await deriveMembership(activeToken);
+          setMembership(full);
+          setIsMember(full.tier !== 'none');
           setLastMembershipCheckAt(Date.now());
           return;
         } catch (refreshError) {
@@ -180,6 +219,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setRefreshToken(null);
           setUserId(null);
           setProfile(null);
+          setMembership(null);
           setIsMember(null);
           setLastMembershipCheckAt(undefined);
           await clearStoredAuth();
@@ -188,6 +228,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       if (e instanceof ApiError && e.status === 401) {
+        setMembership(null);
         setIsMember(null);
         return;
       }
@@ -196,6 +237,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [token, refreshToken]);
 
+  // Whether the current tier grants access to a given resource key.
+  const canAccess = useCallback(
+    (resourceKey: string) => !!membership?.allowed_resources?.includes(resourceKey),
+    [membership]
+  );
+
   // When token is restored or changes, check membership (once ready)
   useEffect(() => {
     if (!ready) return;
@@ -203,6 +250,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // fire and forget; UI can use checkingMembership
       refreshMembership();
     } else {
+      setMembership(null);
       setIsMember(null);
     }
   }, [token, ready, refreshMembership]);
@@ -236,11 +284,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Immediately check membership with the newly issued token.
     setCheckingMembership(true);
     try {
-      const res: MembershipResponse = await getMembershipStatus(payload.token);
-      setIsMember(!!res.is_member);
+      const full = await deriveMembership(payload.token);
+      setMembership(full);
+      setIsMember(full.tier !== 'none');
       setLastMembershipCheckAt(Date.now());
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
+        setMembership(null);
         setIsMember(null);
       } else {
       }
@@ -255,6 +305,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setRefreshToken(null);
     setUserId(null);
     setProfile(null);
+    setMembership(null);
     setIsMember(null);
     setLastMembershipCheckAt(undefined);
 
@@ -267,7 +318,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         token,
         userId,
         profile,
+        membership,
         isMember,
+        canAccess,
         refreshMembership,
         setAuth,
         clearAuth,
