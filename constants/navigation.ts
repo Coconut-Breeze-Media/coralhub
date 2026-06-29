@@ -132,7 +132,10 @@ export const ROUTES = {
   
   // Auth
   MEMBERSHIP_LEVELS: '/(auth)/membership-levels',
-  
+
+  // In-app resource viewer (WebView)
+  RESOURCE_VIEWER: '/resource-viewer',
+
   // Tabs
   TABS: '/(tabs)',
   COMMUNITY: '/(tabs)/index',

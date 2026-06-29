@@ -2,7 +2,6 @@ import { useCallback, useMemo, useRef } from 'react';
 import {
   Animated,
   Image,
-  Linking,
   Pressable,
   StyleSheet,
   Text,
@@ -11,7 +10,6 @@ import {
 } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 import { useAuth } from '../../lib/auth';
-import { getAppLoginLink } from '../../lib/api';
 import { ROUTES } from '../../constants/navigation';
 import { PREMIUM_RESOURCE_CATALOG } from '../../constants/premiumResources';
 import HeroBackground from '../../components/ui/HeroBackground';
@@ -75,7 +73,7 @@ const OTHER_QUICK_LINKS: QuickLinkData[] = [
 
 export default function ResourcesScreen() {
   const { width } = useWindowDimensions();
-  const { profile, token, canAccess, refreshMembership } = useAuth();
+  const { profile, canAccess, refreshMembership } = useAuth();
   const isWide  = width >= 768;
   const scrollY = useRef(new Animated.Value(0)).current;
 
@@ -87,8 +85,11 @@ export default function ResourcesScreen() {
     }, [refreshMembership])
   );
 
-  const handleOpenMagazine = useCallback(async () => {
-    await Linking.openURL(MAGAZINE_PDF);
+  const handleOpenMagazine = useCallback(() => {
+    router.push({
+      pathname: ROUTES.RESOURCE_VIEWER,
+      params: { url: MAGAZINE_PDF, title: 'Coral Matters Magazine' },
+    });
   }, []);
 
   const handleGoToNewsFeed = useCallback(() => {
@@ -100,31 +101,24 @@ export default function ResourcesScreen() {
   }, []);
 
   /**
-   * Open a premium resource. Locked → upgrade screen. Unlocked → mint an SSO
-   * login link so the website page opens already authenticated (falls back to
-   * opening the page directly when the SSO endpoint isn't deployed yet).
+   * Open a premium resource. Locked → upgrade screen. Unlocked → open inside
+   * the app's WebView, which exchanges the JWT for an SSO login URL and keeps
+   * the session cookie so the page loads already authenticated.
    */
   const openResource = useCallback(
-    async (resourceKey: string) => {
+    (resourceKey: string) => {
       const resource = PREMIUM_RESOURCE_CATALOG.find((r) => r.key === resourceKey);
       if (!resource) return;
       if (!canAccess(resourceKey)) {
         router.push(ROUTES.MEMBERSHIP_LEVELS);
         return;
       }
-      if (!token) return;
-      try {
-        const { url } = await getAppLoginLink(token, resource.url);
-        await Linking.openURL(url);
-      } catch {
-        try {
-          await Linking.openURL(resource.url);
-        } catch {
-          /* no-op */
-        }
-      }
+      router.push({
+        pathname: ROUTES.RESOURCE_VIEWER,
+        params: { url: resource.url, title: resource.title },
+      });
     },
-    [token, canAccess]
+    [canAccess]
   );
 
   const handleQuickLink = useCallback(
