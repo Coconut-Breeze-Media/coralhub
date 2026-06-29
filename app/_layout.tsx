@@ -130,6 +130,15 @@ export default function RootLayout() {
               headerShown: false,
             }}
           />
+
+          {/* In-app resource viewer (WebView) with back button */}
+          <Stack.Screen
+            name="resource-viewer"
+            options={{
+              headerShown: true,
+              headerLeft: () => <BackButton />,
+            }}
+          />
         </Stack>
       </AuthProvider>
     </QueryClientProvider>
