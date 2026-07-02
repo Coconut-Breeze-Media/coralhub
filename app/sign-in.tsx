@@ -18,6 +18,7 @@ import {
 import { router } from 'expo-router';
 import { useAuth } from '../lib/auth';   
 import { wpLogin } from '../lib/api';   
+import { PASSWORD_RESET_URL } from '../lib/config';
 
 export const options = { headerShown: false }; // ← hide the default header
 
@@ -112,7 +113,7 @@ export default function SignInScreen() {
         <View style={styles.helperRow}>
           <Pressable
             onPress={() =>
-              Linking.openURL('https://www.thecoralreefresearchhub.com/wp-login.php?action=lostpassword')
+              Linking.openURL(PASSWORD_RESET_URL)
             }
             disabled={busy}
           >

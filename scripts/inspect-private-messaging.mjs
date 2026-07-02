@@ -4,6 +4,13 @@ import path from 'node:path';
 const repoRoot = path.resolve(process.cwd());
 const envPath = path.join(repoRoot, '.env');
 
+const LOCAL_HOSTNAMES = new Set([
+  'localhost',
+  '127.0.0.1',
+  '0.0.0.0',
+  'host.docker.internal',
+]);
+
 function loadDotEnv(filePath) {
   if (!existsSync(filePath)) return;
 
@@ -75,6 +82,52 @@ function getInterestingEntries(record) {
   return output;
 }
 
+function isPrivateIpv4(hostname) {
+  const match = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (!match) return false;
+
+  const octets = match.slice(1).map(Number);
+  if (octets.some((part) => Number.isNaN(part) || part < 0 || part > 255)) {
+    return false;
+  }
+
+  const [a, b] = octets;
+  if (a === 10 || a === 127) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+
+  return false;
+}
+
+function normalizeProductionApiUrl(rawValue) {
+  let parsed;
+
+  try {
+    parsed = new URL(rawValue);
+  } catch {
+    throw new Error('EXPO_PUBLIC_WP_API must be a valid absolute URL.');
+  }
+
+  const hostname = parsed.hostname.toLowerCase();
+  if (parsed.protocol !== 'https:') {
+    throw new Error('EXPO_PUBLIC_WP_API must use https in production.');
+  }
+
+  if (
+    LOCAL_HOSTNAMES.has(hostname) ||
+    hostname.endsWith('.local') ||
+    isPrivateIpv4(hostname)
+  ) {
+    throw new Error('EXPO_PUBLIC_WP_API cannot point to a local or private server.');
+  }
+
+  parsed.hash = '';
+  parsed.search = '';
+  parsed.pathname = parsed.pathname.replace(/\/+$/, '');
+
+  return `${parsed.origin}${parsed.pathname}`;
+}
+
 async function fetchJson(url, token) {
   const response = await fetch(url, {
     headers: {
@@ -102,11 +155,20 @@ async function fetchJson(url, token) {
 
 loadDotEnv(envPath);
 
-const apiBase = process.env.EXPO_PUBLIC_WP_API;
+const rawApiBase = process.env.EXPO_PUBLIC_WP_API;
 const token = process.env.JWT_TOKEN;
 
-if (!apiBase) {
+if (!rawApiBase) {
   console.error('Missing EXPO_PUBLIC_WP_API in .env or environment.');
+  process.exit(1);
+}
+
+let apiBase;
+
+try {
+  apiBase = normalizeProductionApiUrl(rawApiBase);
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);
 }
 

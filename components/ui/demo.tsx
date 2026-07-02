@@ -1,4 +1,8 @@
+import { siteUrl } from "../../lib/config"
 import WarpShaderHero from "./wrap-shader"
+
+const magazinePdfUrl = siteUrl('/wp-content/uploads/2026/01/Issue-1-Coral-Matters-Magazine.pdf')
+const magazineImageUrl = siteUrl('/wp-content/uploads/2026/04/Issue-2-Cover-Image-212x300.png')
 
 export default function DemoOne() {
   return (
@@ -13,11 +17,11 @@ export default function DemoOne() {
             <p style={{ marginTop: "1.5rem", color: "#151515", fontSize: "clamp(1rem, 1.8vw, 1.55rem)", lineHeight: 1.5, fontFamily: "sans-serif", maxWidth: "900px" }}>
               We are excited to announce issue 2 of our quarterly magazine ‘Coral Matters’, that aims to bring you up-to-date coral related news, research, help and advice from around the world. It is also a place where we will be featuring members work, ideas and questions. Remember this is YOUR magazine, created by coral reef scientists for coral reef scientists! Download your FREE copy now!
             </p>
-            <a href="https://www.thecoralreefresearchhub.com/wp-content/uploads/2026/01/Issue-1-Coral-Matters-Magazine.pdf" target="_blank" rel="noreferrer" style={{ marginTop: "2rem", display: "inline-block", padding: "1rem 2.1rem", borderRadius: "9999px", border: "2px solid #0f2f9b", color: "#ffffff", background: "linear-gradient(135deg, #1b49d4 0%, #0f2f9b 100%)", boxShadow: "0 8px 20px rgba(15,47,155,0.28)", textDecoration: "none", fontFamily: "sans-serif", fontWeight: 800, fontSize: "clamp(1rem, 1.5vw, 1.25rem)", letterSpacing: "0.02em" }}>
+            <a href={magazinePdfUrl} target="_blank" rel="noreferrer" style={{ marginTop: "2rem", display: "inline-block", padding: "1rem 2.1rem", borderRadius: "9999px", border: "2px solid #0f2f9b", color: "#ffffff", background: "linear-gradient(135deg, #1b49d4 0%, #0f2f9b 100%)", boxShadow: "0 8px 20px rgba(15,47,155,0.28)", textDecoration: "none", fontFamily: "sans-serif", fontWeight: 800, fontSize: "clamp(1rem, 1.5vw, 1.25rem)", letterSpacing: "0.02em" }}>
               View & Download Now
             </a>
           </div>
-          <img src="https://www.thecoralreefresearchhub.com/wp-content/uploads/2026/04/Issue-2-Cover-Image-212x300.png" alt="Coral Matters Magazine Issue 2" style={{ width: "100%", maxWidth: "320px", alignSelf: "center", borderRadius: "2px" }} />
+          <img src={magazineImageUrl} alt="Coral Matters Magazine Issue 2" style={{ width: "100%", maxWidth: "320px", alignSelf: "center", borderRadius: "2px" }} />
         </div>
 
         <div style={{ marginTop: "4.5rem", borderTop: "1px solid #dbdde1", paddingTop: "4rem", textAlign: "center" }}>

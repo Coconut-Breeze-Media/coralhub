@@ -22,14 +22,13 @@ import type {
   BPMessageDeleteResponse,
 } from '../types';
 import { encodeMessageForTransport } from './messagePresentation';
+import { API_BASE_URL, SITE_URL } from './config';
 
 // Re-export so callers can `import { MembershipLevel } from '../lib/api'`.
 export type { MembershipLevel, MembershipResponse, PremiumResource } from '../types';
 
-const API = process.env.EXPO_PUBLIC_WP_API!;
-const WP  = process.env.EXPO_PUBLIC_WP_URL!;
-
-if (!API) throw new Error('Missing EXPO_PUBLIC_WP_API');
+const API = API_BASE_URL;
+const WP = SITE_URL;
 
 export class ApiError extends Error {
   status: number;
@@ -690,7 +689,7 @@ export async function getFriendById(friendId: number, token: string): Promise<im
 
 /**
  * Remove a friend (delete friendship)
- * Uses the coralhub/v1/remove-friend endpoint which requires authentication
+ * Uses the production Coral Social API endpoint which requires authentication
  * @param {number} friendUserId - Friend's user ID to remove
  * @param {string} token - JWT authentication token
  * @param {number} friendshipId - Optional friendship ID (not used by current endpoint)
@@ -702,7 +701,7 @@ export async function removeFriend(
   friendshipId?: number
 ): Promise<{ success: boolean; message: string }> {
   
-  const url = `${API}/coralhub/v1/remove-friend?friend_id=${friendUserId}`;
+  const url = `${API}/coral/v1/users/${friendUserId}/remove-friendship`;
   
   const res = await fetchWithTimeout(url, {
     method: 'DELETE',
