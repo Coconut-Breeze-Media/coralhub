@@ -48,18 +48,13 @@ export async function registerForPushNotificationsAsync(): Promise<string | unde
     return;
   }
 
-  // Get the Expo Push Token
-  try {
-    const projectId = Constants.expoConfig?.extra?.eas?.projectId;
-    
-    if (!projectId) {
-      throw new Error('EAS Project ID not found. Please configure it in app.config.js');
-    }
+  const projectId = Constants.expoConfig?.extra?.eas?.projectId;
 
-    token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
-  } catch (error) {
-    throw error;
+  if (!projectId) {
+    throw new Error('EAS Project ID not found. Please configure it in app.config.js');
   }
+
+  token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
 
   // Android specific channel configuration
   if (Platform.OS === 'android') {

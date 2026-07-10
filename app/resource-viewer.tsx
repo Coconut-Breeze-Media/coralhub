@@ -99,7 +99,6 @@ export default function ResourceViewerScreen() {
     } catch (e) {
       // SSO exchange failed — fall back to the raw page so the resource is
       // still reachable (user may have to log in once on the site).
-      console.warn('SSO login link failed, loading page directly:', e);
       setEntryUrl(url);
       resolvedFor.current = url;
     } finally {

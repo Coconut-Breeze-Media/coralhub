@@ -53,7 +53,7 @@ const OTHER_QUICK_LINKS: QuickLinkData[] = [
   {
     id: 'other-groups',
     label: 'VIEW GROUPS',
-    description: 'View our database of member created groups. These groups work just like those on regular social media, and are great places to collaborate or search for those who have simialr niched research interests.',
+    description: 'View our database of member created groups. These groups work just like those on regular social media, and are great places to collaborate or search for those who have similar niched research interests.',
   },
   {
     id: 'other-magazine',
@@ -170,7 +170,7 @@ export default function ResourcesScreen() {
             fontSize:   isWide ? 18 : 14,
             lineHeight: isWide ? 26 : 20,
           }]}>
-            You Are Logged In As: {profile?.user_display_name ?? 'coconutbreezemedia'}
+            You Are Logged In As: {profile?.user_display_name ?? 'member'}
           </Text>
 
           <Pressable

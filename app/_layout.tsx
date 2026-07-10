@@ -11,26 +11,9 @@ import { queryClient } from '../lib/queryClient';
 import BackButton from '../components/BackButton';
 import { DEFAULT_HEADER_OPTIONS, SCREEN_TITLES } from '../constants/navigation';
 import { useNotifications } from '../hooks/useNotifications';
-import { useEffect } from 'react';
 
 export default function RootLayout() {
-  const { expoPushToken, notification } = useNotifications();
-
-  useEffect(() => {
-  }, []);
-
-  useEffect(() => {
-    if (expoPushToken) {
-      // TODO: Send token to your backend server
-    } else {
-    }
-  }, [expoPushToken]);
-
-  useEffect(() => {
-    if (notification) {
-      // TODO: Handle notification
-    }
-  }, [notification]);
+  useNotifications();
 
   return (
     <QueryClientProvider client={queryClient}>
