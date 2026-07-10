@@ -19,6 +19,7 @@ export default {
         bundleIdentifier: "com.corrhub.app",
         buildNumber: "1",
         infoPlist: {
+          ITSAppUsesNonExemptEncryption: false,
           NSPhotoLibraryUsageDescription: "CoRR Hub needs access to your photo library so you can upload images to posts and update your profile photos.",
         },
       },
@@ -31,7 +32,6 @@ export default {
         package: "com.corrhub.app",
         versionCode: 1,
         permissions: [
-          "android.permission.POST_NOTIFICATIONS",
           "android.permission.READ_MEDIA_IMAGES"
         ],
         blockedPermissions: [
@@ -48,8 +48,7 @@ export default {
           {
             photosPermission: "CoRR Hub needs access to your photo library so you can upload images to posts and update your profile photos."
           }
-        ],
-        "expo-notifications"
+        ]
       ],
       extra: {
         eas: {

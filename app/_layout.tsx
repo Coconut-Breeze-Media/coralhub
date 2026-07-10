@@ -10,11 +10,8 @@ import { AuthProvider } from '../lib/auth';
 import { queryClient } from '../lib/queryClient';
 import BackButton from '../components/BackButton';
 import { DEFAULT_HEADER_OPTIONS, SCREEN_TITLES } from '../constants/navigation';
-import { useNotifications } from '../hooks/useNotifications';
 
 export default function RootLayout() {
-  useNotifications();
-
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
