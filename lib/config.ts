@@ -57,8 +57,10 @@ function assertProductionUrl(name: string, rawValue: string, options?: { require
   return `${parsed.origin}${parsed.pathname}`;
 }
 
-function readRequiredUrl(name: 'EXPO_PUBLIC_WP_URL' | 'EXPO_PUBLIC_WP_API'): string {
-  const rawValue = process.env[name];
+function readRequiredUrl(
+  name: 'EXPO_PUBLIC_WP_URL' | 'EXPO_PUBLIC_WP_API',
+  rawValue: string | undefined,
+): string {
 
   if (!rawValue) {
     throw new Error(`Missing ${name}`);
@@ -74,8 +76,9 @@ function joinSitePath(pathname: string): string {
   return new URL(normalizedPath, `${SITE_URL}/`).toString();
 }
 
-export const SITE_URL = readRequiredUrl('EXPO_PUBLIC_WP_URL');
-export const API_BASE_URL = readRequiredUrl('EXPO_PUBLIC_WP_API');
+// Expo only inlines EXPO_PUBLIC_* variables when they are accessed statically.
+export const SITE_URL = readRequiredUrl('EXPO_PUBLIC_WP_URL', process.env.EXPO_PUBLIC_WP_URL);
+export const API_BASE_URL = readRequiredUrl('EXPO_PUBLIC_WP_API', process.env.EXPO_PUBLIC_WP_API);
 export const PASSWORD_RESET_URL = joinSitePath('/wp-login.php?action=lostpassword');
 
 export function siteUrl(pathname: string): string {
