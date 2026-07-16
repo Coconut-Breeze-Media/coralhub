@@ -29,13 +29,16 @@ export default {
           backgroundColor: "#ffffff",
         },
         edgeToEdgeEnabled: true,
-        package: "com.corrhub.app",
+        package: "app.corrhub",
         versionCode: 1,
         permissions: [
           "android.permission.READ_MEDIA_IMAGES"
         ],
         blockedPermissions: [
-          "android.permission.RECORD_AUDIO"
+          "android.permission.RECORD_AUDIO",
+          "android.permission.CAMERA",
+          "android.permission.SYSTEM_ALERT_WINDOW",
+          "android.permission.WRITE_EXTERNAL_STORAGE"
         ],
       },
       web: {

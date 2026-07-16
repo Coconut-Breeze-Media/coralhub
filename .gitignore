@@ -22,3 +22,8 @@ web-build/
 !.env.example
 
 *.zip
+
+# Android signing credentials
+*.jks
+*.keystore
+*.pem
