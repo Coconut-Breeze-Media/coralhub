@@ -998,7 +998,8 @@ export async function likePost(
 }
 
 /**
- * Unlike/unfavorite an activity post
+ * Remove a favorite from an activity post.
+ * BuddyPress toggles the favorite state using the same POST endpoint.
  * @param {number} activityId - Activity ID to unfavorite
  * @param {string} token - JWT authentication token
  * @returns {Promise<{favorited: boolean}>}
@@ -1012,7 +1013,7 @@ export async function unlikePost(
     `/buddypress/v1/activity/${activityId}/favorite`,
     token,
     {
-      method: 'DELETE',
+      method: 'POST',
     }
   );
 }
