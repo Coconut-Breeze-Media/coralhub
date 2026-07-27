@@ -1,18 +1,16 @@
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
-  NativeSyntheticEvent,
+  Keyboard,
   Platform,
   Pressable,
   RefreshControl,
   ScrollView,
   Text,
   TextInput,
-  TextInputKeyPressEventData,
   View,
 } from 'react-native';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -30,13 +28,6 @@ import {
   formatConversationTitle,
   getMessageTextValue,
 } from '../../../lib/messagePresentation';
-import {
-  applyComposerFormat,
-  MessageFormattingToolbar,
-  insertComposerText,
-  type ComposerSelection,
-} from '../../../components/MessageFormattingToolbar';
-import { MessageEmojiPicker } from '../../../components/MessageEmojiPicker';
 import { MessageMarkdownText } from '../../../components/MessageMarkdownText';
 import { MessageNotice } from '../../../components/MessageNotice';
 import DeleteConversationModal from '../../../components/DeleteConversationModal';
@@ -46,12 +37,9 @@ type NormalizedMessage = {
   body: string;
   senderName: string;
   sentAt: string;
+  sentAtValue: number;
   isOwn: boolean;
 };
-
-type ComposerKeyPressEvent = NativeSyntheticEvent<
-  TextInputKeyPressEventData & { shiftKey?: boolean }
->;
 
 function getArrayFromCandidate(value: unknown): Record<string, unknown>[] {
   if (Array.isArray(value)) {
@@ -105,6 +93,24 @@ function getThreadItems(data: unknown): Record<string, unknown>[] {
   return [];
 }
 
+function mergeMessagePages(pages: unknown[]): Record<string, unknown> | undefined {
+  const firstThread = unwrapThreadRecord(pages[0]);
+  if (!firstThread) return undefined;
+
+  const messagesById = new Map<string, Record<string, unknown>>();
+  for (const page of pages) {
+    for (const message of getThreadItems(page)) {
+      const messageId = message.id ?? message.message_id;
+      if (messageId != null) messagesById.set(String(messageId), message);
+    }
+  }
+
+  return {
+    ...firstThread,
+    messages: [...messagesById.values()],
+  };
+}
+
 function formatTimestamp(value: unknown): string {
   if (typeof value === 'number') {
     const parsed = new Date(value);
@@ -117,6 +123,17 @@ function formatTimestamp(value: unknown): string {
   if (Number.isNaN(parsed.getTime())) return value;
 
   return parsed.toLocaleString();
+}
+
+function getTimestampValue(value: unknown): number {
+  const timestamp =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string'
+        ? new Date(value).getTime()
+        : Number.NaN;
+
+  return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
 function getConversationSubject(data: unknown): string {
@@ -168,17 +185,12 @@ function normalizeMessages(
       sentAt: formatTimestamp(
         item.date_sent ?? item.date ?? item.date_gmt ?? item.created_at
       ),
+      sentAtValue: getTimestampValue(
+        item.date_sent ?? item.date ?? item.date_gmt ?? item.created_at
+      ),
       isOwn: currentUserId != null && senderId === currentUserId,
     };
   });
-}
-
-function shouldSendOnEnterPress(event: ComposerKeyPressEvent): boolean {
-  if (event.nativeEvent.key !== 'Enter') return false;
-  if (event.nativeEvent.shiftKey) return false;
-
-  event.preventDefault();
-  return true;
 }
 
 export default function ThreadScreen() {
@@ -195,22 +207,38 @@ export default function ThreadScreen() {
   const deleteConversationMutation = useDeleteConversation(token);
   const { mutate: markConversationAsRead } = useMarkConversationAsRead(token);
   const replyToThreadMutation = useReplyToThread(token);
+  const insets = useSafeAreaInsets();
+  const conversationLayoutRef = useRef<View | null>(null);
   const scrollViewRef = useRef<ScrollView | null>(null);
   const composerInputRef = useRef<TextInput | null>(null);
+  const keyboardTopRef = useRef<number | null>(null);
+  const contentHeightRef = useRef(0);
+  const previousMessageCountRef = useRef(0);
+  const isLoadingEarlierMessagesRef = useRef(false);
   const [message, setMessage] = useState('');
-  const [selection, setSelection] = useState<ComposerSelection>({
-    start: 0,
-    end: 0,
-  });
-  const [requestedSelection, setRequestedSelection] = useState<ComposerSelection | undefined>();
+  const [composerHeight, setComposerHeight] = useState(74);
+  const [keyboardOverlap, setKeyboardOverlap] = useState(0);
   const [isDeleteConfirmVisible, setIsDeleteConfirmVisible] = useState(false);
-  const { data, isLoading, isRefetching, error, refetch } = useMessages(
+  const {
+    data: messagePages,
+    isLoading,
+    isRefetching,
+    error,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    refetch,
+  } = useMessages(
     Number.isFinite(parsedThreadId) ? parsedThreadId : null,
     token
   );
   const [showSentNotice, setShowSentNotice] = useState(false);
   const [deleteErrorMessage, setDeleteErrorMessage] = useState('');
 
+  const data = useMemo(
+    () => mergeMessagePages(messagePages?.pages ?? []),
+    [messagePages?.pages]
+  );
   const threadItems = getThreadItems(data);
   const threadRecord = unwrapThreadRecord(data);
   const replyRecipientIds = extractConversationParticipantUserIds(threadRecord, [userId]);
@@ -229,7 +257,9 @@ export default function ThreadScreen() {
     getConversationSubject(data),
     'Conversation'
   );
-  const messages = normalizeMessages(threadItems, userId);
+  const messages = normalizeMessages(threadItems, userId).sort(
+    (first, second) => first.sentAtValue - second.sentAtValue
+  );
   const hasMessages = messages.length > 0;
   const isRefreshing = isRefetching && !isLoading;
   const canSendReply =
@@ -257,8 +287,72 @@ export default function ThreadScreen() {
     });
   }, [parsedThreadId, markConversationAsRead, threadId]);
 
+  function updateKeyboardOverlap() {
+    const keyboardTop = keyboardTopRef.current;
+
+    if (keyboardTop == null) {
+      setKeyboardOverlap(0);
+      return;
+    }
+
+    conversationLayoutRef.current?.measureInWindow((_x, y, _width, height) => {
+      setKeyboardOverlap(Math.max(0, y + height - keyboardTop));
+    });
+  }
+
+  function loadEarlierMessages() {
+    if (!hasNextPage || isFetchingNextPage) return;
+
+    isLoadingEarlierMessagesRef.current = true;
+    const previousHeight = contentHeightRef.current;
+
+    void fetchNextPage().finally(() => {
+      requestAnimationFrame(() => {
+        if (contentHeightRef.current === previousHeight) {
+          isLoadingEarlierMessagesRef.current = false;
+        }
+      });
+    });
+  }
+
   useEffect(() => {
-    if (!hasMessages) return;
+    const scrollToLatestMessage = () => {
+      requestAnimationFrame(() => {
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+      });
+    };
+
+    const handleKeyboardFrame = (event: { endCoordinates: { screenY: number } }) => {
+      keyboardTopRef.current = event.endCoordinates.screenY;
+      updateKeyboardOverlap();
+      scrollToLatestMessage();
+    };
+    const handleKeyboardHide = () => {
+      keyboardTopRef.current = null;
+      setKeyboardOverlap(0);
+    };
+
+    const frameSubscription = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillChangeFrame' : 'keyboardDidShow',
+      handleKeyboardFrame
+    );
+    const hideSubscription = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      handleKeyboardHide
+    );
+
+    return () => {
+      frameSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    const previousCount = previousMessageCountRef.current;
+    previousMessageCountRef.current = messages.length;
+    if (!hasMessages || isLoadingEarlierMessagesRef.current || messages.length < previousCount) {
+      return;
+    }
 
     const frameId = requestAnimationFrame(() => {
       scrollViewRef.current?.scrollToEnd({ animated: true });
@@ -272,37 +366,6 @@ export default function ThreadScreen() {
       setShowSentNotice(true);
     }
   }, [sentValue]);
-
-  function applyComposerChange(nextText: string, nextSelection: ComposerSelection) {
-    setMessage(nextText);
-    setSelection(nextSelection);
-    setRequestedSelection(nextSelection);
-
-    requestAnimationFrame(() => {
-      composerInputRef.current?.focus();
-      requestAnimationFrame(() => {
-        setRequestedSelection(undefined);
-      });
-    });
-  }
-
-  function handleFormatAction(action: Parameters<typeof applyComposerFormat>[2]) {
-    if (replyToThreadMutation.isError) {
-      replyToThreadMutation.reset();
-    }
-
-    const next = applyComposerFormat(message, selection, action);
-    applyComposerChange(next.text, next.selection);
-  }
-
-  function handleEmojiPress(emoji: string) {
-    if (replyToThreadMutation.isError) {
-      replyToThreadMutation.reset();
-    }
-
-    const next = insertComposerText(message, selection, emoji);
-    applyComposerChange(next.text, next.selection);
-  }
 
   function handleDeleteConversation() {
     if (!Number.isFinite(parsedThreadId)) return;
@@ -341,8 +404,9 @@ export default function ThreadScreen() {
       {
         onSuccess: () => {
           setMessage('');
-          setSelection({ start: 0, end: 0 });
-          setRequestedSelection(undefined);
+          requestAnimationFrame(() => {
+            composerInputRef.current?.focus();
+          });
         },
       }
     );
@@ -363,7 +427,7 @@ export default function ThreadScreen() {
 
       <Stack.Screen
         options={{
-          title: 'Conversation',
+          title,
           headerRight: Number.isFinite(parsedThreadId)
             ? () => (
                 <Pressable
@@ -388,12 +452,12 @@ export default function ThreadScreen() {
         }}
       />
 
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 18 : 0}
+      <View
+        ref={conversationLayoutRef}
+        onLayout={updateKeyboardOverlap}
+        style={{ flex: 1, minHeight: 0, position: 'relative' }}
       >
-        <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}>
+        <View style={{ flex: 1, minHeight: 0, paddingHorizontal: 16, paddingTop: 16 }}>
           {showSentNotice && (
             <MessageNotice
               tone="success"
@@ -417,18 +481,7 @@ export default function ThreadScreen() {
             />
           )}
 
-          <View style={{ marginBottom: 16 }}>
-            <Text style={{ fontSize: 22, fontWeight: '700', color: '#0f172a' }}>
-              {title}
-            </Text>
-            <Text style={{ marginTop: 4, color: '#64748b', fontSize: 13 }}>
-              {hasMessages
-                ? `${messages.length} message${messages.length === 1 ? '' : 's'}`
-                : 'Private conversation'}
-            </Text>
-          </View>
-
-          <View style={{ flex: 1 }}>
+          <View style={{ flex: 1, minHeight: 0 }}>
             {isLoading && <Text style={{ color: '#64748b' }}>Loading messages...</Text>}
 
             {error && (
@@ -451,7 +504,12 @@ export default function ThreadScreen() {
             {!isLoading && !error && hasMessages && (
               <ScrollView
                 ref={scrollViewRef}
-                contentContainerStyle={{ paddingBottom: 16 }}
+                contentContainerStyle={{
+                  flexGrow: 1,
+                  justifyContent: 'flex-end',
+                  paddingTop: 12,
+                  paddingBottom: composerHeight + keyboardOverlap + 16,
+                }}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
@@ -463,10 +521,26 @@ export default function ThreadScreen() {
                     }}
                   />
                 }
-                onContentSizeChange={() => {
-                  scrollViewRef.current?.scrollToEnd({ animated: true });
+                onContentSizeChange={(_width, nextHeight) => {
+                  const previousHeight = contentHeightRef.current;
+                  contentHeightRef.current = nextHeight;
+
+                  if (isLoadingEarlierMessagesRef.current) {
+                    scrollViewRef.current?.scrollTo({
+                      y: Math.max(0, nextHeight - previousHeight),
+                      animated: false,
+                    });
+                    isLoadingEarlierMessagesRef.current = false;
+                  }
                 }}
+                onScroll={({ nativeEvent }) => {
+                  if (nativeEvent.contentOffset.y <= 24) loadEarlierMessages();
+                }}
+                scrollEventThrottle={16}
               >
+                {isFetchingNextPage && (
+                  <ActivityIndicator size="small" color="#0284c7" style={{ marginBottom: 12 }} />
+                )}
                 {messages.map((item) => (
                   <View
                     key={item.id}
@@ -650,31 +724,30 @@ export default function ThreadScreen() {
         </View>
 
         <View
+          onLayout={(event) => {
+            const nextHeight = event.nativeEvent.layout.height;
+            setComposerHeight((currentHeight) =>
+              currentHeight === nextHeight ? currentHeight : nextHeight
+            );
+          }}
           style={{
+            position: 'absolute',
+            bottom: keyboardOverlap,
+            left: 0,
+            right: 0,
             paddingHorizontal: 16,
-            paddingTop: 12,
-            paddingBottom: 16,
+            paddingTop: 10,
+            paddingBottom: Math.max(insets.bottom, 16),
             borderTopWidth: 1,
             borderTopColor: '#e2e8f0',
             backgroundColor: '#ffffff',
           }}
         >
-          <MessageFormattingToolbar
-            disabled={replyToThreadMutation.isPending}
-            onActionPress={handleFormatAction}
-          />
-
-          <MessageEmojiPicker
-            disabled={replyToThreadMutation.isPending}
-            onEmojiPress={handleEmojiPress}
-          />
-
           <View
             style={{
               flexDirection: 'row',
               alignItems: 'flex-end',
-              gap: 10,
-              marginTop: 12,
+              gap: 8,
             }}
           >
             <TextInput
@@ -687,27 +760,25 @@ export default function ThreadScreen() {
 
                 setMessage(value);
               }}
-              onSelectionChange={(event) => {
-                setSelection(event.nativeEvent.selection);
+              onFocus={() => {
+                requestAnimationFrame(() => {
+                  scrollViewRef.current?.scrollToEnd({ animated: true });
+                });
               }}
-              onKeyPress={(event) => {
-                if (!shouldSendOnEnterPress(event) || !canSendReply) return;
-                handleSendReply();
-              }}
-              placeholder="Type a message..."
+              placeholder="Write a message..."
               multiline
               editable={!replyToThreadMutation.isPending}
-              selection={requestedSelection}
               textAlignVertical="top"
+              maxLength={2000}
               style={{
                 flex: 1,
                 minHeight: 46,
-                maxHeight: 110,
+                maxHeight: 120,
                 borderWidth: 1,
                 borderColor: '#cbd5e1',
-                borderRadius: 18,
+                borderRadius: 22,
                 paddingHorizontal: 14,
-                paddingVertical: 12,
+                paddingVertical: 11,
                 backgroundColor: '#f8fafc',
                 color: '#0f172a',
               }}
@@ -716,18 +787,22 @@ export default function ThreadScreen() {
             <Pressable
               disabled={!canSendReply}
               onPress={handleSendReply}
+              accessibilityRole="button"
+              accessibilityLabel="Send message"
               style={{
                 backgroundColor: canSendReply ? '#0284c7' : '#94a3b8',
-                minHeight: 46,
-                paddingHorizontal: 18,
+                width: 46,
+                height: 46,
                 justifyContent: 'center',
                 alignItems: 'center',
-                borderRadius: 16,
+                borderRadius: 23,
               }}
             >
-              <Text style={{ color: 'white', fontWeight: '700' }}>
-                {replyToThreadMutation.isPending ? 'Sending...' : 'Send'}
-              </Text>
+              {replyToThreadMutation.isPending ? (
+                <ActivityIndicator size="small" color="#ffffff" />
+              ) : (
+                <Ionicons name="send" size={19} color="#ffffff" />
+              )}
             </Pressable>
           </View>
 
@@ -748,7 +823,7 @@ export default function ThreadScreen() {
             )}
 
         </View>
-      </KeyboardAvoidingView>
+      </View>
     </SafeAreaView>
   );
 }

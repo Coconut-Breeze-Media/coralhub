@@ -1,4 +1,10 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type InfiniteData,
+} from '@tanstack/react-query';
 import type {
   BPConversationsResponse,
   BPConversationSummary,
@@ -16,6 +22,18 @@ import {
   replyToThread,
   sendMessage,
 } from '../lib/api';
+
+const MESSAGE_PAGE_SIZE = 20;
+
+function getThreadMessageCount(data: BPMessageThreadResult): number {
+  const thread = Array.isArray(data) ? data[0] : data;
+  if (!thread || typeof thread !== 'object' || Array.isArray(thread)) return 0;
+
+  const messages = (thread as { messages?: unknown }).messages;
+  if (Array.isArray(messages)) return messages.length;
+  if (messages && typeof messages === 'object') return Object.keys(messages).length;
+  return 0;
+}
 
 function toNumberOrNull(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -188,14 +206,19 @@ export function useConversations(token: string | null) {
 }
 
 export function useMessages(threadId: number | null, token: string | null) {
-  return useQuery<BPMessageThreadResult>({
+  return useInfiniteQuery<BPMessageThreadResult, Error, InfiniteData<BPMessageThreadResult>, readonly unknown[], number>({
     queryKey: ['messages', threadId],
-    queryFn: async () => {
+    queryFn: async ({ pageParam }) => {
       if (!token) throw new Error('No authentication token');
       if (!threadId) throw new Error('No thread ID');
 
-      return getMessages(threadId, token);
+      return getMessages(threadId, token, pageParam, MESSAGE_PAGE_SIZE);
     },
+    initialPageParam: 1,
+    getNextPageParam: (lastPage, allPages) =>
+      getThreadMessageCount(lastPage) === MESSAGE_PAGE_SIZE
+        ? allPages.length + 1
+        : undefined,
     enabled: !!token && !!threadId,
     staleTime: 30 * 1000,
     gcTime: 10 * 60 * 1000,
@@ -265,6 +288,14 @@ export function useReplyToThread(token: string | null) {
       return replyToThread(token, threadId, message, recipients);
     },
     onSuccess: async (data, variables) => {
+      queryClient.setQueryData<InfiniteData<BPMessageThreadResult, number>>(
+        ['messages', variables.threadId],
+        (currentData) => ({
+          pages: [data, ...(currentData?.pages ?? []).slice(1)],
+          pageParams: [1, ...(currentData?.pageParams ?? []).slice(1)],
+        })
+      );
+
       const nextConversation = buildConversationSummaryFromMutation(data, {
         recipients: variables.recipients,
         message: variables.message,
@@ -281,7 +312,6 @@ export function useReplyToThread(token: string | null) {
         queryClient.invalidateQueries({
           queryKey: ['messages', 'conversations'],
           exact: true,
-          refetchType: 'none',
         }),
         queryClient.invalidateQueries({
           queryKey: ['messages', variables.threadId],

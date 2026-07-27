@@ -1581,24 +1581,6 @@ export async function searchUsers(query: string, token: string): Promise<UserSea
 // ---------- Messages API ----------
 export async function getConversations(token: string): Promise<BPConversationsResponse> {
   const url = `${API}/buddypress/v1/messages`;
-  const res = await fetchWithTimeout(`${API}/buddypress/v1/messages`, {
-    method: 'GET',
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  });
-
-  await assertOk(res);
-
-  const data = (await res.json()) as BPConversationsResponse;
-
-  return data;
-}
-export async function getMessages(
-  threadId: number,
-  token: string
-): Promise<BPMessageThreadResult> {
-  const url = `${API}/buddypress/v1/messages/${threadId}`;
   const res = await fetchWithTimeout(url, {
     method: 'GET',
     headers: {
@@ -1608,9 +1590,30 @@ export async function getMessages(
 
   await assertOk(res);
 
-  const data = (await res.json()) as BPMessageThreadResult;
+  return (await res.json()) as BPConversationsResponse;
+}
+export async function getMessages(
+  threadId: number,
+  token: string,
+  page = 1,
+  pageSize = 20
+): Promise<BPMessageThreadResult> {
+  const params = new URLSearchParams({
+    messages_page: String(page),
+    messages_per_page: String(pageSize),
+    order: 'desc',
+  });
+  const url = `${API}/buddypress/v1/messages/${threadId}?${params}`;
+  const res = await fetchWithTimeout(url, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
 
-  return data;
+  await assertOk(res);
+
+  return (await res.json()) as BPMessageThreadResult;
 }
 
 export async function sendMessage(
@@ -1619,7 +1622,8 @@ export async function sendMessage(
   subject: string,
   message: string
 ): Promise<BPMessageMutationResponse> {
-  const res = await fetchWithTimeout(`${API}/buddypress/v1/messages`, {
+  const url = `${API}/buddypress/v1/messages`;
+  const res = await fetchWithTimeout(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -1644,7 +1648,6 @@ export async function replyToThread(
   recipients: number[]
 ): Promise<BPMessageMutationResponse> {
   const url = `${API}/buddypress/v1/messages`;
-
   const res = await fetchWithTimeout(url, {
     method: 'POST',
     headers: {
@@ -1660,9 +1663,7 @@ export async function replyToThread(
 
   await assertOk(res);
 
-  const data = (await res.json()) as BPMessageMutationResponse;
-
-  return data;
+  return (await res.json()) as BPMessageMutationResponse;
 }
 
 export async function replyToConversation(
