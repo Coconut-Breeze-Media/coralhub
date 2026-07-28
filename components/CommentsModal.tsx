@@ -73,18 +73,17 @@ function CommentItem({
   token,
   canModify,
   onReply,
+  onEdit,
 }: {
   item: FlatComment;
   postId: number;
   token: string | null;
   canModify: boolean;
   onReply: (commentId: number, authorName: string) => void;
+  onEdit: (comment: FlatComment, content: string) => void;
 }) {
-  const [isEditing, setIsEditing] = useState(false);
-  const [editText, setEditText] = useState('');
   const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
 
-  const updateMutation = useUpdateComment(token);
   const deleteMutation = useDeleteComment(token);
 
   const avatarUrl =
@@ -104,25 +103,7 @@ function CommentItem({
   });
 
   const handleEditPress = () => {
-    setEditText(content);
-    setIsEditing(true);
-  };
-
-  const handleSave = async () => {
-    const text = editText.trim();
-    if (!text) return;
-    try {
-      await updateMutation.mutateAsync({
-        commentId: item.id,
-        content: text,
-        postId,
-        primaryItemId: item.primary_item_id,
-        secondaryItemId: item.secondary_item_id,
-      });
-      setIsEditing(false);
-    } catch (err: any) {
-      Alert.alert('Error', err?.message || 'Failed to update comment.');
-    }
+    onEdit(item, content);
   };
 
   const handleDelete = () => {
@@ -205,7 +186,7 @@ function CommentItem({
         <View style={styles.commentHeader}>
           <Text style={styles.commentAuthor}>{authorName}</Text>
 
-          {canModify && !isEditing && (
+          {canModify && (
             <View style={styles.commentActions}>
               <TouchableOpacity onPress={handleEditPress} style={styles.actionIconBtn}>
                 <Text style={styles.actionIconText}>✏️</Text>
@@ -225,55 +206,16 @@ function CommentItem({
           )}
         </View>
 
-        {/* Content — normal or edit mode */}
-        {isEditing ? (
-          <>
-            <TextInput
-              style={styles.editInput}
-              value={editText}
-              onChangeText={setEditText}
-              multiline
-              autoFocus
-              maxLength={500}
-            />
-            <View style={styles.editActions}>
-              <TouchableOpacity
-                onPress={() => setIsEditing(false)}
-                style={styles.editCancelBtn}
-                disabled={updateMutation.isPending}
-              >
-                <Text style={styles.editCancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={handleSave}
-                style={[
-                  styles.editSaveBtn,
-                  (!editText.trim() || updateMutation.isPending) && styles.editSaveBtnDisabled,
-                ]}
-                disabled={!editText.trim() || updateMutation.isPending}
-              >
-                {updateMutation.isPending ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={styles.editSaveText}>Save</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          </>
-        ) : (
-          <Text style={styles.commentText}>{content}</Text>
-        )}
+        <Text style={styles.commentText}>{content}</Text>
 
         <View style={styles.commentFooter}>
           <Text style={styles.commentDate}>{date}</Text>
-          {!isEditing && (
-            <TouchableOpacity
-              onPress={() => onReply(item.id, authorName)}
-              style={styles.replyBtn}
-            >
-              <Text style={styles.replyBtnText}>Reply</Text>
-            </TouchableOpacity>
-          )}
+          <TouchableOpacity
+            onPress={() => onReply(item.id, authorName)}
+            style={styles.replyBtn}
+          >
+            <Text style={styles.replyBtnText}>Reply</Text>
+          </TouchableOpacity>
         </View>
       </View>
     </View>
@@ -292,18 +234,47 @@ export default function CommentsModal({
 }: CommentsModalProps) {
   const [newComment, setNewComment] = useState('');
   const [replyTo, setReplyTo] = useState<{ id: number; authorName: string } | null>(null);
+  const [editingComment, setEditingComment] = useState<FlatComment | null>(null);
+  const [editText, setEditText] = useState('');
 
   const { data: comments, isLoading, refetch } = usePostComments(
     token,
     visible ? postId : null
   );
   const createCommentMutation = useCreateComment(token);
+  const updateCommentMutation = useUpdateComment(token);
 
   const flatComments = flattenThreaded(comments || []);
   const commentCount = flatComments.length;
 
   const handleReply = (commentId: number, authorName: string) => {
+    setEditingComment(null);
+    setEditText('');
     setReplyTo({ id: commentId, authorName });
+  };
+
+  const handleEdit = (comment: FlatComment, content: string) => {
+    setReplyTo(null);
+    setEditText(content);
+    setEditingComment(comment);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingComment || !editText.trim()) return;
+
+    try {
+      await updateCommentMutation.mutateAsync({
+        commentId: editingComment.id,
+        content: editText.trim(),
+        postId,
+        primaryItemId: editingComment.primary_item_id,
+        secondaryItemId: editingComment.secondary_item_id,
+      });
+      setEditingComment(null);
+      setEditText('');
+    } catch (err: any) {
+      Alert.alert('Error', err?.message || 'Failed to update comment.');
+    }
   };
 
   const handleSubmit = async () => {
@@ -363,6 +334,7 @@ export default function CommentsModal({
                     Number(currentUserId) === Number(item.user_id)
                   }
                   onReply={handleReply}
+                  onEdit={handleEdit}
                 />
               )}
               style={styles.list}
@@ -377,8 +349,23 @@ export default function CommentsModal({
             />
           )}
 
-          {/* Reply context banner */}
-          {replyTo && (
+          {/* Reply or edit context banner */}
+          {editingComment ? (
+            <View style={styles.editBanner}>
+              <Text style={styles.editBannerText} numberOfLines={1}>
+                Editing comment
+              </Text>
+              <TouchableOpacity
+                onPress={() => {
+                  setEditingComment(null);
+                  setEditText('');
+                }}
+                disabled={updateCommentMutation.isPending}
+              >
+                <Text style={styles.replyBannerClose}>✕</Text>
+              </TouchableOpacity>
+            </View>
+          ) : replyTo ? (
             <View style={styles.replyBanner}>
               <Text style={styles.replyBannerText} numberOfLines={1}>
                 Replying to {replyTo.authorName}
@@ -387,38 +374,67 @@ export default function CommentsModal({
                 <Text style={styles.replyBannerClose}>✕</Text>
               </TouchableOpacity>
             </View>
-          )}
+          ) : null}
 
-          {/* New comment input */}
-          <View style={styles.inputRow}>
-            <MentionInput
-              value={newComment}
-              onChangeText={setNewComment}
-              token={token}
-              placeholder="Write a comment..."
-              placeholderTextColor="#9ca3af"
-              multiline
-              maxLength={500}
-              maxHeight={100}
-              style={styles.input}
-              suggestionPosition="above"
-            />
-            <TouchableOpacity
-              style={[
-                styles.sendButton,
-                (!newComment.trim() || createCommentMutation.isPending) &&
-                  styles.sendButtonDisabled,
-              ]}
-              onPress={handleSubmit}
-              disabled={!newComment.trim() || createCommentMutation.isPending}
-            >
-              {createCommentMutation.isPending ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <Text style={styles.sendText}>Send</Text>
-              )}
-            </TouchableOpacity>
-          </View>
+          {editingComment ? (
+            <View style={styles.inputRow}>
+              <TextInput
+                autoFocus
+                style={styles.input}
+                value={editText}
+                onChangeText={setEditText}
+                placeholder="Edit your comment..."
+                placeholderTextColor="#9ca3af"
+                multiline
+                maxLength={500}
+                textAlignVertical="top"
+              />
+              <TouchableOpacity
+                style={[
+                  styles.sendButton,
+                  (!editText.trim() || updateCommentMutation.isPending) && styles.sendButtonDisabled,
+                ]}
+                onPress={handleSaveEdit}
+                disabled={!editText.trim() || updateCommentMutation.isPending}
+              >
+                {updateCommentMutation.isPending ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.sendText}>Save</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={styles.inputRow}>
+              <MentionInput
+                value={newComment}
+                onChangeText={setNewComment}
+                token={token}
+                placeholder="Write a comment..."
+                placeholderTextColor="#9ca3af"
+                multiline
+                maxLength={500}
+                maxHeight={100}
+                style={styles.input}
+                suggestionPosition="above"
+              />
+              <TouchableOpacity
+                style={[
+                  styles.sendButton,
+                  (!newComment.trim() || createCommentMutation.isPending) &&
+                    styles.sendButtonDisabled,
+                ]}
+                onPress={handleSubmit}
+                disabled={!newComment.trim() || createCommentMutation.isPending}
+              >
+                {createCommentMutation.isPending ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.sendText}>Send</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          )}
         </KeyboardAvoidingView>
       </View>
     </Modal>
@@ -588,51 +604,21 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#0e7490',
   },
-  // Inline edit
-  editInput: {
-    borderWidth: 1,
-    borderColor: '#d1d5db',
-    borderRadius: 8,
-    padding: 8,
-    fontSize: 14,
-    color: '#111827',
-    backgroundColor: '#fff',
-    minHeight: 60,
-    textAlignVertical: 'top',
-    marginBottom: 6,
-  },
-  editActions: {
+  editBanner: {
     flexDirection: 'row',
-    gap: 8,
-    justifyContent: 'flex-end',
-    marginBottom: 4,
-  },
-  editCancelBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    backgroundColor: '#f3f4f6',
-  },
-  editCancelText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#6b7280',
-  },
-  editSaveBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    backgroundColor: '#0e7490',
-    minWidth: 50,
     alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#eff6ff',
+    borderTopWidth: 1,
+    borderTopColor: '#bfdbfe',
+    paddingHorizontal: 14,
+    paddingVertical: 7,
   },
-  editSaveBtnDisabled: {
-    backgroundColor: '#d1d5db',
-  },
-  editSaveText: {
+  editBannerText: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#fff',
+    color: '#1d4ed8',
+    flex: 1,
   },
   // New comment input row
   inputRow: {

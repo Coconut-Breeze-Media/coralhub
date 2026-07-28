@@ -4,7 +4,7 @@
  * Displays detailed information about a group and its activity feed
  */
 
-import { View, Text, ScrollView, ActivityIndicator, RefreshControl, Image, TouchableOpacity, TextInput, Alert, Modal, Linking } from 'react-native';
+import { View, Text, ScrollView, ActivityIndicator, RefreshControl, Image, TouchableOpacity, TextInput, Alert, Modal, Linking, KeyboardAvoidingView, Platform } from 'react-native';
 import CommentsModal from '../components/CommentsModal';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../lib/auth';
@@ -19,7 +19,7 @@ import { useMember } from '../hooks/useMembers';
 import { useCreateGroupPost, useLikePost, useUpdatePost, useDeletePost } from '../hooks/useActivity';
 import ShareButton from '../components/ShareButton';
 import BackButton from '../components/BackButton';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useLocalSearchParams } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 
@@ -104,6 +104,8 @@ export default function GroupDetailScreen() {
   const [selectedImages, setSelectedImages] = useState<string[]>([]);
   const [postLink, setPostLink] = useState('');
   const [showLeaveModal, setShowLeaveModal] = useState(false);
+  const contentScrollRef = useRef<ScrollView | null>(null);
+  const postComposerOffsetRef = useRef(0);
 
   // Log group data when loaded
   useEffect(() => {
@@ -302,6 +304,15 @@ export default function GroupDetailScreen() {
   
   const isLoading = loadingGroup || loadingActivity;
 
+  const revealPostComposer = () => {
+    requestAnimationFrame(() => {
+      contentScrollRef.current?.scrollTo({
+        y: Math.max(0, postComposerOffsetRef.current - 120),
+        animated: true,
+      });
+    });
+  };
+
   if (!groupId) {
     return (
       <View style={{ flex: 1, backgroundColor: '#f9fafb', alignItems: 'center', justifyContent: 'center' }}>
@@ -331,12 +342,20 @@ export default function GroupDetailScreen() {
         </View>
       </View>
 
-      <ScrollView
-        contentContainerStyle={{ paddingBottom: 20 }}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#2563eb']} />
-        }
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={0}
       >
+        <ScrollView
+          ref={contentScrollRef}
+          contentContainerStyle={{ paddingBottom: 20 }}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#2563eb']} />
+          }
+        >
         {isLoading && !group ? (
           <View style={{ paddingVertical: 40, alignItems: 'center' }}>
             <ActivityIndicator size="large" color="#2563eb" />
@@ -855,6 +874,9 @@ export default function GroupDetailScreen() {
 
                 {/* Create Post Section */}
                 <View
+                  onLayout={(event) => {
+                    postComposerOffsetRef.current = event.nativeEvent.layout.y;
+                  }}
                   style={{
                     backgroundColor: '#fff',
                     borderRadius: 12,
@@ -886,6 +908,7 @@ export default function GroupDetailScreen() {
                     multiline
                     value={newPostContent}
                     onChangeText={setNewPostContent}
+                    onFocus={revealPostComposer}
                     editable={!isPostingActivity}
                   />
 
@@ -978,6 +1001,7 @@ export default function GroupDetailScreen() {
                           placeholderTextColor="#9ca3af"
                           value={postLink}
                           onChangeText={setPostLink}
+                          onFocus={revealPostComposer}
                           editable={!isPostingActivity}
                           keyboardType="url"
                           autoCapitalize="none"
@@ -1302,7 +1326,8 @@ export default function GroupDetailScreen() {
             <Text style={{ color: '#ef4444', fontSize: 16 }}>Failed to load group</Text>
           </View>
         )}
-      </ScrollView>
+        </ScrollView>
+      </KeyboardAvoidingView>
 
       {/* Leave Group Confirmation Modal */}
       <Modal
@@ -2152,4 +2177,3 @@ function ActivityCard({
     </>
   );
 }
-
