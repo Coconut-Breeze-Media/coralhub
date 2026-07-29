@@ -121,17 +121,6 @@ export default function SignInScreen() {
           </Pressable>
         </View>
 
-        <View style={styles.helperRow}>
-          <Text style={{ color: '#444' }}>
-            Not a member yet?{' '}
-            <Text
-              style={{ color: PRIMARY, fontWeight: '700' }}
-              onPress={() => router.push('/sign-up')}  // routes to app/(auth)/sign-up.tsx
-            >
-              Register now
-            </Text>
-          </Text>
-        </View>
       </SafeAreaView>
     </KeyboardAvoidingView>
   );
