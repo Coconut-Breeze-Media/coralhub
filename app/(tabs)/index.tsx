@@ -846,10 +846,6 @@ function CommunityScreen() {
     handlePickImage();
   };
   
-  const handleTagFriend = () => {
-    Alert.alert('Tag Friend', 'Tag friend feature coming soon!');
-  };
-  
   const commonEmojis = ['😊', '😂', '❤️', '👍', '🎉', '🔥', '💯', '🙌'];
   
   const handleLikePost = async (activityId: number, isLiked: boolean) => {
@@ -1236,14 +1232,6 @@ function CommunityScreen() {
               >
                 <Text style={styles.toolbarIcon}>📎</Text>
                 <Text style={styles.toolbarLabel}>Attach</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity
-                style={styles.toolbarButton}
-                onPress={handleTagFriend}
-              >
-                <Text style={styles.toolbarIcon}>👥</Text>
-                <Text style={styles.toolbarLabel}>Tag</Text>
               </TouchableOpacity>
             </View>
             
