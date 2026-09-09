@@ -14,6 +14,7 @@ import {
   Image,
   Alert,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   usePostComments,
   useCreateComment,
@@ -236,6 +237,7 @@ export default function CommentsModal({
   const [replyTo, setReplyTo] = useState<{ id: number; authorName: string } | null>(null);
   const [editingComment, setEditingComment] = useState<FlatComment | null>(null);
   const [editText, setEditText] = useState('');
+  const insets = useSafeAreaInsets();
 
   const { data: comments, isLoading, refetch } = usePostComments(
     token,
@@ -377,7 +379,7 @@ export default function CommentsModal({
           ) : null}
 
           {editingComment ? (
-            <View style={styles.inputRow}>
+            <View style={[styles.inputRow, { paddingBottom: Math.max(insets.bottom, 10) }]}>
               <TextInput
                 autoFocus
                 style={styles.input}
@@ -405,7 +407,7 @@ export default function CommentsModal({
               </TouchableOpacity>
             </View>
           ) : (
-            <View style={styles.inputRow}>
+            <View style={[styles.inputRow, { paddingBottom: Math.max(insets.bottom, 10) }]}>
               <MentionInput
                 value={newComment}
                 onChangeText={setNewComment}
