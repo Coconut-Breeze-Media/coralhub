@@ -13,7 +13,6 @@ import { useMe, usePendingFriendRequests, useFriendsList } from '../../hooks/use
 import { useConversations } from '../../hooks/useMessages';
 import { TAB_SCREENS, DEFAULT_HEADER_OPTIONS, ROUTES } from '../../constants/navigation';
 import { getUnreadMessageNotifications } from '../../lib/messageNotifications';
-import type { TabScreen } from '../../types';
 
 /**
  * Notification bell header button component
@@ -103,24 +102,65 @@ export default function TabsLayout() {
         />
       ))}
       <Tabs.Screen
-      name="messages/[threadId]"
-      options={{
-        href: null,
-        title: 'Conversation',
-        headerLeft: () => (
-          <BackButton fallbackRoute={ROUTES.MESSAGES} useHistory={false} />
-        ),
-      }}
-    />
+        name="messages/[threadId]"
+        options={{
+          href: null,
+          title: 'Conversation',
+          headerLeft: () => (
+            <BackButton fallbackRoute={ROUTES.MESSAGES} useHistory={false} />
+          ),
+        }}
+      />
       <Tabs.Screen
-      name="messages/new"
-      options={{
-        href: null,
-        title: 'New Message',
-        headerLeft: () => (
-          <BackButton fallbackRoute={ROUTES.MESSAGES} useHistory={false} />
-        ),
-      }}
-    />
-      </Tabs>);
+        name="messages/new"
+        options={{
+          href: null,
+          title: 'New Message',
+          headerLeft: () => (
+            <BackButton fallbackRoute={ROUTES.MESSAGES} useHistory={false} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="resource-viewer"
+        options={{
+          href: null,
+          title: 'Resource',
+          headerLeft: () => (
+            <BackButton fallbackRoute={ROUTES.RESOURCES} useHistory={false} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="profile/settings"
+        options={{ href: null, headerShown: false }}
+      />
+      <Tabs.Screen
+        name="profile/activity"
+        options={{ href: null, headerShown: false }}
+      />
+      <Tabs.Screen
+        name="profile/groups"
+        options={{ href: null, headerShown: false }}
+      />
+      <Tabs.Screen
+        name="profile/connections"
+        options={{ href: null, headerShown: false }}
+      />
+      <Tabs.Screen
+        name="profile/credits"
+        options={{ href: null, headerShown: false }}
+      />
+      <Tabs.Screen
+        name="member/[id]"
+        options={{
+          href: null,
+          title: 'Profile',
+          headerLeft: () => (
+            <BackButton fallbackRoute={ROUTES.NETWORKING} />
+          ),
+        }}
+      />
+    </Tabs>
+  );
 }

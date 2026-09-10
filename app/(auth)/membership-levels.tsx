@@ -10,7 +10,6 @@ import {
   Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
 import { getMembershipLevels } from '../../lib/api';
 import type { MembershipLevel } from '../../types';
 
@@ -24,7 +23,7 @@ const BORDER = '#e5e7eb';
 const CARD_BG = '#fff';
 
 // Desired order by first word in name
-const ORDER = ['basic', 'monthly', 'annual', 'institutional'];
+const ORDER = ['basic', 'monthly', 'annual', 'group', 'institutional'];
 const orderIndex = (name: string) => {
   const first = name?.trim().toLowerCase().split(/\s+/)[0] || '';
   const i = ORDER.indexOf(first);
@@ -61,7 +60,7 @@ const defaultBenefitsFor = (levelName: string): string[] => {
       'Best value over monthly',
     ];
   }
-  if (name.startsWith('institutional')) {
+  if (name.startsWith('institutional') || name.startsWith('group')) {
     return [
       'Full access for your team',
       'Additional logins on request',
@@ -72,9 +71,50 @@ const defaultBenefitsFor = (levelName: string): string[] => {
   return [];
 };
 
+function decodeEntities(value: string): string {
+  return value
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'");
+}
+
+function stripLeadingBullet(value: string): string {
+  return value.replace(/^(?:[•✓✔●◦]|[-–—*])\s+/, '').trim();
+}
+
+/**
+ * PMPro stores plan features as HTML <li> items. The API currently strips
+ * tags and returns them inside `description` as indented lines, with an
+ * empty `benefits` array. Split that copy so every feature can get a
+ * checkmark, matching the website plan cards.
+ */
+function splitPlanDescription(description: string): { intro: string; features: string[] } {
+  const decoded = decodeEntities(description);
+  const intro: string[] = [];
+  const features: string[] = [];
+
+  for (const rawLine of decoded.split(/\r\n|\n|\r/)) {
+    const hasLeadingWhitespace = /^\s+/.test(rawLine);
+    const text = stripLeadingBullet(rawLine.trim());
+    if (!text) continue;
+    if (hasLeadingWhitespace) {
+      features.push(text);
+    } else if (features.length === 0) {
+      intro.push(text);
+    } else {
+      features.push(text);
+    }
+  }
+
+  return { intro: intro.join('\n\n'), features };
+}
+
 // Optional: mark a plan as “featured” (adds a small badge & subtle border)
 const isFeatured = (lvl: MembershipLevel) =>
-  /^annual/i.test(lvl.name) || /^institutional/i.test(lvl.name);
+  /^annual/i.test(lvl.name) || /^institutional/i.test(lvl.name) || /^group/i.test(lvl.name);
 
 function LevelCard({
   level,
@@ -83,10 +123,14 @@ function LevelCard({
   level: MembershipLevel;
   onSelect: (url: string) => void;
 }) {
+  const parsed = splitPlanDescription(level.description);
   const benefits =
-    (level.benefits && level.benefits.length > 0
-      ? level.benefits
-      : defaultBenefitsFor(level.name));
+    level.benefits && level.benefits.length > 0
+      ? level.benefits.map(stripLeadingBullet)
+      : parsed.features.length > 0
+        ? parsed.features
+        : defaultBenefitsFor(level.name);
+  const description = parsed.intro;
 
   const featured = isFeatured(level);
 
@@ -139,9 +183,9 @@ function LevelCard({
       </View>
 
       {/* Description */}
-      {!!level.description && (
+      {!!description && (
         <Text style={{ color: '#374151', lineHeight: 20, marginBottom: benefits.length ? 12 : 16 }}>
-          {level.description}
+          {description}
         </Text>
       )}
 
@@ -151,10 +195,15 @@ function LevelCard({
           {benefits.map((b, i) => (
             <View
               key={`${level.id}-benefit-${i}`}
-              style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}
+              style={{ flexDirection: 'row', alignItems: 'flex-start', marginBottom: 8 }}
             >
-              <Ionicons name="checkmark-circle" size={18} color="#16a34a" style={{ marginRight: 8 }} />
-              <Text style={{ color: '#111827' }}>{b}</Text>
+              <Ionicons
+                name="checkmark-circle"
+                size={18}
+                color="#16a34a"
+                style={{ marginRight: 8, marginTop: 1, flexShrink: 0 }}
+              />
+              <Text style={{ color: '#111827', flex: 1, lineHeight: 20 }}>{b}</Text>
             </View>
           ))}
         </View>

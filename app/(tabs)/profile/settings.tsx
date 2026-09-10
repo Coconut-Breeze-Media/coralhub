@@ -1,4 +1,4 @@
-// app/profile/settings.tsx
+// app/(tabs)/profile/settings.tsx
 /**
  * Profile Settings Screen
  * Allows users to view and edit their profile information including:
@@ -30,8 +30,8 @@ import {
   useUploadCover,
   useDeleteCover,
   useUserActivity,
-} from '../../hooks';
-import BackButton from '../../components/BackButton';
+} from '../../../hooks';
+import BackButton from '../../../components/BackButton';
 
 export default function ProfileSettingsScreen() {
   const router = useRouter();
@@ -236,9 +236,11 @@ export default function ProfileSettingsScreen() {
   }
 
   const avatarUrl = member?.avatar_urls?.full || member?.avatar_urls?.thumb;
-  const coverUrl = Array.isArray(member?.xprofile) 
-    ? member.xprofile.find((field) => field.name.toLowerCase().includes('cover'))?.value.raw 
+  const coverField = Array.isArray(member?.xprofile)
+    ? member.xprofile.find((field) => field.name.toLowerCase().includes('cover'))
     : undefined;
+  const coverRaw = coverField?.value?.raw;
+  const coverUrl = typeof coverRaw === 'string' ? coverRaw : undefined;
 
   return (
     <View style={{ flex: 1, backgroundColor: '#f9fafb' }}>

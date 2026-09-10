@@ -55,46 +55,6 @@ export default function RootLayout() {
             }}
           />
 
-          {/* Profile settings screen */}
-          <Stack.Screen
-            name="profile/settings"
-            options={{
-              headerShown: false,
-            }}
-          />
-
-          {/* Credits screen (renders its own header) */}
-          <Stack.Screen
-            name="profile/credits"
-            options={{
-              headerShown: false,
-            }}
-          />
-
-          {/* Profile activity screen */}
-          <Stack.Screen
-            name="profile/activity"
-            options={{
-              headerShown: false,
-            }}
-          />
-
-          {/* Profile groups screen */}
-          <Stack.Screen
-            name="profile/groups"
-            options={{
-              headerShown: false,
-            }}
-          />
-
-          {/* Profile connections screen */}
-          <Stack.Screen
-            name="profile/connections"
-            options={{
-              headerShown: false,
-            }}
-          />
-
           {/* Group detail screen */}
           <Stack.Screen
             name="group-detail"
@@ -108,15 +68,6 @@ export default function RootLayout() {
             name="explore-groups"
             options={{
               headerShown: false,
-            }}
-          />
-
-          {/* In-app resource viewer (WebView) with back button */}
-          <Stack.Screen
-            name="resource-viewer"
-            options={{
-              headerShown: true,
-              headerLeft: () => <BackButton />,
             }}
           />
         </Stack>

@@ -1,5 +1,5 @@
 // app/(tabs)/networking.tsx
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -35,6 +35,16 @@ type SectionType = 'members' | 'groups';
 type MembersTab = 'connect' | 'friends' | 'requests';
 type GroupsTab = 'explore' | 'mygroups';
 
+function openMemberProfile(id: number) {
+  router.push({ pathname: '/member/[id]', params: { id: String(id) } });
+}
+
+function activityTimestamp(member: { last_activity?: { date?: string; date_gmt?: string } }): number {
+  const raw = member.last_activity?.date_gmt || member.last_activity?.date || '';
+  const parsed = Date.parse(raw);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 // ─── Status badge config ─────────────────────────────────────────────────────
 const STATUS_COLORS: Record<string, { bg: string; text: string; icon: string }> = {
   public:  { bg: '#dcfce7', text: '#15803d', icon: 'earth-outline' },
@@ -50,8 +60,12 @@ function ConnectTab() {
   const [sentIds, setSentIds] = useState<Set<number>>(new Set());
   const [pendingIds, setPendingIds] = useState<Set<number>>(new Set());
 
-  const { data: members, isLoading } = useMembersList(token, { search: searchQuery, perPage: 20 });
+  const { data: members, isLoading } = useMembersList(token, { search: searchQuery, perPage: 20, type: 'active' });
   const sendFriendMutation = useSendFriendRequest();
+  const sortedMembers = useMemo(
+    () => [...(members || [])].sort((a, b) => activityTimestamp(b) - activityTimestamp(a)),
+    [members]
+  );
 
   const handleConnect = async (memberId: number, memberName: string) => {
     setPendingIds(prev => new Set([...prev, memberId]));
@@ -76,7 +90,11 @@ function ConnectTab() {
 
     return (
       <View style={styles.friendCard}>
-        <View style={styles.friendInfo}>
+        <TouchableOpacity
+          style={styles.friendInfo}
+          onPress={() => openMemberProfile(item.id)}
+          activeOpacity={0.7}
+        >
           {avatarUrl ? (
             <Image source={{ uri: avatarUrl }} style={styles.avatar} />
           ) : (
@@ -90,7 +108,7 @@ function ConnectTab() {
               <Text style={styles.lastActive}>Active {item.last_activity.timediff}</Text>
             )}
           </View>
-        </View>
+        </TouchableOpacity>
         {isAlreadyFriend ? (
           <View style={styles.friendStatusBadge}>
             <Ionicons name="checkmark-circle" size={16} color="#22c55e" />
@@ -145,7 +163,7 @@ function ConnectTab() {
         </View>
       ) : (
         <FlatList
-          data={members || []}
+          data={sortedMembers}
           renderItem={renderMemberItem}
           keyExtractor={(item) => item.id.toString()}
           contentContainerStyle={styles.listContent}
@@ -471,7 +489,7 @@ export default function NetworkingScreen() {
     const avatarUrl = item.avatar_urls?.thumb || item.avatar_urls?.full;
     return (
       <View style={styles.friendCard}>
-        <TouchableOpacity style={styles.friendInfo} onPress={() => Alert.alert('Profile', `View ${item.name}'s profile`)}>
+        <TouchableOpacity style={styles.friendInfo} onPress={() => openMemberProfile(item.id)} activeOpacity={0.7}>
           {avatarUrl ? (
             <Image source={{ uri: avatarUrl }} style={styles.avatar} />
           ) : (
@@ -506,7 +524,11 @@ export default function NetworkingScreen() {
     const userName = userData?.name || 'Loading...';
     return (
       <View style={styles.requestCard}>
-        <View style={styles.requestInfo}>
+        <TouchableOpacity
+          style={styles.requestInfo}
+          onPress={() => openMemberProfile(otherUserId)}
+          activeOpacity={0.7}
+        >
           {avatarUrl ? (
             <Image source={{ uri: avatarUrl }} style={styles.avatar} />
           ) : (
@@ -521,7 +543,7 @@ export default function NetworkingScreen() {
               {new Date(item.date_created).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
             </Text>
           </View>
-        </View>
+        </TouchableOpacity>
         <View style={styles.requestActions}>
           {isReceived ? (
             <>

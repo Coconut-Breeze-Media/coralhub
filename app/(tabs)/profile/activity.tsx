@@ -1,4 +1,4 @@
-// app/profile/activity.tsx
+// app/(tabs)/profile/activity.tsx
 /**
  * Activity Screen
  * Displays all user activities in chronological order (most recent first)
@@ -6,8 +6,8 @@
 
 import { View, Text, ScrollView, ActivityIndicator, RefreshControl } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useCurrentMember, useUserActivity } from '../../hooks';
-import BackButton from '../../components/BackButton';
+import { useCurrentMember, useUserActivity } from '../../../hooks';
+import BackButton from '../../../components/BackButton';
 import { useState } from 'react';
 
 // Activity type labels for better display

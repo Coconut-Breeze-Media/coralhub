@@ -1,4 +1,4 @@
-// app/profile/credits.tsx
+// app/(tabs)/profile/credits.tsx
 /**
  * Credits Screen
  * Information about the company behind the app (Coconut Breeze Media),
@@ -7,7 +7,7 @@
 
 import { View, Text, ScrollView, Pressable, Linking } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import BackButton from '../../components/BackButton';
+import BackButton from '../../../components/BackButton';
 
 const COCONUT_DIVE_MANAGE_URL = 'https://divemanage.com';
 const COCONUT_BREEZE_MEDIA_URL = 'https://coconutbreezemedia.com';

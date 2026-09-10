@@ -113,6 +113,7 @@ export function useUserCover(userId: number) {
     },
     enabled: !!token && !!userId,
     staleTime: 10 * 60 * 1000,
+    retry: false,
   });
 }
 

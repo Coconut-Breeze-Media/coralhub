@@ -345,24 +345,29 @@ export async function getCurrentMember(token: string): Promise<BPMember> {
  * @returns {Promise<BPMember>}
  */
 export async function getMemberById(userId: number, token: string): Promise<BPMember> {
-  return authedFetch<BPMember>(`/buddypress/v1/members/${userId}`, token);
+  return authedFetch<BPMember>(
+    `/buddypress/v1/members/${userId}?populate_extras=true`,
+    token
+  );
 }
 
 /**
  * Get a list of BuddyPress members with optional search and pagination
  * Uses buddypress/v1/members endpoint and populate_extras=true to include friendship_status_slug
  * @param token - JWT authentication token
- * @param options - Query options (search, page, perPage)
+ * @param options - Query options (search, page, perPage, type)
  */
 export async function getMembers(
   token: string,
-  options?: { search?: string; page?: number; perPage?: number }
+  options?: { search?: string; page?: number; perPage?: number; type?: string }
 ): Promise<BPMember[]> {
   const params = new URLSearchParams();
   if (options?.search) params.set('search', options.search);
   params.set('page', String(options?.page ?? 1));
   params.set('per_page', String(options?.perPage ?? 20));
   params.set('populate_extras', 'true');
+  // BuddyPress: active = most recently active members first
+  params.set('type', options?.type ?? 'active');
   return authedFetch<BPMember[]>(`/buddypress/v1/members?${params}`, token);
 }
 
@@ -493,7 +498,10 @@ export async function getUserCover(userId: number, token: string): Promise<BPCov
   const res = await fetchWithTimeout(`${API}/buddypress/v1/members/${userId}/cover`, {
     headers: { Authorization: `Bearer ${token}` },
   });
-  await assertOk(res);
+  if (!res.ok) {
+    // Cover is optional; some members 404/500 when none is set.
+    return { image: '' };
+  }
   const data = await res.json();
   return {
     image: data.image || '',

@@ -1,10 +1,10 @@
-// app/profile/connections.tsx
+// app/(tabs)/profile/connections.tsx
 /**
  * Connections screen accessible from profile menu
  * Shows friends list and friend requests with tabs
  */
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -19,8 +19,9 @@ import {
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import BackButton from '../../components/BackButton';
-import { useAuth } from '../../lib/auth';
+import { router } from 'expo-router';
+import BackButton from '../../../components/BackButton';
+import { useAuth } from '../../../lib/auth';
 import {
   useMe,
   useFriendsList,
@@ -29,12 +30,22 @@ import {
   useAcceptFriendRequest,
   useRejectFriendRequest,
   useSendFriendRequest,
-} from '../../hooks/useQueries';
-import { useMember, useMembersList } from '../../hooks/useMembers';
-import RemoveFriendModal from '../../components/RemoveFriendModal';
-import type { FriendWithDetails, BPFriendship, BPMember } from '../../types';
+} from '../../../hooks/useQueries';
+import { useMember, useMembersList } from '../../../hooks/useMembers';
+import RemoveFriendModal from '../../../components/RemoveFriendModal';
+import type { FriendWithDetails, BPFriendship, BPMember } from '../../../types';
 
 type TabType = 'connect' | 'friends' | 'requests';
+
+function openMemberProfile(id: number) {
+  router.push({ pathname: '/member/[id]', params: { id: String(id) } });
+}
+
+function activityTimestamp(member: { last_activity?: { date?: string; date_gmt?: string } }): number {
+  const raw = member.last_activity?.date_gmt || member.last_activity?.date || '';
+  const parsed = Date.parse(raw);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
 
 // ─── Connect Tab ────────────────────────────────────────────────────────────
 function ConnectTab() {
@@ -47,7 +58,12 @@ function ConnectTab() {
   const { data: members, isLoading } = useMembersList(token, {
     search: searchQuery,
     perPage: 20,
+    type: 'active',
   });
+  const sortedMembers = useMemo(
+    () => [...(members || [])].sort((a, b) => activityTimestamp(b) - activityTimestamp(a)),
+    [members]
+  );
 
   const sendFriendMutation = useSendFriendRequest();
 
@@ -82,7 +98,11 @@ function ConnectTab() {
 
     return (
       <View style={styles.friendCard}>
-        <View style={styles.friendInfo}>
+        <TouchableOpacity
+          style={styles.friendInfo}
+          onPress={() => openMemberProfile(item.id)}
+          activeOpacity={0.7}
+        >
           {avatarUrl ? (
             <Image source={{ uri: avatarUrl }} style={styles.avatar} />
           ) : (
@@ -98,7 +118,7 @@ function ConnectTab() {
               <Text style={styles.lastActive}>Active {item.last_activity.timediff}</Text>
             )}
           </View>
-        </View>
+        </TouchableOpacity>
 
         {isAlreadyFriend ? (
           <View style={styles.friendStatusBadge}>
@@ -160,7 +180,7 @@ function ConnectTab() {
         </View>
       ) : (
         <FlatList
-          data={members || []}
+          data={sortedMembers}
           renderItem={renderMemberItem}
           keyExtractor={(item) => item.id.toString()}
           contentContainerStyle={styles.listContent}
@@ -313,7 +333,7 @@ export default function ConnectionsScreen() {
       <View style={styles.friendCard}>
         <TouchableOpacity
           style={styles.friendInfo}
-          onPress={() => Alert.alert('Profile', `View ${item.name}'s profile`)}
+          onPress={() => openMemberProfile(item.id)}
         >
           {avatarUrl ? (
             <Image source={{ uri: avatarUrl }} style={styles.avatar} />
@@ -351,7 +371,11 @@ export default function ConnectionsScreen() {
     const userName = userData?.name || 'Loading...';
     return (
       <View style={styles.requestCard}>
-        <View style={styles.requestInfo}>
+        <TouchableOpacity
+          style={styles.requestInfo}
+          onPress={() => openMemberProfile(otherUserId)}
+          activeOpacity={0.7}
+        >
           {avatarUrl ? (
             <Image source={{ uri: avatarUrl }} style={styles.avatar} />
           ) : (
@@ -370,7 +394,7 @@ export default function ConnectionsScreen() {
               })}
             </Text>
           </View>
-        </View>
+        </TouchableOpacity>
         <View style={styles.requestActions}>
           {isReceived ? (
             <>

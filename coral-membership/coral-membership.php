@@ -95,6 +95,44 @@ if (!function_exists('coral_membership_get_benefits')) {
   }
 }
 
+if (!function_exists('coral_membership_benefits_from_html')) {
+  /**
+   * Pull feature lines out of a PMPro description that uses <ul>/<ol><li>.
+   */
+  function coral_membership_benefits_from_html($html) {
+    $benefits = [];
+    if (!is_string($html) || trim($html) === '') {
+      return $benefits;
+    }
+    if (preg_match_all('/<li\b[^>]*>(.*?)<\/li>/is', $html, $matches)) {
+      foreach ($matches[1] as $li) {
+        $txt = trim(wp_strip_all_tags(html_entity_decode($li)));
+        if ($txt !== '') {
+          $benefits[] = $txt;
+        }
+      }
+    }
+    return $benefits;
+  }
+}
+
+if (!function_exists('coral_membership_intro_from_html')) {
+  /**
+   * Description copy with list markup removed, so features are not duplicated.
+   */
+  function coral_membership_intro_from_html($html) {
+    if (!is_string($html) || trim($html) === '') {
+      return '';
+    }
+    $without_lists = preg_replace('/<(ul|ol)\b[^>]*>.*?<\/\1>/is', '', $html);
+    $text = wp_strip_all_tags(html_entity_decode($without_lists));
+    $text = preg_replace('/\xC2\xA0/', ' ', $text);
+    $text = preg_replace("/[ \t]+/", ' ', $text);
+    $text = preg_replace("/\n{3,}/", "\n\n", $text);
+    return trim($text);
+  }
+}
+
 // ===================================================
 // Tier + premium-resource access model
 // (single source of truth — mirrored by the mobile app)
@@ -413,13 +451,19 @@ add_action('rest_api_init', function () {
           $minimal_base ?: pmpro_url('checkout')
         );
 
+        $description_html = is_string($lvl->description) ? $lvl->description : '';
+        $benefits = coral_membership_get_benefits($lvl->id);
+        if (empty($benefits)) {
+          $benefits = coral_membership_benefits_from_html($description_html);
+        }
+
         $out[] = [
           'id'               => (int) $lvl->id,
           'name'             => $lvl->name,
           'price'            => $price,
           'note'             => $note,
-          'description'      => wp_strip_all_tags($lvl->description),
-          'benefits'         => coral_membership_get_benefits($lvl->id),
+          'description'      => coral_membership_intro_from_html($description_html),
+          'benefits'         => $benefits,
           'checkout_url'     => $checkout_url,
 
           // Raw fields if needed client-side

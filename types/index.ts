@@ -131,6 +131,29 @@ export interface MembershipLevel {
 // ============================================
 
 /**
+ * BuddyPress XProfile field as returned on a member or groups payload
+ */
+export interface BPXProfileField {
+  id?: number;
+  field_id?: number;
+  name: string;
+  value?: {
+    raw?: string | string[];
+    unserialized?: unknown;
+    rendered?: string;
+  };
+}
+
+/**
+ * BuddyPress XProfile group (the live members API nests fields under groups)
+ */
+export interface BPXProfileGroup {
+  id?: number;
+  name?: string;
+  fields?: BPXProfileField[];
+}
+
+/**
  * BuddyPress member object
  */
 export interface BPMember {
@@ -146,14 +169,7 @@ export interface BPMember {
   roles?: string[];
   capabilities?: Record<string, boolean>;
   extra_capabilities?: Record<string, boolean>;
-  xprofile?: Array<{
-    field_id: number;
-    name: string;
-    value: {
-      raw: string;
-      rendered: string;
-    };
-  }>;
+  xprofile?: BPXProfileField[] | { groups?: BPXProfileGroup[] };
   friendship_status?: boolean;
   friendship_status_slug?: string;
   last_activity?: {

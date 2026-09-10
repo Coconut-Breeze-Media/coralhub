@@ -1,4 +1,4 @@
-// app/profile/groups.tsx
+// app/(tabs)/profile/groups.tsx
 /**
  * Groups Screen
  * Displays all groups the current user is a member of
@@ -7,9 +7,9 @@
 import { View, Text, ScrollView, ActivityIndicator, RefreshControl, Image, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useAuth } from '../../lib/auth';
-import { useMyGroups } from '../../hooks/useGroups';
-import BackButton from '../../components/BackButton';
+import { useAuth } from '../../../lib/auth';
+import { useMyGroups } from '../../../hooks/useGroups';
+import BackButton from '../../../components/BackButton';
 import { useState } from 'react';
 
 // Group status badge colors

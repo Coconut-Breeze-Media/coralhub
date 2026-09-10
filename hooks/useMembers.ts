@@ -29,13 +29,13 @@ export function useMember(token: string | null, userId: number | null | undefine
  */
 export function useMembersList(
   token: string | null,
-  options?: { search?: string; page?: number; perPage?: number }
+  options?: { search?: string; page?: number; perPage?: number; type?: string }
 ) {
   return useQuery({
-    queryKey: ['members', 'list', options?.search ?? '', options?.page ?? 1] as const,
+    queryKey: ['members', 'list', options?.search ?? '', options?.page ?? 1, options?.type ?? 'active'] as const,
     queryFn: () => {
       if (!token) throw new Error('No authentication token');
-      return getMembers(token, options);
+      return getMembers(token, { type: 'active', ...options });
     },
     enabled: !!token,
     staleTime: 2 * 60 * 1000,

@@ -153,6 +153,9 @@ export const ROUTES = {
   PROFILE_ACCOUNT_SETTINGS: '/profile/account-settings',
   PROFILE_ACCOUNT: '/profile/account',
   PROFILE_CREDITS: '/profile/credits',
+
+  // Other members
+  MEMBER_PROFILE: '/member/[id]',
 } as const;
 
 // ============================================
