@@ -4,7 +4,7 @@
  * Displays detailed information about a group and its activity feed
  */
 
-import { View, Text, ScrollView, ActivityIndicator, RefreshControl, Image, TouchableOpacity, TextInput, Alert, Modal, Linking, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, ScrollView, ActivityIndicator, RefreshControl, Image, TouchableOpacity, TextInput, Alert, Modal, Linking, KeyboardAvoidingView, Platform, Keyboard } from 'react-native';
 import CommentsModal from '../components/CommentsModal';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../lib/auth';
@@ -106,6 +106,34 @@ export default function GroupDetailScreen() {
   const [showLeaveModal, setShowLeaveModal] = useState(false);
   const contentScrollRef = useRef<ScrollView | null>(null);
   const postComposerOffsetRef = useRef(0);
+  const pendingScrollOffsetRef = useRef<number | null>(null);
+
+  // Scroll the focused input fully above the keyboard once we know its real
+  // height — a fixed offset doesn't work across devices (keyboard height
+  // varies by device/OS, and further with predictive text/autofill bars).
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+
+    const showSub = Keyboard.addListener(showEvent, (e) => {
+      if (pendingScrollOffsetRef.current === null) return;
+      const keyboardHeight = e.endCoordinates?.height || 0;
+      const targetOffset = pendingScrollOffsetRef.current;
+      pendingScrollOffsetRef.current = null;
+      requestAnimationFrame(() => {
+        contentScrollRef.current?.scrollTo({
+          y: Math.max(0, targetOffset - 40),
+          animated: true,
+        });
+      });
+      // keyboardHeight is available if we need finer control later; the
+      // KeyboardAvoidingView already pads the ScrollView by this amount.
+      void keyboardHeight;
+    });
+
+    return () => {
+      showSub.remove();
+    };
+  }, []);
 
   // Log group data when loaded
   useEffect(() => {
@@ -305,12 +333,18 @@ export default function GroupDetailScreen() {
   const isLoading = loadingGroup || loadingActivity;
 
   const revealPostComposer = () => {
-    requestAnimationFrame(() => {
-      contentScrollRef.current?.scrollTo({
-        y: Math.max(0, postComposerOffsetRef.current - 120),
-        animated: true,
+    pendingScrollOffsetRef.current = postComposerOffsetRef.current;
+    // If the keyboard is already up (e.g. tabbing between fields), the
+    // 'will/did show' event won't fire again — scroll right away too.
+    if (Keyboard.isVisible()) {
+      requestAnimationFrame(() => {
+        contentScrollRef.current?.scrollTo({
+          y: Math.max(0, postComposerOffsetRef.current - 40),
+          animated: true,
+        });
       });
-    });
+      pendingScrollOffsetRef.current = null;
+    }
   };
 
   if (!groupId) {

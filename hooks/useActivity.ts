@@ -131,9 +131,14 @@ export function useLikePost(token: string | null) {
     onMutate: async ({ activityId, isLiked }) => {
       const nextFavorited = !isLiked;
       await queryClient.cancelQueries({ queryKey: ['activity'] });
+      await queryClient.cancelQueries({ queryKey: ['groups', 'activity'] });
 
-      const previousQueries = queryClient.getQueriesData<unknown>({ queryKey: ['activity'] });
+      const previousQueries = [
+        ...queryClient.getQueriesData<unknown>({ queryKey: ['activity'] }),
+        ...queryClient.getQueriesData<unknown>({ queryKey: ['groups', 'activity'] }),
+      ];
 
+      // Main feed / "My Posts" (infinite query: { pages: [...] })
       queryClient.setQueriesData<{ pages: ActivityFeedResponse[] } | undefined>(
         { queryKey: ['activity', 'feed'] },
         (old) => {
@@ -155,6 +160,20 @@ export function useLikePost(token: string | null) {
         (old) => (old ? toggleActivity(old, activityId, nextFavorited) : old)
       );
 
+      // Groups tab, single selected group (regular query: { activities: [...] })
+      queryClient.setQueriesData<ActivityFeedResponse | undefined>(
+        { queryKey: ['groups', 'activity'] },
+        (old) => {
+          if (!old?.activities) return old;
+          return {
+            ...old,
+            activities: old.activities.map((activity) =>
+              toggleActivity(activity, activityId, nextFavorited)
+            ),
+          };
+        }
+      );
+
       return { previousQueries };
     },
     onError: (_err, _vars, context) => {
@@ -167,6 +186,7 @@ export function useLikePost(token: string | null) {
       // Mark stale without forcing an immediate refetch of the whole feed;
       // the optimistic value already reflects the change.
       queryClient.invalidateQueries({ queryKey: ['activity'], refetchType: 'none' });
+      queryClient.invalidateQueries({ queryKey: ['groups', 'activity'], refetchType: 'none' });
     },
   });
 }
@@ -204,6 +224,9 @@ export function useSharePost(token: string | null) {
 export function useDeletePost(token: string | null) {
   const queryClient = useQueryClient();
 
+  const removeActivity = (list: BPActivity[], activityId: number) =>
+    list.filter((activity) => activity.id !== activityId);
+
   return useMutation({
     mutationFn: async (activityId: number) => {
       if (!token) throw new Error('No authentication token');
@@ -218,9 +241,49 @@ export function useDeletePost(token: string | null) {
       }
       return deletePost(activityId, token);
     },
+    onMutate: async (activityId) => {
+      await queryClient.cancelQueries({ queryKey: ['activity'] });
+      await queryClient.cancelQueries({ queryKey: ['groups', 'activity'] });
+
+      const previousQueries = [
+        ...queryClient.getQueriesData<unknown>({ queryKey: ['activity'] }),
+        ...queryClient.getQueriesData<unknown>({ queryKey: ['groups', 'activity'] }),
+      ];
+
+      // Main feed / "My Posts" (infinite query: { pages: [...] })
+      queryClient.setQueriesData<{ pages: ActivityFeedResponse[] } | undefined>(
+        { queryKey: ['activity', 'feed'] },
+        (old) => {
+          if (!old?.pages) return old;
+          return {
+            ...old,
+            pages: old.pages.map((page) => ({
+              ...page,
+              activities: removeActivity(page.activities, activityId),
+            })),
+          };
+        }
+      );
+
+      // Groups tab, single selected group (regular query: { activities: [...] })
+      queryClient.setQueriesData<ActivityFeedResponse | undefined>(
+        { queryKey: ['groups', 'activity'] },
+        (old) => (old?.activities ? { ...old, activities: removeActivity(old.activities, activityId) } : old)
+      );
+
+      return { previousQueries };
+    },
+    onError: (_err, _activityId, context) => {
+      context?.previousQueries?.forEach(([key, data]) => {
+        queryClient.setQueryData(key, data);
+      });
+    },
     onSuccess: (_data, activityId) => {
-      queryClient.invalidateQueries({ queryKey: ['activity'] });
       queryClient.removeQueries({ queryKey: ['comments', activityId] });
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['activity'], refetchType: 'none' });
+      queryClient.invalidateQueries({ queryKey: ['groups', 'activity'], refetchType: 'none' });
     },
   });
 }

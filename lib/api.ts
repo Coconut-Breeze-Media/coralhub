@@ -866,10 +866,27 @@ export async function getActivityFeed(
   
   await assertOk(res);
   const activities: import('../types').BPActivity[] = await res.json();
-  
+
   const total = parseInt(res.headers.get('X-WP-Total') || '0', 10);
   const pages = parseInt(res.headers.get('X-WP-TotalPages') || '1', 10);
-  
+
+  console.log(`[FEED] page ${page} — options=${JSON.stringify(options)} — ${activities.length}/${total} activities (${pages} pages)`);
+  console.log(
+    '[FEED] activities:',
+    activities.map((a) => ({
+      id: a.id,
+      user: a.user_name,
+      type: a.type,
+      component: a.component,
+      status: (a as any).status,
+      date: a.date,
+      excerpt:
+        (typeof a.content === 'string' ? a.content : a.content?.rendered || '')
+          .replace(/<[^>]+>/g, '')
+          .slice(0, 60),
+    }))
+  );
+
   return {
     activities,
     total,

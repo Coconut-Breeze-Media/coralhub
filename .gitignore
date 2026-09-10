@@ -23,6 +23,7 @@ web-build/
 
 # Local-only Claude notes (not for git)
 CLAUDE.local.md
+local-notes/
 
 *.zip
 

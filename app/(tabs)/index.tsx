@@ -229,20 +229,22 @@ function extractAllLinks(content: string | { rendered: string; raw?: string }): 
 }
 
 // Post Item Component - fetches user data for each post
-function PostItem({ 
-  item, 
-  token, 
-  profile, 
-  onLike, 
+function PostItem({
+  item,
+  token,
+  profile,
+  onLike,
   onDelete,
-  onEdit 
-}: { 
+  onEdit,
+  groups,
+}: {
   item: BPActivity;
   token: string | null;
   profile: any;
   onLike: (activityId: number, isLiked: boolean) => void;
   onDelete: (item: BPActivity) => void;
   onEdit: (item: BPActivity) => void;
+  groups?: import('../../types').BPGroup[];
 }) {
   // Fetch member data from BuddyPress API
   const { data: memberData, isLoading: isMemberLoading } = useMember(token, item.user_id);
@@ -257,6 +259,13 @@ function PostItem({
   const isSharedPost = item.type === 'activity_share';
   const isCurrentUserPost = item.user_id === profile?.user_id;
   const isLiked = item.favorited || false;
+
+  // When a post was made inside a group, show which group it belongs to
+  // (e.g. in the "All Groups" combined view) and link to that group.
+  const postedInGroup =
+    item.component === 'groups'
+      ? groups?.find((g) => g.id === Number(item.primary_item_id))
+      : undefined;
   
   // Resolve author name before rendering to avoid showing placeholder text.
   const userName = memberData?.name?.trim() || item.user_name?.trim() || getUserNameFromTitle(item.title);
@@ -343,7 +352,20 @@ function PostItem({
             )}
           </View>
           <View style={styles.userInfoText}>
-            <Text style={styles.userName}>{userName}</Text>
+            <Text style={styles.userName}>
+              {userName}
+              {postedInGroup ? (
+                <>
+                  <Text style={{ color: '#6b7280', fontWeight: '400' }}> posted in the group </Text>
+                  <Text
+                    style={{ color: '#2563eb', fontWeight: '600' }}
+                    onPress={() => router.push(`/group-detail?id=${postedInGroup.id}`)}
+                  >
+                    {postedInGroup.name}
+                  </Text>
+                </>
+              ) : null}
+            </Text>
             <Text style={styles.postDate}>
               {new Date(item.date).toLocaleDateString('en-US', {
                 month: 'short',
@@ -839,13 +861,34 @@ function CommunityScreen() {
   
   const commonEmojis = ['😊', '😂', '❤️', '👍', '🎉', '🔥', '💯', '🙌'];
   
+  // "All Groups" (no specific group selected) renders from allGroupsActivities,
+  // a plain useState array fetched outside React Query — the query-cache
+  // optimistic update in useLikePost can't reach it, so toggle it here too.
+  const toggleGroupsActivityLike = (activityId: number, nextFavorited: boolean) => {
+    setAllGroupsActivities((prev) =>
+      prev.map((activity) => {
+        if (activity.id !== activityId) return activity;
+        const currentCount = activity.favorite_count || 0;
+        return {
+          ...activity,
+          favorited: nextFavorited,
+          favorite_count: Math.max(0, currentCount + (nextFavorited ? 1 : -1)),
+        };
+      })
+    );
+  };
+
   const handleLikePost = async (activityId: number, isLiked: boolean) => {
+    const isAllGroupsView = activeTab === 'groups-feed' && !selectedGroupId;
+    if (isAllGroupsView) {
+      toggleGroupsActivityLike(activityId, !isLiked);
+    }
     try {
-      console.log('[LIKE] tapping', { activityId, currentlyLiked: isLiked, willCallEndpointAs: isLiked ? 'unlike' : 'like' });
-      const result = await likePostMutation.mutateAsync({ activityId, isLiked });
-      console.log('[LIKE] server response', result);
+      await likePostMutation.mutateAsync({ activityId, isLiked });
     } catch (error) {
-      console.log('[LIKE] error', error);
+      if (isAllGroupsView) {
+        toggleGroupsActivityLike(activityId, isLiked);
+      }
       Alert.alert('Error', 'Failed to like post');
     }
   };
@@ -863,9 +906,14 @@ function CommunityScreen() {
 
   const confirmDeletePost = async () => {
     if (!deletingPost) return;
+    const deletedId = deletingPost.id;
+    const isAllGroupsView = activeTab === 'groups-feed' && !selectedGroupId;
 
     try {
-      await deletePostMutation.mutateAsync(deletingPost.id);
+      await deletePostMutation.mutateAsync(deletedId);
+      if (isAllGroupsView) {
+        setAllGroupsActivities((prev) => prev.filter((activity) => activity.id !== deletedId));
+      }
       closeDeleteModal();
       Alert.alert('Success', 'Post deleted successfully!');
     } catch (error) {
@@ -928,6 +976,7 @@ function CommunityScreen() {
         onLike={handleLikePost}
         onDelete={handleDeletePost}
         onEdit={handleOpenEditPost}
+        groups={groups}
       />
     );
   };
