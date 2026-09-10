@@ -252,6 +252,12 @@ export default function PostCard({
   const canModify = isCurrentUserPost || !!canModifyOverride;
   const isLiked = item.favorited || false;
 
+  // TEMP DIAGNOSTIC: dump the exact activity object this card is rendering
+  // from — lets us confirm fields like comment_count are actually reaching
+  // the app (vs. a WordPress-side deploy that hasn't landed yet). Remove
+  // once comment counts are confirmed working end-to-end.
+  console.log(`[POST RENDER] id=${item.id} type=${item.type} component=${item.component} comment_count=${item.comment_count} favorite_count=${item.favorite_count} favorited=${item.favorited}`, JSON.stringify(item, null, 2));
+
   // When a post was made inside a group, show which group it belongs to
   // (e.g. in the "All Groups" combined view) and link to that group.
   const postedInGroup =

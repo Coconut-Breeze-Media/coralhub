@@ -70,7 +70,7 @@ function CommunityScreen() {
   const friends = friendsData?.friends || [];
   
   // Fetch user's groups
-  const { data: userGroups } = useMyGroups(token);
+  const { data: userGroups, isLoading: isLoadingMyGroups } = useMyGroups(token);
   const groups = useMemo(() => userGroups || [], [userGroups]);
   
   useEffect(() => {
@@ -99,6 +99,8 @@ function CommunityScreen() {
   const groupIds = useMemo(() => groups.map((g) => g.id), [groups]);
   const {
     data: allGroupsPages,
+    isLoading: isLoadingAllGroups,
+    isFetching: isFetchingAllGroups,
     fetchNextPage: fetchNextAllGroupsPage,
     hasNextPage: hasNextAllGroupsPage,
     isFetchingNextPage: isFetchingNextAllGroupsPage,
@@ -691,7 +693,10 @@ function CommunityScreen() {
       )}
       
       {/* Posts Feed */}
-      {(isLoading || !membersReady || (activeTab === 'groups-feed' && selectedGroupId && isLoadingGroupActivity)) ? (
+      {(isLoading || !membersReady
+        || (activeTab === 'groups-feed' && selectedGroupId && isLoadingGroupActivity)
+        || (isAllGroupsView && (isLoadingMyGroups || isLoadingAllGroups || (groups.length > 0 && isFetchingAllGroups && allGroupsActivities.length === 0)))
+      ) ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#0066cc" />
           <Text style={styles.loadingText}>Loading posts...</Text>
