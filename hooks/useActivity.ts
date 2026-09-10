@@ -336,6 +336,11 @@ export function useUpdatePost(token: string | null) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['activity'] });
+      // Group post lists live under a separate query key prefix
+      // (['groups','activity',...]) — invalidate those too so an edit made
+      // from group-detail.tsx or the "All Groups" view is reflected there,
+      // not just in the News Feed.
+      queryClient.invalidateQueries({ queryKey: ['groups', 'activity'] });
     },
   });
 }

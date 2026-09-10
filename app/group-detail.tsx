@@ -5,7 +5,6 @@
  */
 
 import { View, Text, ScrollView, ActivityIndicator, RefreshControl, Image, TouchableOpacity, TextInput, Alert, Modal, Linking, KeyboardAvoidingView, Platform, Keyboard } from 'react-native';
-import CommentsModal from '../components/CommentsModal';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../lib/auth';
 import { uploadImage } from '../lib/api';
@@ -18,11 +17,13 @@ import {
 } from '../hooks/useGroups';
 import { useMember } from '../hooks/useMembers';
 import { useCreateGroupPost, useLikePost, useUpdatePost, useDeletePost } from '../hooks/useActivity';
-import ShareButton from '../components/ShareButton';
 import BackButton from '../components/BackButton';
+import PostCard from '../components/PostCard';
+import PostActionModals from '../components/PostActionModals';
 import { useState, useEffect, useRef } from 'react';
 import { useLocalSearchParams } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
+import type { BPActivity } from '../types';
 
 type TabType = 'home' | 'members' | 'media' | 'documents' | 'requests';
 
@@ -40,28 +41,6 @@ const ACTIVITY_TYPE_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   'new_member': 'person-add-outline',
   'joined_group': 'people-outline',
   'created_group': 'add-circle-outline',
-};
-
-// Helper function to extract image URLs from HTML content
-const extractImageUrls = (htmlContent: string): string[] => {
-  const imgRegex = /<img[^>]+src="([^">]+)"/g;
-  const urls: string[] = [];
-  let match;
-  while ((match = imgRegex.exec(htmlContent)) !== null) {
-    urls.push(match[1]);
-  }
-  return urls;
-};
-
-// Helper function to extract links from HTML content
-const extractLinks = (htmlContent: string): Array<{ url: string; text: string }> => {
-  const linkRegex = /<a[^>]+href="([^">]+)"[^>]*>([^<]+)<\/a>/g;
-  const links: Array<{ url: string; text: string }> = [];
-  let match;
-  while ((match = linkRegex.exec(htmlContent)) !== null) {
-    links.push({ url: match[1], text: match[2] });
-  }
-  return links;
 };
 
 export default function GroupDetailScreen() {
@@ -100,6 +79,13 @@ export default function GroupDetailScreen() {
   const acceptRequestMutation = useAcceptMembershipRequest(token);
   const rejectRequestMutation = useRejectMembershipRequest(token);
 
+  // Like / Edit / Delete for posts in this group's activity list — shared
+  // <PostCard> + <PostActionModals> components, same pattern as the News
+  // Feed / All Groups screen, so behavior and styling stay identical.
+  const likePostMutation = useLikePost(token);
+  const updatePostMutation = useUpdatePost(token);
+  const deletePostMutation = useDeletePost(token);
+
   const isMember = !!(userId && members?.some((m) => m.id === userId)) || isMemberViaMyGroups;
   const isGroupCreator = !!(userId && group?.creator_id === userId);
   const isAdmin = !!(userId && members?.some((m) => m.id === userId && m.roles?.includes('admin')));
@@ -122,6 +108,11 @@ export default function GroupDetailScreen() {
   const [selectedImages, setSelectedImages] = useState<string[]>([]);
   const [postLink, setPostLink] = useState('');
   const [showLeaveModal, setShowLeaveModal] = useState(false);
+  const [isEditModalVisible, setIsEditModalVisible] = useState(false);
+  const [editingPost, setEditingPost] = useState<BPActivity | null>(null);
+  const [editContent, setEditContent] = useState('');
+  const [isDeleteModalVisible, setIsDeleteModalVisible] = useState(false);
+  const [deletingPost, setDeletingPost] = useState<BPActivity | null>(null);
   const contentScrollRef = useRef<ScrollView | null>(null);
   const postComposerOffsetRef = useRef(0);
   const pendingScrollOffsetRef = useRef<number | null>(null);
@@ -277,6 +268,77 @@ export default function GroupDetailScreen() {
       Alert.alert('Error', error.message || 'Failed to create post');
     } finally {
       setIsPostingActivity(false);
+    }
+  };
+
+  const handleLikePost = async (activityId: number, isLiked: boolean) => {
+    try {
+      await likePostMutation.mutateAsync({ activityId, isLiked });
+    } catch (error) {
+      Alert.alert('Error', 'Failed to like post');
+    }
+  };
+
+  const handleOpenEditPost = (item: BPActivity) => {
+    let content = '';
+    if (typeof item.content === 'string') {
+      content = item.content;
+    } else {
+      content = item.content.raw || item.content.rendered || '';
+    }
+    setEditingPost(item);
+    setEditContent(content.replace(/<[^>]+>/g, '').trim());
+    setIsEditModalVisible(true);
+  };
+
+  const closeEditModal = () => {
+    setIsEditModalVisible(false);
+    setEditingPost(null);
+    setEditContent('');
+  };
+
+  const handleSaveEditPost = async () => {
+    if (!editingPost) return;
+    if (!editContent.trim()) {
+      Alert.alert('Error', 'Post content cannot be empty');
+      return;
+    }
+
+    try {
+      await updatePostMutation.mutateAsync({
+        activityId: editingPost.id,
+        content: editContent.trim(),
+        component: editingPost.component,
+        primary_item_id: editingPost.primary_item_id,
+      });
+      closeEditModal();
+      Alert.alert('Success', 'Post updated successfully!');
+    } catch (error: any) {
+      Alert.alert('Error', error?.message || 'Failed to update post');
+    }
+  };
+
+  const handleDeletePost = (item: BPActivity) => {
+    setDeletingPost(item);
+    setIsDeleteModalVisible(true);
+  };
+
+  const closeDeleteModal = () => {
+    if (deletePostMutation.isPending) return;
+    setIsDeleteModalVisible(false);
+    setDeletingPost(null);
+  };
+
+  const confirmDeletePost = async () => {
+    if (!deletingPost) return;
+
+    try {
+      await deletePostMutation.mutateAsync(deletingPost.id);
+      closeDeleteModal();
+      Alert.alert('Success', 'Post deleted successfully!');
+    } catch (error) {
+      Alert.alert('Error', 'Failed to delete post');
+      closeDeleteModal();
     }
   };
 
@@ -1119,13 +1181,15 @@ export default function GroupDetailScreen() {
                   ) : activities.length > 0 ? (
                     <View style={{ gap: 12 }}>
                       {activities.map((activity) => (
-                        <ActivityCard
+                        <PostCard
                           key={activity.id}
-                          activity={activity}
+                          item={activity}
                           token={token}
-                          currentUserId={userId}
-                          groupCreatorId={group?.creator_id}
-                          onActivityUpdate={refetchActivity}
+                          profile={{ user_id: userId }}
+                          onLike={handleLikePost}
+                          onDelete={handleDeletePost}
+                          onEdit={handleOpenEditPost}
+                          canModifyOverride={isGroupCreator}
                         />
                       ))}
                       {hasNextActivityPage && (
@@ -1504,6 +1568,19 @@ export default function GroupDetailScreen() {
           </View>
         </View>
       </Modal>
+
+      <PostActionModals
+        isEditVisible={isEditModalVisible}
+        editContent={editContent}
+        onChangeEditContent={setEditContent}
+        onCloseEdit={closeEditModal}
+        onSaveEdit={handleSaveEditPost}
+        isSaving={updatePostMutation.isPending}
+        isDeleteVisible={isDeleteModalVisible}
+        onCloseDelete={closeDeleteModal}
+        onConfirmDelete={confirmDeletePost}
+        isDeleting={deletePostMutation.isPending}
+      />
     </View>
   );
 }
@@ -1593,665 +1670,3 @@ function MembershipRequestCard({
   );
 }
 
-/**
- * Activity Card Component
- */
-function ActivityCard({ 
-  activity, 
-  token, 
-  currentUserId,
-  groupCreatorId,
-  onActivityUpdate 
-}: { 
-  activity: any; 
-  token: string | null;
-  currentUserId?: number | null;
-  groupCreatorId?: number;
-  onActivityUpdate: () => void;
-}) {
-  const userId = activity.user_id;
-  const { data: member } = useMember(token, userId);
-  const likePostMutation = useLikePost(token);
-  const updatePostMutation = useUpdatePost(token);
-  const deletePostMutation = useDeletePost(token);
-  
-  const [isLiked, setIsLiked] = useState(activity.favorited || false);
-  const [likeCount, setLikeCount] = useState(activity.favorite_count || 0);
-  const [commentModalVisible, setCommentModalVisible] = useState(false);
-  const [isEditModalVisible, setIsEditModalVisible] = useState(false);
-  const [isDeleteModalVisible, setIsDeleteModalVisible] = useState(false);
-  const [editContent, setEditContent] = useState('');
-  const [isUpdating, setIsUpdating] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [imageModalVisible, setImageModalVisible] = useState(false);
-  const [selectedImageIndex, setSelectedImageIndex] = useState(0);
-
-  // Check if this is an interactive post (not a system activity)
-  // Only activity_update types can be liked, commented, edited, or deleted
-  const isInteractivePost = activity.type === 'activity_update';
-
-  // Check if current user can edit/delete this post
-  // User can edit/delete if they are the post creator OR the group creator/admin
-  // AND it's an interactive post
-  // Use Number() to ensure type-safe comparison
-  const isPostCreator = currentUserId && activity.user_id && Number(currentUserId) === Number(activity.user_id);
-  const isGroupCreator = currentUserId && groupCreatorId && Number(currentUserId) === Number(groupCreatorId);
-  const canModify = isInteractivePost && (isPostCreator || isGroupCreator);
-
-  const getContentText = (content: string | { rendered: string; raw?: string }): string => {
-    let text = '';
-    if (typeof content === 'string') {
-      text = content;
-    } else {
-      text = content.rendered || content.raw || '';
-    }
-    return text.replace(/<[^>]+>/g, '').trim();
-  };
-
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffInMs = now.getTime() - date.getTime();
-    const diffInMinutes = Math.floor(diffInMs / (1000 * 60));
-    const diffInHours = Math.floor(diffInMinutes / 60);
-    const diffInDays = Math.floor(diffInHours / 24);
-
-    if (diffInMinutes < 1) return 'Just now';
-    if (diffInMinutes < 60) return `${diffInMinutes}m`;
-    if (diffInHours < 24) return `${diffInHours}h`;
-    if (diffInDays < 7) return `${diffInDays}d`;
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  };
-
-  // Activity type labels and icons
-  const getActivityInfo = (type: string) => {
-    const types: Record<string, { label: string; icon: keyof typeof Ionicons.glyphMap; color: string }> = {
-      'joined_group': { label: 'joined the group', icon: 'person-add', color: '#10b981' },
-      'created_group': { label: 'created the group', icon: 'add-circle', color: '#3b82f6' },
-      'activity_update': { label: 'posted an update', icon: 'chatbox', color: '#6366f1' },
-      'activity_comment': { label: 'commented', icon: 'chatbubble', color: '#8b5cf6' },
-      'new_member': { label: 'became a member', icon: 'person-add', color: '#10b981' },
-      'new_avatar': { label: 'changed profile picture', icon: 'image', color: '#ec4899' },
-      'friendship_created': { label: 'made a connection', icon: 'link', color: '#f59e0b' },
-    };
-    return types[type] || { label: 'posted', icon: 'chatbox-outline' as keyof typeof Ionicons.glyphMap, color: '#6b7280' };
-  };
-
-  const handleLike = async () => {
-    try {
-      const newLikedState = !isLiked;
-      setIsLiked(newLikedState);
-      setLikeCount(newLikedState ? likeCount + 1 : Math.max(0, likeCount - 1));
-      
-      await likePostMutation.mutateAsync({
-        activityId: activity.id,
-        isLiked: isLiked,
-      });
-    } catch (error) {
-      // Revert on error
-      setIsLiked(!isLiked);
-      setLikeCount(activity.favorite_count || 0);
-      Alert.alert('Error', 'Failed to update like status');
-    }
-  };
-
-  const handleEdit = () => {
-    setEditContent(getContentText(activity.content));
-    setIsEditModalVisible(true);
-  };
-
-  const handleSaveEdit = async () => {
-    if (!editContent.trim()) {
-      Alert.alert('Error', 'Post content cannot be empty');
-      return;
-    }
-
-    try {
-      setIsUpdating(true);
-      await updatePostMutation.mutateAsync({
-        activityId: activity.id,
-        content: editContent.trim(),
-        component: activity.component,
-        primary_item_id: activity.primary_item_id,
-      });
-      setIsEditModalVisible(false);
-      onActivityUpdate();
-      Alert.alert('Success', 'Post updated successfully!');
-    } catch (error: any) {
-      Alert.alert('Error', error.message || 'Failed to update post');
-    } finally {
-      setIsUpdating(false);
-    }
-  };
-
-  const handleDelete = () => {
-    setIsDeleteModalVisible(true);
-  };
-
-  const confirmDelete = async () => {
-    try {
-      setIsDeleting(true);
-      await deletePostMutation.mutateAsync(activity.id);
-      setIsDeleteModalVisible(false);
-      onActivityUpdate();
-      Alert.alert('Success', 'Post deleted successfully!');
-    } catch (error: any) {
-      Alert.alert('Error', error.message || 'Failed to delete post');
-      setIsDeleteModalVisible(false);
-    } finally {
-      setIsDeleting(false);
-    }
-  };
-
-  const handleComment = () => {
-    setCommentModalVisible(true);
-  };
-
-  const activityInfo = getActivityInfo(activity.type);
-  const content = getContentText(activity.content);
-  
-  // Extract text from title if content is empty
-  const displayText = content || (activity.title ? getContentText(activity.title) : '');
-
-  // Extract images and links from HTML content
-  const htmlContent = typeof activity.content === 'string' ? activity.content : (activity.content.rendered || '');
-  const imageUrls = extractImageUrls(htmlContent);
-  const links = extractLinks(htmlContent);
-
-  // Filter out image URLs from links (images already shown separately)
-  const textLinks = links.filter(link => !link.url.match(/\.(jpg|jpeg|png|gif|webp)$/i));
-
-  return (
-    <>
-      <View
-        style={{
-          backgroundColor: '#fff',
-          borderRadius: 12,
-          padding: 16,
-          borderWidth: 1,
-          borderColor: '#e5e7eb',
-          opacity: isDeleting ? 0.5 : 1,
-        }}
-      >
-        <View style={{ flexDirection: 'row', gap: 12 }}>
-          {/* User Avatar */}
-          {member?.avatar_urls?.thumb ? (
-            <Image
-              source={{ uri: member.avatar_urls.thumb }}
-              style={{
-                width: 40,
-                height: 40,
-                borderRadius: 20,
-                backgroundColor: '#f3f4f6',
-              }}
-            />
-          ) : (
-            <View
-              style={{
-                width: 40,
-                height: 40,
-                borderRadius: 20,
-                backgroundColor: '#eff6ff',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <Ionicons name="person" size={20} color="#3b82f6" />
-            </View>
-          )}
-
-          {/* Content */}
-          <View style={{ flex: 1 }}>
-            {/* User name, time, and actions */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <Text style={{ fontSize: 15, fontWeight: '600', color: '#1f2937' }}>
-                  {member?.name || 'Loading...'}
-                </Text>
-                <Text style={{ fontSize: 13, color: '#9ca3af' }}>
-                  {formatDate(activity.date)}
-                </Text>
-              </View>
-              {canModify && (
-                <View style={{ flexDirection: 'row', gap: 8 }}>
-                  <TouchableOpacity onPress={handleEdit} style={{ padding: 4 }}>
-                    <Ionicons name="pencil" size={18} color="#6b7280" />
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={handleDelete} style={{ padding: 4 }} disabled={isDeleting}>
-                    <Ionicons name="trash" size={18} color="#ef4444" />
-                  </TouchableOpacity>
-                </View>
-              )}
-            </View>
-
-            {/* Activity type */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-              <Ionicons name={activityInfo.icon} size={14} color={activityInfo.color} />
-              <Text style={{ fontSize: 13, color: activityInfo.color, fontWeight: '600' }}>
-                {activityInfo.label}
-              </Text>
-            </View>
-
-            {/* Content text */}
-            {displayText && (
-              <Text style={{ fontSize: 14, color: '#4b5563', lineHeight: 20, marginBottom: imageUrls.length > 0 || textLinks.length > 0 ? 12 : 0 }}>
-                {displayText}
-              </Text>
-            )}
-
-            {/* Post Images */}
-            {imageUrls.length > 0 && (
-              <View style={{ marginBottom: textLinks.length > 0 ? 12 : 0 }}>
-                <ScrollView 
-                  horizontal 
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={{ gap: 8 }}
-                >
-                  {imageUrls.map((url, index) => (
-                    <TouchableOpacity 
-                      key={index}
-                      onPress={() => {
-                        setSelectedImageIndex(index);
-                        setImageModalVisible(true);
-                      }}
-                    >
-                      <Image
-                        source={{ uri: url }}
-                        style={{
-                          width: imageUrls.length === 1 ? 280 : 200,
-                          minHeight: 200,
-                          maxHeight: 400,
-                          borderRadius: 8,
-                          backgroundColor: '#f3f4f6',
-                        }}
-                        resizeMode="contain"
-                      />
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-              </View>
-            )}
-
-            {/* Post Links */}
-            {textLinks.length > 0 && (
-              <View style={{ gap: 6, marginBottom: 12 }}>
-                {textLinks.map((link, index) => (
-                  <TouchableOpacity
-                    key={index}
-                    onPress={() => Linking.openURL(link.url)}
-                    style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      gap: 8,
-                      padding: 10,
-                      backgroundColor: '#eff6ff',
-                      borderRadius: 8,
-                      borderWidth: 1,
-                      borderColor: '#bfdbfe',
-                    }}
-                  >
-                    <Ionicons name="link" size={16} color="#0095f6" />
-                    <Text
-                      style={{
-                        flex: 1,
-                        fontSize: 13,
-                        color: '#0095f6',
-                        fontWeight: '500',
-                      }}
-                      numberOfLines={1}
-                    >
-                      {link.text || link.url}
-                    </Text>
-                    <Ionicons name="open-outline" size={14} color="#0095f6" />
-                  </TouchableOpacity>
-                ))}
-              </View>
-            )}
-
-            {/* Action Buttons - Only show for interactive posts */}
-            {isInteractivePost && (
-              <View style={{ flexDirection: 'row', gap: 16, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#f3f4f6' }}>
-                {/* Like Button */}
-                <TouchableOpacity
-                  onPress={handleLike}
-                  style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}
-                >
-                  <Ionicons 
-                    name={isLiked ? "heart" : "heart-outline"} 
-                    size={20} 
-                    color={isLiked ? "#ef4444" : "#6b7280"} 
-                  />
-                  <Text style={{ fontSize: 14, color: isLiked ? "#ef4444" : "#6b7280", fontWeight: '600' }}>
-                    {isLiked ? 'Unlike' : 'Like'}
-                  </Text>
-                </TouchableOpacity>
-
-                {/* Comment Button */}
-                <TouchableOpacity
-                  onPress={handleComment}
-                  style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}
-                >
-                  <Ionicons name="chatbubble-outline" size={18} color="#6b7280" />
-                  <Text style={{ fontSize: 14, color: '#6b7280', fontWeight: '600' }}>
-                    {activity.comment_count > 0 ? activity.comment_count : 'Comment'}
-                  </Text>
-                </TouchableOpacity>
-
-                <ShareButton
-                  activityId={activity.id}
-                  postUrl={activity.link}
-                  previewAuthorName={member?.name || 'User'}
-                  previewAuthorAvatarUrl={member?.avatar_urls?.thumb}
-                  previewTimeLabel={formatDate(activity.date)}
-                  previewText={displayText}
-                  previewImageUrl={imageUrls[0]}
-                  previewLinkUrl={textLinks[0]?.url || activity.link}
-                />
-              </View>
-            )}
-          </View>
-        </View>
-      </View>
-
-      {/* Comments Modal */}
-      <CommentsModal
-        visible={commentModalVisible}
-        onClose={() => setCommentModalVisible(false)}
-        postId={activity.id}
-        token={token}
-        currentUserId={currentUserId}
-      />
-
-      {/* Edit Modal */}
-      <Modal
-        visible={isEditModalVisible}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setIsEditModalVisible(false)}
-      >
-        <View style={{ 
-          flex: 1, 
-          backgroundColor: 'rgba(0, 0, 0, 0.5)', 
-          justifyContent: 'center', 
-          padding: 20 
-        }}>
-          <View style={{ 
-            backgroundColor: '#fff', 
-            borderRadius: 16, 
-            padding: 20,
-            maxHeight: '80%',
-          }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-              <Text style={{ fontSize: 18, fontWeight: '700', color: '#1f2937' }}>
-                Edit Post
-              </Text>
-              <TouchableOpacity onPress={() => setIsEditModalVisible(false)}>
-                <Ionicons name="close" size={24} color="#6b7280" />
-              </TouchableOpacity>
-            </View>
-            
-            <TextInput
-              style={{
-                backgroundColor: '#f9fafb',
-                borderWidth: 1,
-                borderColor: '#d1d5db',
-                borderRadius: 8,
-                padding: 12,
-                fontSize: 14,
-                color: '#1f2937',
-                minHeight: 120,
-                textAlignVertical: 'top',
-                marginBottom: 16,
-              }}
-              placeholder="Edit your post..."
-              placeholderTextColor="#9ca3af"
-              multiline
-              value={editContent}
-              onChangeText={setEditContent}
-              editable={!isUpdating}
-            />
-            
-            <View style={{ flexDirection: 'row', gap: 12 }}>
-              <TouchableOpacity
-                onPress={() => setIsEditModalVisible(false)}
-                style={{
-                  flex: 1,
-                  backgroundColor: '#f3f4f6',
-                  borderRadius: 8,
-                  padding: 12,
-                  alignItems: 'center',
-                }}
-                disabled={isUpdating}
-              >
-                <Text style={{ fontSize: 15, fontWeight: '600', color: '#6b7280' }}>
-                  Cancel
-                </Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity
-                onPress={handleSaveEdit}
-                disabled={isUpdating || !editContent.trim()}
-                style={{
-                  flex: 1,
-                  backgroundColor: (!editContent.trim() || isUpdating) ? '#d1d5db' : '#2563eb',
-                  borderRadius: 8,
-                  padding: 12,
-                  alignItems: 'center',
-                  flexDirection: 'row',
-                  justifyContent: 'center',
-                  gap: 8,
-                }}
-              >
-                {isUpdating && <ActivityIndicator size="small" color="#fff" />}
-                <Text style={{ fontSize: 15, fontWeight: '600', color: '#fff' }}>
-                  {isUpdating ? 'Saving...' : 'Save'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Delete Confirmation Modal */}
-      <Modal
-        visible={isDeleteModalVisible}
-        animationType="fade"
-        transparent={true}
-        onRequestClose={() => !isDeleting && setIsDeleteModalVisible(false)}
-      >
-        <View style={{ 
-          flex: 1, 
-          backgroundColor: 'rgba(0, 0, 0, 0.6)', 
-          justifyContent: 'center', 
-          alignItems: 'center',
-          padding: 20 
-        }}>
-          <View style={{ 
-            backgroundColor: '#fff', 
-            borderRadius: 16, 
-            padding: 24,
-            width: '100%',
-            maxWidth: 400,
-          }}>
-            {/* Warning Icon */}
-            <View style={{
-              width: 56,
-              height: 56,
-              borderRadius: 28,
-              backgroundColor: '#fee2e2',
-              alignItems: 'center',
-              justifyContent: 'center',
-              alignSelf: 'center',
-              marginBottom: 16,
-            }}>
-              <Ionicons name="warning" size={32} color="#dc2626" />
-            </View>
-
-            {/* Title */}
-            <Text style={{ 
-              fontSize: 20, 
-              fontWeight: '700', 
-              color: '#1f2937',
-              textAlign: 'center',
-              marginBottom: 8,
-            }}>
-              Delete Post?
-            </Text>
-
-            {/* Description */}
-            <Text style={{ 
-              fontSize: 14, 
-              color: '#6b7280',
-              textAlign: 'center',
-              lineHeight: 20,
-              marginBottom: 24,
-            }}>
-              Are you sure you want to delete this post? This action cannot be undone and the post will be permanently removed.
-            </Text>
-            
-            {/* Buttons */}
-            <View style={{ flexDirection: 'row', gap: 12 }}>
-              <TouchableOpacity
-                onPress={() => setIsDeleteModalVisible(false)}
-                style={{
-                  flex: 1,
-                  backgroundColor: '#f3f4f6',
-                  borderRadius: 8,
-                  padding: 14,
-                  alignItems: 'center',
-                }}
-                disabled={isDeleting}
-              >
-                <Text style={{ fontSize: 15, fontWeight: '600', color: '#6b7280' }}>
-                  Cancel
-                </Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity
-                onPress={confirmDelete}
-                disabled={isDeleting}
-                style={{
-                  flex: 1,
-                  backgroundColor: isDeleting ? '#fca5a5' : '#dc2626',
-                  borderRadius: 8,
-                  padding: 14,
-                  alignItems: 'center',
-                  flexDirection: 'row',
-                  justifyContent: 'center',
-                  gap: 8,
-                }}
-              >
-                {isDeleting ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Ionicons name="trash" size={18} color="#fff" />
-                )}
-                <Text style={{ fontSize: 15, fontWeight: '600', color: '#fff' }}>
-                  {isDeleting ? 'Deleting...' : 'Delete'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Image Modal */}
-      <Modal
-        visible={imageModalVisible}
-        animationType="fade"
-        transparent={true}
-        onRequestClose={() => setImageModalVisible(false)}
-      >
-        <View style={{ 
-          flex: 1, 
-          backgroundColor: 'rgba(0, 0, 0, 0.95)',
-          justifyContent: 'center',
-          alignItems: 'center',
-        }}>
-          {/* Header */}
-          <View style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            right: 0,
-            flexDirection: 'row',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            padding: 16,
-            paddingTop: 48,
-            zIndex: 10,
-          }}>
-            <Text style={{ color: '#fff', fontSize: 16, fontWeight: '600' }}>
-              {selectedImageIndex + 1} / {imageUrls.length}
-            </Text>
-            <TouchableOpacity
-              onPress={() => setImageModalVisible(false)}
-              style={{
-                width: 40,
-                height: 40,
-                borderRadius: 20,
-                backgroundColor: 'rgba(0, 0, 0, 0.6)',
-                justifyContent: 'center',
-                alignItems: 'center',
-              }}
-            >
-              <Ionicons name="close" size={24} color="#fff" />
-            </TouchableOpacity>
-          </View>
-
-          {/* Image */}
-          <Image
-            source={{ uri: imageUrls[selectedImageIndex] }}
-            style={{
-              width: '100%',
-              height: '70%',
-            }}
-            resizeMode="contain"
-          />
-
-          {/* Navigation Buttons */}
-          {imageUrls.length > 1 && (
-            <>
-              {selectedImageIndex > 0 && (
-                <TouchableOpacity
-                  onPress={() => setSelectedImageIndex(prev => prev - 1)}
-                  style={{
-                    position: 'absolute',
-                    left: 16,
-                    width: 48,
-                    height: 48,
-                    borderRadius: 24,
-                    backgroundColor: 'rgba(0, 0, 0, 0.6)',
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                  }}
-                >
-                  <Ionicons name="chevron-back" size={28} color="#fff" />
-                </TouchableOpacity>
-              )}
-              
-              {selectedImageIndex < imageUrls.length - 1 && (
-                <TouchableOpacity
-                  onPress={() => setSelectedImageIndex(prev => prev + 1)}
-                  style={{
-                    position: 'absolute',
-                    right: 16,
-                    width: 48,
-                    height: 48,
-                    borderRadius: 24,
-                    backgroundColor: 'rgba(0, 0, 0, 0.6)',
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                  }}
-                >
-                  <Ionicons name="chevron-forward" size={28} color="#fff" />
-                </TouchableOpacity>
-              )}
-            </>
-          )}
-        </View>
-      </Modal>
-
-    </>
-  );
-}

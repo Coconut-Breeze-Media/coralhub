@@ -45,12 +45,52 @@ class Coral_Social_API {
     private function init_hooks() {
         add_action('rest_api_init', array($this, 'register_routes'));
         add_action('init', array($this, 'check_dependencies'));
-        
+
         // Enable file uploads for REST API
         add_filter('rest_api_init', array($this, 'enable_rest_file_uploads'));
-        
+
         // Handle CORS for file uploads
         add_action('rest_api_init', array($this, 'add_cors_support'));
+
+        // Expose a comment count on every item returned by BuddyPress's own
+        // /buddypress/v1/activity endpoint (list + single). The app's News
+        // Feed / Groups / group detail screens all read `comment_count` off
+        // each activity so they can show "3" instead of a bare "Comment"
+        // label, but BuddyPress's core REST response never includes it —
+        // only the single-activity endpoint with display_comments=threaded
+        // returns nested comments, and the list endpoint returns neither.
+        add_action('rest_api_init', array($this, 'register_activity_comment_count_field'));
+    }
+
+    /**
+     * Adds a `comment_count` field to the BuddyPress REST "activity" object
+     * type, so GET /buddypress/v1/activity (list) and
+     * GET /buddypress/v1/activity/{id} both return it without the client
+     * having to fetch each activity's full comment thread just to get a count.
+     */
+    public function register_activity_comment_count_field() {
+        if (!function_exists('bp_activity_get_comment_count')) {
+            return;
+        }
+
+        register_rest_field(
+            'activity',
+            'comment_count',
+            array(
+                'get_callback' => function ($object) {
+                    $activity_id = is_array($object) ? ($object['id'] ?? 0) : $object->id;
+                    if (!$activity_id) {
+                        return 0;
+                    }
+                    return (int) bp_activity_get_comment_count($activity_id);
+                },
+                'schema' => array(
+                    'description' => __('Total number of comments on this activity item.', 'coral-social-api'),
+                    'type'        => 'integer',
+                    'context'     => array('view', 'edit'),
+                ),
+            )
+        );
     }
     
     /**
