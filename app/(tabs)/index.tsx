@@ -38,7 +38,7 @@ import { useMember } from '../../hooks/useMembers';
 import { useQueryClient } from '@tanstack/react-query';
 import { getMemberById } from '../../lib/api';
 import { useMe, useFriendsList } from '../../hooks/useQueries';
-import { useMyGroups, useGroupActivity } from '../../hooks/useGroups';
+import { useMyGroups, useGroupActivity, useAllGroupsActivity } from '../../hooks/useGroups';
 import { useEffect, useRef } from 'react';
 import type { BPActivity } from '../../types';
 
@@ -638,10 +638,6 @@ function CommunityScreen() {
   const { data: userGroups } = useMyGroups(token);
   const groups = useMemo(() => userGroups || [], [userGroups]);
   
-  // State to store posts from all groups
-  const [allGroupsActivities, setAllGroupsActivities] = useState<BPActivity[]>([]);
-  const allGroupsFetchedRef = useRef(false);
-
   useEffect(() => {
     if (params.tab === 'groups') {
       setActiveTab('groups-feed');
@@ -662,39 +658,19 @@ function CommunityScreen() {
     activeTab === 'groups-feed' && selectedGroupId ? selectedGroupId : undefined
   );
 
-  
-  useEffect(() => {
-    const fetchAllGroupsActivities = async () => {
-      if (
-        activeTab === 'groups-feed' &&
-        !selectedGroupId &&
-        groups.length > 0 &&
-        token &&
-        !allGroupsFetchedRef.current
-      ) {
-        try {
-          const results = await Promise.all(
-            groups.map(async (g) => {
-              // getGroupActivity expects (token, groupId, params)
-              const res = await import('../../lib/api').then(m => m.getGroupActivity(g.id, token, { per_page: 20 }));
-              return res.activities || [];
-            })
-          );
-          setAllGroupsActivities(results.flat());
-          allGroupsFetchedRef.current = true;
-        } catch (e) {
-          setAllGroupsActivities([]);
-        }
-      }
-      if (activeTab !== 'groups-feed' || selectedGroupId) {
-        setAllGroupsActivities([]);
-        allGroupsFetchedRef.current = false;
-      }
-    };
-    fetchAllGroupsActivities();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, selectedGroupId, groups, token]);
-  
+  // "All Groups" — combined, paginated feed across every group the user is
+  // in, with infinite scroll (only active while on that view).
+  const isAllGroupsView = activeTab === 'groups-feed' && !selectedGroupId;
+  const groupIds = useMemo(() => groups.map((g) => g.id), [groups]);
+  const {
+    data: allGroupsPages,
+    fetchNextPage: fetchNextAllGroupsPage,
+    hasNextPage: hasNextAllGroupsPage,
+    isFetchingNextPage: isFetchingNextAllGroupsPage,
+    refetch: refetchAllGroups,
+  } = useAllGroupsActivity(isAllGroupsView ? token : null, isAllGroupsView ? groupIds : []);
+  const allGroupsActivities = allGroupsPages?.pages?.flatMap((page) => page.activities) || [];
+
   // Fetch feed based on active tab with infinite scroll
   const scope = activeTab === 'groups-feed' ? 'groups' : undefined;
   const filterUserId = activeTab === 'feed' ? selectedFriendId : (activeTab === 'my-posts' ? userId : undefined);
@@ -861,34 +837,10 @@ function CommunityScreen() {
   
   const commonEmojis = ['😊', '😂', '❤️', '👍', '🎉', '🔥', '💯', '🙌'];
   
-  // "All Groups" (no specific group selected) renders from allGroupsActivities,
-  // a plain useState array fetched outside React Query — the query-cache
-  // optimistic update in useLikePost can't reach it, so toggle it here too.
-  const toggleGroupsActivityLike = (activityId: number, nextFavorited: boolean) => {
-    setAllGroupsActivities((prev) =>
-      prev.map((activity) => {
-        if (activity.id !== activityId) return activity;
-        const currentCount = activity.favorite_count || 0;
-        return {
-          ...activity,
-          favorited: nextFavorited,
-          favorite_count: Math.max(0, currentCount + (nextFavorited ? 1 : -1)),
-        };
-      })
-    );
-  };
-
   const handleLikePost = async (activityId: number, isLiked: boolean) => {
-    const isAllGroupsView = activeTab === 'groups-feed' && !selectedGroupId;
-    if (isAllGroupsView) {
-      toggleGroupsActivityLike(activityId, !isLiked);
-    }
     try {
       await likePostMutation.mutateAsync({ activityId, isLiked });
     } catch (error) {
-      if (isAllGroupsView) {
-        toggleGroupsActivityLike(activityId, isLiked);
-      }
       Alert.alert('Error', 'Failed to like post');
     }
   };
@@ -906,14 +858,9 @@ function CommunityScreen() {
 
   const confirmDeletePost = async () => {
     if (!deletingPost) return;
-    const deletedId = deletingPost.id;
-    const isAllGroupsView = activeTab === 'groups-feed' && !selectedGroupId;
 
     try {
-      await deletePostMutation.mutateAsync(deletedId);
-      if (isAllGroupsView) {
-        setAllGroupsActivities((prev) => prev.filter((activity) => activity.id !== deletedId));
-      }
+      await deletePostMutation.mutateAsync(deletingPost.id);
       closeDeleteModal();
       Alert.alert('Success', 'Post deleted successfully!');
     } catch (error) {
@@ -962,6 +909,12 @@ function CommunityScreen() {
   };
   
   const handleLoadMore = () => {
+    if (isAllGroupsView) {
+      if (hasNextAllGroupsPage && !isFetchingNextAllGroupsPage) {
+        fetchNextAllGroupsPage();
+      }
+      return;
+    }
     if (hasNextPage && !isFetchingNextPage) {
       fetchNextPage();
     }
@@ -1321,17 +1274,19 @@ function CommunityScreen() {
                 onRefresh={() => {
                   if (activeTab === 'groups-feed' && selectedGroupId) {
                     refetchGroupActivity();
+                  } else if (isAllGroupsView) {
+                    refetchAllGroups();
                   } else {
                     refetch();
                   }
-                }} 
+                }}
                 colors={['#0066cc']} 
               />
             }
             onEndReached={handleLoadMore}
             onEndReachedThreshold={0.5}
             ListFooterComponent={
-              isFetchingNextPage ? (
+              (isAllGroupsView ? isFetchingNextAllGroupsPage : isFetchingNextPage) ? (
                 <View style={styles.loadMoreContainer}>
                   <ActivityIndicator size="small" color="#0066cc" />
                   <Text style={styles.loadMoreText}>Loading more...</Text>

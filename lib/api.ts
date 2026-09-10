@@ -1322,30 +1322,103 @@ export async function getGroupActivity(
   params?: { per_page?: number; page?: number; order?: 'desc' | 'asc' }
 ): Promise<import('../types').ActivityFeedResponse> {
   const queryParams = new URLSearchParams();
-  
+
   queryParams.append('group_id', groupId.toString());
   queryParams.append('per_page', (params?.per_page || 20).toString());
   queryParams.append('order', params?.order || 'desc');
-  
+
   if (params?.page) {
     queryParams.append('page', params.page.toString());
   }
-  
+
+  // Without this, the group's "recent activity" (page joins, promotions, etc.)
+  // fills the first page(s) and can push actual posts off the results
+  // entirely for active groups. Only ask the server for real, postable
+  // activity types — both known types real user posts can have (BuddyPress
+  // saves group posts made via this REST API as "activity_status" instead of
+  // "activity_update", regardless of what the client requests).
+  ['activity_update', 'activity_status', 'activity_comment'].forEach((type) => {
+    queryParams.append('type[]', type);
+  });
+
   const queryString = queryParams.toString();
   const endpoint = `/buddypress/v1/activity?${queryString}`;
-  
-  const response = await authedFetch<any>(endpoint, token);
-  
+
+  // Use fetchWithTimeout directly (not authedFetch) so we can read the
+  // X-WP-Total / X-WP-TotalPages headers — authedFetch discards headers and
+  // only returns the parsed JSON, which previously made `total` silently
+  // fall back to the fetched page size (e.g. always "20") instead of the
+  // real server-side count.
+  const res = await fetchWithTimeout(`${API}${endpoint}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  await assertOk(res);
+  const response = (await res.json()) as any;
+
+  const headerTotal = parseInt(res.headers.get('X-WP-Total') || '', 10);
+  const headerPages = parseInt(res.headers.get('X-WP-TotalPages') || '', 10);
+
   // Handle both array response and paginated response format
-  if (Array.isArray(response)) {
-    return {
-      activities: response,
-      total: response.length,
-      pages: 1
-    };
+  const result: import('../types').ActivityFeedResponse = Array.isArray(response)
+    ? {
+        activities: response,
+        total: Number.isFinite(headerTotal) ? headerTotal : response.length,
+        pages: Number.isFinite(headerPages) ? headerPages : 1,
+      }
+    : (response as import('../types').ActivityFeedResponse);
+
+  console.log(
+    `[GROUP FEED] group_id=${groupId} — ${result.activities?.length ?? 0}/${result.total ?? '?'} activities`,
+    (result.activities || []).map((a) => ({ id: a.id, type: a.type, component: a.component, status: (a as any).status }))
+  );
+
+  // TEMP DIAGNOSTIC: the WordPress theme's own "POSTS" stat for this group
+  // doesn't match our filtered total (e.g. 66 vs 60). Log every activity
+  // type BuddyPress actually has recorded for this group (no type[] filter,
+  // no display_comments) so we can see what the extra items are. Remove
+  // once the mismatch is explained.
+  if (!params?.page || params.page === 1) {
+    try {
+      const diagParams = new URLSearchParams({
+        group_id: groupId.toString(),
+        per_page: '100',
+        order: 'desc',
+      });
+      const diagRes = await fetchWithTimeout(`${API}/buddypress/v1/activity?${diagParams.toString()}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const diagTotal = diagRes.headers.get('X-WP-Total');
+      const diagActivities: any[] = await diagRes.json();
+      const byType: Record<string, number> = {};
+      diagActivities.forEach((a) => {
+        byType[a.type || '(none)'] = (byType[a.type || '(none)'] || 0) + 1;
+      });
+      console.log(
+        `[GROUP FEED DIAG] group_id=${groupId} — unfiltered total=${diagTotal}, fetched=${diagActivities.length}, by type:`,
+        byType
+      );
+
+      // The combined type[]=a&type[]=b&type[]=c query returns a total (60)
+      // that doesn't match the site's own "POSTS" stat (66). Query each
+      // type SEPARATELY (per_page=1, just reading X-WP-Total) to check
+      // whether BuddyPress's total-count header is simply wrong when given
+      // multiple type[] values at once — a known kind of BuddyPress REST
+      // filtering quirk we've already hit with group_id/primary_id filters.
+      const perTypeTotals: Record<string, string | null> = {};
+      for (const t of ['activity_update', 'activity_status', 'activity_comment']) {
+        const p = new URLSearchParams({ group_id: groupId.toString(), per_page: '1', 'type[]': t });
+        const r = await fetchWithTimeout(`${API}/buddypress/v1/activity?${p.toString()}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        perTypeTotals[t] = r.headers.get('X-WP-Total');
+      }
+      console.log(`[GROUP FEED DIAG] group_id=${groupId} — per-type totals:`, perTypeTotals);
+    } catch (e) {
+      console.log('[GROUP FEED DIAG] failed', e);
+    }
   }
-  
-  return response as import('../types').ActivityFeedResponse;
+
+  return result;
 }
 
 /**

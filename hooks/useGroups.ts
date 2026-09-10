@@ -4,14 +4,14 @@
  * Provides hooks for fetching user groups with caching and automatic refetching
  */
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
 import {
   getMyGroups, getUserGroups, getGroupById, getGroupActivity, getGroupMembers, getAllGroups,
   joinGroup, leaveGroup,
   requestGroupMembership, getGroupMembershipRequests, getMyMembershipRequest,
   acceptMembershipRequest, rejectMembershipRequest,
 } from '../lib/api';
-import type { BPGroup } from '../types';
+import type { BPGroup, BPActivity } from '../types';
 
 /**
  * Hook to fetch all groups for exploration
@@ -126,6 +126,93 @@ export function useGroupActivity(
     staleTime: 2 * 60 * 1000,
     gcTime: 5 * 60 * 1000, // 5 minutes
     refetchOnWindowFocus: false,
+  });
+}
+
+/**
+ * Hook to fetch ALL of a group's activity with infinite scroll/pagination —
+ * use this instead of useGroupActivity wherever the full post history should
+ * be reachable (useGroupActivity only ever returns the first page).
+ * @param token - JWT authentication token
+ * @param groupId - Group ID to fetch activity for
+ * @param perPage - Items per page (default 20)
+ */
+export function useGroupActivityInfinite(
+  token: string | null,
+  groupId: number | null | undefined,
+  perPage: number = 20
+) {
+  return useInfiniteQuery({
+    queryKey: ['groups', 'activity', 'infinite', groupId, perPage] as const,
+    queryFn: async ({ pageParam = 1 }) => {
+      if (!token) throw new Error('No authentication token');
+      if (!groupId) throw new Error('No group ID provided');
+      return getGroupActivity(groupId, token, { per_page: perPage, page: pageParam });
+    },
+    enabled: !!token && !!groupId,
+    staleTime: 2 * 60 * 1000,
+    gcTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    initialPageParam: 1,
+    getNextPageParam: (lastPage, allPages) => {
+      const currentPage = allPages.length;
+      if (currentPage < lastPage.pages) {
+        return currentPage + 1;
+      }
+      return undefined;
+    },
+  });
+}
+
+/**
+ * Hook to fetch a combined, paginated activity feed across ALL of a user's
+ * groups at once (the "All Groups" view, when no specific group is
+ * selected) — with infinite scroll, like the main News Feed.
+ *
+ * Each "page" fetches the next page of each group in parallel, merges the
+ * results, sorts by date, and keeps going as long as at least one group
+ * still has more posts.
+ *
+ * @param token - JWT authentication token
+ * @param groupIds - IDs of every group to include
+ * @param perPageEach - Items requested per group, per page (default 10)
+ */
+export function useAllGroupsActivity(
+  token: string | null,
+  groupIds: number[],
+  perPageEach: number = 10
+) {
+  const sortedIds = [...groupIds].sort((a, b) => a - b);
+  return useInfiniteQuery({
+    queryKey: ['groups', 'activity', 'all', sortedIds.join(','), perPageEach] as const,
+    queryFn: async ({ pageParam = 1 }) => {
+      if (!token) throw new Error('No authentication token');
+
+      const results = await Promise.all(
+        sortedIds.map(async (groupId) => {
+          try {
+            const res = await getGroupActivity(groupId, token, { per_page: perPageEach, page: pageParam });
+            return { groupId, activities: res.activities || [], hasMore: pageParam < (res.pages || 1) };
+          } catch {
+            return { groupId, activities: [] as BPActivity[], hasMore: false };
+          }
+        })
+      );
+
+      const activities = results
+        .flatMap((r) => r.activities)
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      const hasMore = results.some((r) => r.hasMore);
+
+      return { activities, hasMore };
+    },
+    enabled: !!token && sortedIds.length > 0,
+    staleTime: 2 * 60 * 1000,
+    gcTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    initialPageParam: 1,
+    getNextPageParam: (lastPage, _allPages, lastPageParam) =>
+      lastPage.hasMore ? (lastPageParam as number) + 1 : undefined,
   });
 }
 

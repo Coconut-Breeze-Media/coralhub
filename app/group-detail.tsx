@@ -10,10 +10,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../lib/auth';
 import { uploadImage } from '../lib/api';
 import {
-  useGroup, useGroupActivity, useGroupMembers,
+  useGroup, useGroupActivityInfinite, useGroupMembers,
   useJoinGroup, useLeaveGroup,
   useRequestMembership, useMyMembershipRequest,
   useGroupMembershipRequests, useAcceptMembershipRequest, useRejectMembershipRequest,
+  useMyGroups,
 } from '../hooks/useGroups';
 import { useMember } from '../hooks/useMembers';
 import { useCreateGroupPost, useLikePost, useUpdatePost, useDeletePost } from '../hooks/useActivity';
@@ -69,11 +70,28 @@ export default function GroupDetailScreen() {
   const groupId = params.id ? parseInt(params.id as string) : null;
   
   const { data: group, isLoading: loadingGroup, refetch: refetchGroup } = useGroup(token, groupId);
-  const { data: activityData, isLoading: loadingActivity, refetch: refetchActivity } = useGroupActivity(token, groupId);
+  const {
+    data: activityPages,
+    isLoading: loadingActivity,
+    error: activityError,
+    refetch: refetchActivity,
+    fetchNextPage: fetchNextActivityPage,
+    hasNextPage: hasNextActivityPage,
+    isFetchingNextPage: isFetchingNextActivityPage,
+  } = useGroupActivityInfinite(token, groupId);
+  const activityData = activityPages?.pages?.[0];
   const { data: members, isLoading: loadingMembers, error: membersError, refetch: refetchMembers } = useGroupMembers(token, groupId);
   // 403 = private group, non-member — API intentionally denies access. Treat as "not a member, done loading".
   const membersAccessDenied = !!(membersError && (membersError as any)?.status === 403);
-  const membersDoneLoading = !loadingMembers || membersAccessDenied;
+
+  // The members list above is capped (per_page) and can easily miss the
+  // current user in a large group (e.g. 1000+ members) if they're not on the
+  // first page. Cross-check against the user's own "my groups" list, which
+  // is authoritative and not paginated the same way.
+  const { data: myGroups, isLoading: loadingMyGroups } = useMyGroups(token);
+  const isMemberViaMyGroups = !!(groupId && myGroups?.some((g) => g.id === groupId));
+
+  const membersDoneLoading = (!loadingMembers || membersAccessDenied) && !loadingMyGroups;
   
   const createGroupPostMutation = useCreateGroupPost(token);
   const joinGroupMutation = useJoinGroup(token);
@@ -82,7 +100,7 @@ export default function GroupDetailScreen() {
   const acceptRequestMutation = useAcceptMembershipRequest(token);
   const rejectRequestMutation = useRejectMembershipRequest(token);
 
-  const isMember = !!(userId && members?.some((m) => m.id === userId));
+  const isMember = !!(userId && members?.some((m) => m.id === userId)) || isMemberViaMyGroups;
   const isGroupCreator = !!(userId && group?.creator_id === userId);
   const isAdmin = !!(userId && members?.some((m) => m.id === userId && m.roles?.includes('admin')));
   const canManageRequests = isGroupCreator || isAdmin;
@@ -323,12 +341,12 @@ export default function GroupDetailScreen() {
     return null;
   };
 
-  const activities = activityData?.activities || [];
+  const activities = activityPages?.pages?.flatMap((page) => page.activities) || [];
   
-  // Calculate real post count - only activity_update and activity_comment are actual posts
-  // Exclude system activities like joined_group, created_group, new_member, etc.
-  const POST_TYPES = ['activity_update', 'activity_comment'];
-  const postsCount = activities.filter(activity => POST_TYPES.includes(activity.type)).length;
+  // Real post count — use the server's total (X-WP-Total) for the type-filtered
+  // query, not activities.length, which is just whatever fit on the current
+  // page (per_page-capped) and would badly undercount active groups.
+  const postsCount = activityData?.total ?? 0;
   
   const isLoading = loadingGroup || loadingActivity;
 
@@ -459,9 +477,13 @@ export default function GroupDetailScreen() {
               {/* Stats */}
               <View style={{ flexDirection: 'row', gap: 24 }}>
                 <View style={{ alignItems: 'center' }}>
-                  <Text style={{ fontSize: 24, fontWeight: '700', color: '#fff' }}>
-                    {postsCount}
-                  </Text>
+                  {loadingActivity && !activityData ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={{ fontSize: 24, fontWeight: '700', color: '#fff' }}>
+                      {postsCount}
+                    </Text>
+                  )}
                   <Text style={{ fontSize: 12, color: '#cbd5e1', textTransform: 'uppercase', marginTop: 2 }}>
                     Posts
                   </Text>
@@ -1097,15 +1119,35 @@ export default function GroupDetailScreen() {
                   ) : activities.length > 0 ? (
                     <View style={{ gap: 12 }}>
                       {activities.map((activity) => (
-                        <ActivityCard 
-                          key={activity.id} 
-                          activity={activity} 
+                        <ActivityCard
+                          key={activity.id}
+                          activity={activity}
                           token={token}
                           currentUserId={userId}
                           groupCreatorId={group?.creator_id}
                           onActivityUpdate={refetchActivity}
                         />
                       ))}
+                      {hasNextActivityPage && (
+                        <TouchableOpacity
+                          onPress={() => fetchNextActivityPage()}
+                          disabled={isFetchingNextActivityPage}
+                          style={{
+                            paddingVertical: 12,
+                            alignItems: 'center',
+                            borderRadius: 8,
+                            backgroundColor: '#f3f4f6',
+                          }}
+                        >
+                          {isFetchingNextActivityPage ? (
+                            <ActivityIndicator size="small" color="#2563eb" />
+                          ) : (
+                            <Text style={{ color: '#2563eb', fontWeight: '600', fontSize: 14 }}>
+                              Load more posts
+                            </Text>
+                          )}
+                        </TouchableOpacity>
+                      )}
                     </View>
                   ) : (
                     <View
@@ -1132,10 +1174,12 @@ export default function GroupDetailScreen() {
                         <Ionicons name="chatbox-outline" size={40} color="#9ca3af" />
                       </View>
                       <Text style={{ fontSize: 18, fontWeight: '600', color: '#1f2937', marginBottom: 8 }}>
-                        No Activity Yet
+                        {activityError ? 'Couldn’t load posts' : 'No Activity Yet'}
                       </Text>
                       <Text style={{ fontSize: 14, color: '#6b7280', textAlign: 'center' }}>
-                        Be the first to post in this group!
+                        {activityError
+                          ? (activityError as any)?.message || 'Something went wrong loading this group’s posts.'
+                          : 'Be the first to post in this group!'}
                       </Text>
                     </View>
                   )}

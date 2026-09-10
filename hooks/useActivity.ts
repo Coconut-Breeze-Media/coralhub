@@ -160,19 +160,31 @@ export function useLikePost(token: string | null) {
         (old) => (old ? toggleActivity(old, activityId, nextFavorited) : old)
       );
 
-      // Groups tab, single selected group (regular query: { activities: [...] })
-      queryClient.setQueriesData<ActivityFeedResponse | undefined>(
-        { queryKey: ['groups', 'activity'] },
-        (old) => {
-          if (!old?.activities) return old;
+      // Groups tab: both the single-page ({ activities: [...] }) and the
+      // infinite-scroll group-detail feed ({ pages: [{ activities: [...] }] })
+      // share the ['groups', 'activity'] key prefix.
+      queryClient.setQueriesData<any>({ queryKey: ['groups', 'activity'] }, (old: any) => {
+        if (old?.pages) {
           return {
             ...old,
-            activities: old.activities.map((activity) =>
+            pages: old.pages.map((page: ActivityFeedResponse) => ({
+              ...page,
+              activities: page.activities.map((activity) =>
+                toggleActivity(activity, activityId, nextFavorited)
+              ),
+            })),
+          };
+        }
+        if (old?.activities) {
+          return {
+            ...old,
+            activities: old.activities.map((activity: BPActivity) =>
               toggleActivity(activity, activityId, nextFavorited)
             ),
           };
         }
-      );
+        return old;
+      });
 
       return { previousQueries };
     },
@@ -265,11 +277,23 @@ export function useDeletePost(token: string | null) {
         }
       );
 
-      // Groups tab, single selected group (regular query: { activities: [...] })
-      queryClient.setQueriesData<ActivityFeedResponse | undefined>(
-        { queryKey: ['groups', 'activity'] },
-        (old) => (old?.activities ? { ...old, activities: removeActivity(old.activities, activityId) } : old)
-      );
+      // Groups tab: single-page ({ activities: [...] }) and the infinite-scroll
+      // group-detail feed ({ pages: [{ activities: [...] }] }) share this prefix.
+      queryClient.setQueriesData<any>({ queryKey: ['groups', 'activity'] }, (old: any) => {
+        if (old?.pages) {
+          return {
+            ...old,
+            pages: old.pages.map((page: ActivityFeedResponse) => ({
+              ...page,
+              activities: removeActivity(page.activities, activityId),
+            })),
+          };
+        }
+        if (old?.activities) {
+          return { ...old, activities: removeActivity(old.activities, activityId) };
+        }
+        return old;
+      });
 
       return { previousQueries };
     },
