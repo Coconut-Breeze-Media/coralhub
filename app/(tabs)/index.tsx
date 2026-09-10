@@ -471,15 +471,6 @@ function PostItem({
         </View>
       ) : null}
       
-      {/* Post Stats */}
-      <View style={styles.postStats}>
-        {item.favorite_count && item.favorite_count > 0 ? (
-          <Text style={styles.statsText}>
-            ❤️ {item.favorite_count} {item.favorite_count === 1 ? 'like' : 'likes'}
-          </Text>
-        ) : null}
-      </View>
-      
       {/* Post Actions */}
       <View style={styles.postActions}>
         <TouchableOpacity
@@ -490,10 +481,10 @@ function PostItem({
             {isLiked ? '❤️' : '🤍'}
           </Text>
           <Text style={[styles.actionLabel, isLiked && styles.likedText]}>
-            Like
+            {isLiked ? 'Unlike' : 'Like'}
           </Text>
         </TouchableOpacity>
-        
+
         <TouchableOpacity
           onPress={() => setCommentModalVisible(true)}
           style={styles.actionButton}
@@ -850,8 +841,11 @@ function CommunityScreen() {
   
   const handleLikePost = async (activityId: number, isLiked: boolean) => {
     try {
-      await likePostMutation.mutateAsync({ activityId, isLiked });
+      console.log('[LIKE] tapping', { activityId, currentlyLiked: isLiked, willCallEndpointAs: isLiked ? 'unlike' : 'like' });
+      const result = await likePostMutation.mutateAsync({ activityId, isLiked });
+      console.log('[LIKE] server response', result);
     } catch (error) {
+      console.log('[LIKE] error', error);
       Alert.alert('Error', 'Failed to like post');
     }
   };

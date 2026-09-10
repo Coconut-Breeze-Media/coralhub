@@ -107,20 +107,66 @@ export function useCreatePost(token: string | null) {
  */
 export function useLikePost(token: string | null) {
   const queryClient = useQueryClient();
-  
+
+  const toggleActivity = (activity: BPActivity, activityId: number, nextFavorited: boolean): BPActivity => {
+    if (activity.id !== activityId) return activity;
+    const currentCount = activity.favorite_count || 0;
+    return {
+      ...activity,
+      favorited: nextFavorited,
+      favorite_count: Math.max(0, currentCount + (nextFavorited ? 1 : -1)),
+    };
+  };
+
   return useMutation({
     mutationFn: async ({ activityId, isLiked }: { activityId: number; isLiked: boolean }) => {
       if (!token) throw new Error('No authentication token');
-      
+
       if (isLiked) {
         return unlikePost(activityId, token);
       } else {
         return likePost(activityId, token);
       }
     },
-    onSuccess: () => {
-      // Invalidate activity queries to update the UI
-      queryClient.invalidateQueries({ queryKey: ['activity'] });
+    onMutate: async ({ activityId, isLiked }) => {
+      const nextFavorited = !isLiked;
+      await queryClient.cancelQueries({ queryKey: ['activity'] });
+
+      const previousQueries = queryClient.getQueriesData<unknown>({ queryKey: ['activity'] });
+
+      queryClient.setQueriesData<{ pages: ActivityFeedResponse[] } | undefined>(
+        { queryKey: ['activity', 'feed'] },
+        (old) => {
+          if (!old?.pages) return old;
+          return {
+            ...old,
+            pages: old.pages.map((page) => ({
+              ...page,
+              activities: page.activities.map((activity) =>
+                toggleActivity(activity, activityId, nextFavorited)
+              ),
+            })),
+          };
+        }
+      );
+
+      queryClient.setQueriesData<BPActivity | undefined>(
+        { queryKey: ['activity', 'detail', activityId] },
+        (old) => (old ? toggleActivity(old, activityId, nextFavorited) : old)
+      );
+
+      return { previousQueries };
+    },
+    onError: (_err, _vars, context) => {
+      // Roll back the optimistic update if the request failed
+      context?.previousQueries?.forEach(([key, data]) => {
+        queryClient.setQueryData(key, data);
+      });
+    },
+    onSettled: () => {
+      // Mark stale without forcing an immediate refetch of the whole feed;
+      // the optimistic value already reflects the change.
+      queryClient.invalidateQueries({ queryKey: ['activity'], refetchType: 'none' });
     },
   });
 }

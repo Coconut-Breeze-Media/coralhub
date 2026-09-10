@@ -1844,7 +1844,7 @@ function ActivityCard({
                     color={isLiked ? "#ef4444" : "#6b7280"} 
                   />
                   <Text style={{ fontSize: 14, color: isLiked ? "#ef4444" : "#6b7280", fontWeight: '600' }}>
-                    {likeCount > 0 ? likeCount : 'Like'}
+                    {isLiked ? 'Unlike' : 'Like'}
                   </Text>
                 </TouchableOpacity>
 

@@ -70,7 +70,11 @@ async function assertOk(res: Response) {
 function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit, ms = 15000) {
   const ctrl = new AbortController();
   const id = setTimeout(() => ctrl.abort(), ms);
-  return fetch(input, { ...init, signal: ctrl.signal }).finally(() => clearTimeout(id));
+  // The WP host sends long-lived Cache-Control headers on some REST responses
+  // (e.g. `public, max-age=604800`). Without this, the device's own HTTP cache
+  // can silently serve a stale response for up to a week, so force every
+  // request to hit the network and ignore any cached copy.
+  return fetch(input, { cache: 'no-store', ...init, signal: ctrl.signal }).finally(() => clearTimeout(id));
 }
 
 const sharePostRequestsInFlight = new Map<string, Promise<import('../types').BPActivity>>();
