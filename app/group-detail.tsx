@@ -377,14 +377,37 @@ export default function GroupDetailScreen() {
     return ACTIVITY_TYPE_ICONS[type] || 'ellipse-outline';
   };
 
+  // Decodes both named (&amp;, &#8217;, ...) and numeric (&#123;, &#x7B;)
+  // HTML entities — WordPress content is full of these (curly quotes,
+  // em dashes, etc.) and without this they show up literally as "&#8217;"
+  // instead of the character they represent.
+  const decodeHtmlEntities = (text: string): string =>
+    text
+      .replace(/&#x([0-9a-f]+);/gi, (_match, hex) => String.fromCharCode(parseInt(hex, 16)))
+      .replace(/&#(\d+);/g, (_match, dec) => String.fromCharCode(parseInt(dec, 10)))
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&apos;/g, "'");
+
   const getContentText = (content: string | { rendered: string; raw?: string }): string => {
-    let text = '';
+    let html = '';
     if (typeof content === 'string') {
-      text = content;
+      html = content;
     } else {
-      text = content.rendered || content.raw || '';
+      html = content.rendered || content.raw || '';
     }
-    return text.replace(/<[^>]+>/g, '').trim();
+
+    // Preserve paragraph/line breaks before stripping tags, same as post content.
+    html = html
+      .replace(/<\/p\s*>/gi, '\n\n')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/li\s*>/gi, '\n');
+
+    const text = decodeHtmlEntities(html.replace(/<[^>]+>/g, ''));
+    return text.replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
   };
 
   const getMemberRole = (roles?: string[]): { label: string; color: string; bgColor: string } | null => {
