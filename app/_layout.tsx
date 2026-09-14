@@ -111,6 +111,14 @@ export default function RootLayout() {
             }}
           />
 
+          {/* Create group screen */}
+          <Stack.Screen
+            name="create-group"
+            options={{
+              headerShown: false,
+            }}
+          />
+
           {/* In-app resource viewer (WebView) with back button */}
           <Stack.Screen
             name="resource-viewer"

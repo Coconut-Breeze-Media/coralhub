@@ -9,8 +9,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../lib/auth';
 import { uploadImage } from '../lib/api';
 import {
-  useGroup, useGroupActivityInfinite, useGroupMembers,
-  useJoinGroup, useLeaveGroup,
+  useGroup, useGroupActivityInfinite, useGroupMembersInfinite,
+  useJoinGroup, useLeaveGroup, useDeleteGroup,
   useRequestMembership, useMyMembershipRequest,
   useGroupMembershipRequests, useAcceptMembershipRequest, useRejectMembershipRequest,
   useMyGroups,
@@ -21,11 +21,11 @@ import BackButton from '../components/BackButton';
 import PostCard from '../components/PostCard';
 import PostActionModals from '../components/PostActionModals';
 import { useState, useEffect, useRef } from 'react';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, router } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import type { BPActivity } from '../types';
 
-type TabType = 'home' | 'members' | 'media' | 'documents' | 'requests';
+type TabType = 'home' | 'members' | 'media' | 'documents' | 'requests' | 'settings';
 
 // Group status badge colors
 const STATUS_COLORS: Record<string, { bg: string; text: string; icon: string }> = {
@@ -59,7 +59,17 @@ export default function GroupDetailScreen() {
     isFetchingNextPage: isFetchingNextActivityPage,
   } = useGroupActivityInfinite(token, groupId);
   const activityData = activityPages?.pages?.[0];
-  const { data: members, isLoading: loadingMembers, error: membersError, refetch: refetchMembers } = useGroupMembers(token, groupId);
+  const {
+    data: membersPages,
+    isLoading: loadingMembers,
+    error: membersError,
+    refetch: refetchMembers,
+    fetchNextPage: fetchNextMembersPage,
+    hasNextPage: hasNextMembersPage,
+    isFetchingNextPage: isFetchingNextMembersPage,
+  } = useGroupMembersInfinite(token, groupId);
+  const members = membersPages?.pages?.flatMap((p) => p.members) || [];
+  const membersTotal = membersPages?.pages?.[0]?.total ?? group?.total_member_count ?? 0;
   // 403 = private group, non-member — API intentionally denies access. Treat as "not a member, done loading".
   const membersAccessDenied = !!(membersError && (membersError as any)?.status === 403);
 
@@ -78,6 +88,7 @@ export default function GroupDetailScreen() {
   const requestMembershipMutation = useRequestMembership(token);
   const acceptRequestMutation = useAcceptMembershipRequest(token);
   const rejectRequestMutation = useRejectMembershipRequest(token);
+  const deleteGroupMutation = useDeleteGroup(token);
 
   // Like / Edit / Delete for posts in this group's activity list — shared
   // <PostCard> + <PostActionModals> components, same pattern as the News
@@ -88,7 +99,9 @@ export default function GroupDetailScreen() {
 
   const isMember = !!(userId && members?.some((m) => m.id === userId)) || isMemberViaMyGroups;
   const isGroupCreator = !!(userId && group?.creator_id === userId);
-  const isAdmin = !!(userId && members?.some((m) => m.id === userId && m.roles?.includes('admin')));
+  // Uses group.admins (from populate_extras, independent of the paginated
+  // members list) so admin status is correct even before all members load.
+  const isAdmin = !!(userId && group?.admins?.some((a) => Number(a.user_id) === Number(userId) && a.is_admin));
   const canManageRequests = isGroupCreator || isAdmin;
 
   // Always check for a pending request when we have IDs — lets the query run regardless of group status
@@ -113,6 +126,7 @@ export default function GroupDetailScreen() {
   const [editContent, setEditContent] = useState('');
   const [isDeleteModalVisible, setIsDeleteModalVisible] = useState(false);
   const [deletingPost, setDeletingPost] = useState<BPActivity | null>(null);
+  const [deleteGroupConfirmed, setDeleteGroupConfirmed] = useState(false);
   const contentScrollRef = useRef<ScrollView | null>(null);
   const postComposerOffsetRef = useRef(0);
   const pendingScrollOffsetRef = useRef<number | null>(null);
@@ -160,13 +174,6 @@ export default function GroupDetailScreen() {
     }
   }, [activityData]);
 
-  // Log members data
-  useEffect(() => {
-    if (members) {
-      members.forEach((member, index) => {
-      });
-    }
-  }, [members, group?.total_member_count]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -342,6 +349,31 @@ export default function GroupDetailScreen() {
     }
   };
 
+  const handleDeleteGroup = () => {
+    if (!groupId || !deleteGroupConfirmed) return;
+    Alert.alert(
+      'Delete Group',
+      `Are you sure you want to permanently delete "${group?.name}"? This cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteGroupMutation.mutateAsync(groupId);
+              Alert.alert('Group Deleted', 'The group has been permanently deleted.', [
+                { text: 'OK', onPress: () => router.replace('/profile/groups') },
+              ]);
+            } catch (err) {
+              Alert.alert('Error', err instanceof Error ? err.message : 'Failed to delete group.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const formatMemberCount = (count: number) => {
     if (count === 1) return '1 member';
     return `${count.toLocaleString()} members`;
@@ -432,7 +464,8 @@ export default function GroupDetailScreen() {
   // query, not activities.length, which is just whatever fit on the current
   // page (per_page-capped) and would badly undercount active groups.
   const postsCount = activityData?.total ?? 0;
-  
+
+
   const isLoading = loadingGroup || loadingActivity;
 
   const revealPostComposer = () => {
@@ -871,6 +904,29 @@ export default function GroupDetailScreen() {
                     </View>
                   </TouchableOpacity>
                 )}
+
+                {/* Settings tab — group creator only (delete group lives here) */}
+                {isGroupCreator && (
+                  <TouchableOpacity
+                    onPress={() => setActiveTab('settings')}
+                    style={{
+                      paddingVertical: 12,
+                      paddingHorizontal: 16,
+                      borderBottomWidth: 3,
+                      borderBottomColor: activeTab === 'settings' ? '#2563eb' : 'transparent',
+                    }}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Ionicons name="settings" size={18} color={activeTab === 'settings' ? '#2563eb' : '#6b7280'} />
+                      <Text style={{
+                        fontSize: 14, fontWeight: '600',
+                        color: activeTab === 'settings' ? '#2563eb' : '#6b7280',
+                      }}>
+                        SETTINGS
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                )}
               </ScrollView>
             </View>
             )}
@@ -923,7 +979,7 @@ export default function GroupDetailScreen() {
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4, marginBottom: 4 }}>
                   <Ionicons name="people" size={18} color="#6b7280" />
                   <Text style={{ fontSize: 15, fontWeight: '700', color: '#1f2937' }}>
-                    Members · {group.total_member_count}
+                    Members · {membersTotal}
                   </Text>
                 </View>
                 {loadingMembers ? (
@@ -980,6 +1036,26 @@ export default function GroupDetailScreen() {
                         </View>
                       </View>
                     ))}
+                    {hasNextMembersPage && (
+                      <TouchableOpacity
+                        onPress={() => fetchNextMembersPage()}
+                        disabled={isFetchingNextMembersPage}
+                        style={{
+                          paddingVertical: 12,
+                          alignItems: 'center',
+                          borderRadius: 10,
+                          backgroundColor: '#f3f4f6',
+                        }}
+                      >
+                        {isFetchingNextMembersPage ? (
+                          <ActivityIndicator size="small" color="#2563eb" />
+                        ) : (
+                          <Text style={{ color: '#2563eb', fontWeight: '600', fontSize: 14 }}>
+                            Show more members
+                          </Text>
+                        )}
+                      </TouchableOpacity>
+                    )}
                   </View>
                 ) : (
                   <View style={{ paddingVertical: 24, alignItems: 'center' }}>
@@ -1406,6 +1482,26 @@ export default function GroupDetailScreen() {
                         </TouchableOpacity>
                       </View>
                     ))}
+                    {hasNextMembersPage && (
+                      <TouchableOpacity
+                        onPress={() => fetchNextMembersPage()}
+                        disabled={isFetchingNextMembersPage}
+                        style={{
+                          paddingVertical: 12,
+                          alignItems: 'center',
+                          borderRadius: 10,
+                          backgroundColor: '#f3f4f6',
+                        }}
+                      >
+                        {isFetchingNextMembersPage ? (
+                          <ActivityIndicator size="small" color="#2563eb" />
+                        ) : (
+                          <Text style={{ color: '#2563eb', fontWeight: '600', fontSize: 14 }}>
+                            Show more members
+                          </Text>
+                        )}
+                      </TouchableOpacity>
+                    )}
                   </View>
                 ) : (
                   <View
@@ -1483,6 +1579,73 @@ export default function GroupDetailScreen() {
                     />
                   ))
                 )}
+              </View>
+            )}
+
+            {/* ── SETTINGS TAB (group creator only) ── */}
+            {isGroupCreator && activeTab === 'settings' && (
+              <View style={{ padding: 16, gap: 20 }}>
+                <View>
+                  <Text style={{ fontSize: 16, fontWeight: '700', color: '#1f2937', marginBottom: 12 }}>
+                    Danger Zone
+                  </Text>
+
+                  <View style={{
+                    flexDirection: 'row',
+                    backgroundColor: '#f3f4f6',
+                    borderRadius: 8,
+                    overflow: 'hidden',
+                    marginBottom: 16,
+                  }}>
+                    <View style={{ width: 4, backgroundColor: '#ef4444' }} />
+                    <Text style={{ flex: 1, padding: 14, fontSize: 14, color: '#6b7280', lineHeight: 20 }}>
+                      WARNING: Deleting this group will completely remove ALL content associated
+                      with it. There is no way back, please be careful with this option.
+                    </Text>
+                  </View>
+
+                  <TouchableOpacity
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 }}
+                    onPress={() => setDeleteGroupConfirmed((prev) => !prev)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={{
+                      width: 22,
+                      height: 22,
+                      borderRadius: 5,
+                      borderWidth: 2,
+                      borderColor: deleteGroupConfirmed ? '#2563eb' : '#9ca3af',
+                      backgroundColor: deleteGroupConfirmed ? '#2563eb' : 'transparent',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}>
+                      {deleteGroupConfirmed && <Ionicons name="checkmark" size={16} color="#fff" />}
+                    </View>
+                    <Text style={{ flex: 1, fontSize: 14, fontWeight: '600', color: '#1f2937' }}>
+                      I understand the consequences of deleting this group.
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={{
+                      backgroundColor: deleteGroupConfirmed ? '#ef4444' : '#fca5a5',
+                      borderRadius: 10,
+                      paddingVertical: 14,
+                      alignItems: 'center',
+                    }}
+                    onPress={handleDeleteGroup}
+                    disabled={!deleteGroupConfirmed || deleteGroupMutation.isPending}
+                    activeOpacity={0.8}
+                  >
+                    {deleteGroupMutation.isPending ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Text style={{ color: '#fff', fontSize: 14, fontWeight: '700', letterSpacing: 0.5 }}>
+                        DELETE GROUP
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
               </View>
             )}
           </>

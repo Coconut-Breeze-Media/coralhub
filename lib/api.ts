@@ -1250,6 +1250,136 @@ export async function getAllGroups(
 }
 
 /**
+ * Create a new BuddyPress group
+ * @param {string} token - JWT authentication token
+ * @param {object} data - New group fields
+ * @param {string} data.name - Group name (required)
+ * @param {string} data.description - Group description (required)
+ * @param {'public'|'private'|'hidden'} data.status - Privacy level (default 'public')
+ * @param {string[]} data.types - Group types, e.g. ['research','community']
+ * @returns {Promise<import('../types').BPGroup>}
+ */
+export async function createGroup(
+  token: string,
+  data: {
+    name: string;
+    description: string;
+    status?: 'public' | 'private' | 'hidden';
+    types?: string[];
+    enable_forum?: boolean;
+  }
+): Promise<import('../types').BPGroup> {
+  const body: Record<string, any> = {
+    name: data.name,
+    description: data.description,
+    status: data.status || 'public',
+  };
+  if (data.types && data.types.length > 0) {
+    body.types = data.types.join(',');
+  }
+  if (typeof data.enable_forum === 'boolean') {
+    body.enable_forum = data.enable_forum;
+  }
+
+  const response = await authedFetch<any>('/buddypress/v1/groups', token, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+  // Same BuddyPress REST quirk as getGroupById: this site sometimes wraps
+  // a single group in an array instead of returning the object directly,
+  // which made newGroup.name / newGroup.id read as undefined right after
+  // creating a group.
+  if (Array.isArray(response) && response.length > 0) {
+    return response[0] as import('../types').BPGroup;
+  }
+
+  return response as import('../types').BPGroup;
+}
+
+/**
+ * Delete a BuddyPress group. Creator/admin only — the server enforces this;
+ * the app just checks group.creator_id before showing the delete UI.
+ * @param {number} groupId - Group ID to delete
+ * @param {string} token - JWT authentication token
+ */
+export async function deleteGroup(groupId: number, token: string): Promise<void> {
+  await authedFetch(`/buddypress/v1/groups/${groupId}`, token, {
+    method: 'DELETE',
+  });
+}
+
+/**
+ * Upload a group's avatar image
+ * @param {number} groupId - Group ID
+ * @param {string} token - JWT authentication token
+ * @param {string} imageUri - Local URI of the selected image (file:// on native, blob: on web)
+ * @returns {Promise<{ full: string; thumb: string }>}
+ */
+export async function uploadGroupAvatar(
+  groupId: number,
+  token: string,
+  imageUri: string
+): Promise<{ full: string; thumb: string }> {
+  const formData = new FormData();
+
+  if (imageUri.startsWith('blob:') || Platform.OS === 'web') {
+    const blobResponse = await fetch(imageUri);
+    const blob = await blobResponse.blob();
+    const mimeType = blob.type || 'image/jpeg';
+    const extension = mimeType.split('/')[1] || 'jpg';
+    const file = new File([blob], `group-avatar.${extension}`, { type: mimeType });
+    formData.append('file', file);
+  } else {
+    const fileExtension = imageUri.split('.').pop()?.toLowerCase() || 'jpg';
+    const mimeMap: { [key: string]: string } = {
+      jpg: 'image/jpeg',
+      jpeg: 'image/jpeg',
+      png: 'image/png',
+      gif: 'image/gif',
+      heic: 'image/heic',
+      heif: 'image/heif',
+    };
+    const mimeType = mimeMap[fileExtension] || 'image/jpeg';
+
+    // @ts-ignore - React Native FormData accepts this format
+    formData.append('file', {
+      uri: imageUri,
+      name: `group-avatar.${fileExtension}`,
+      type: mimeType,
+    });
+  }
+
+  // "Invalid form submission." (HTTP 500) is WordPress core's
+  // wp_handle_upload() rejecting the request because it doesn't see a
+  // POST field matching the "action" it expects — a check normally
+  // satisfied by the hidden <input name="action"> on the classic
+  // wp-admin upload form. BuddyPress's group-avatar REST handler apparently
+  // doesn't disable that check (unlike the custom coral user-avatar
+  // endpoint, which has no such issue), so a REST/multipart client has to
+  // supply it manually.
+  formData.append('action', 'bp_avatar_upload');
+
+  const res = await fetchWithTimeout(`${API}/buddypress/v1/groups/${groupId}/avatar`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      // Don't set Content-Type - RN/browser sets it automatically with boundary
+    },
+    body: formData,
+  }, 30000);
+
+  await assertOk(res);
+  const data = await res.json();
+  const avatar = Array.isArray(data) ? data[0] : data;
+
+  return {
+    full: avatar?.full || avatar?.avatar_urls?.full || '',
+    thumb: avatar?.thumb || avatar?.avatar_urls?.thumb || '',
+  };
+}
+
+/**
  * Get groups for a specific user
  * @param {number} userId - User ID
  * @param {string} token - JWT authentication token
@@ -1367,57 +1497,6 @@ export async function getGroupActivity(
       }
     : (response as import('../types').ActivityFeedResponse);
 
-  console.log(
-    `[GROUP FEED] group_id=${groupId} — ${result.activities?.length ?? 0}/${result.total ?? '?'} activities`,
-    (result.activities || []).map((a) => ({ id: a.id, type: a.type, component: a.component, status: (a as any).status }))
-  );
-
-  // TEMP DIAGNOSTIC: the WordPress theme's own "POSTS" stat for this group
-  // doesn't match our filtered total (e.g. 66 vs 60). Log every activity
-  // type BuddyPress actually has recorded for this group (no type[] filter,
-  // no display_comments) so we can see what the extra items are. Remove
-  // once the mismatch is explained.
-  if (!params?.page || params.page === 1) {
-    try {
-      const diagParams = new URLSearchParams({
-        group_id: groupId.toString(),
-        per_page: '100',
-        order: 'desc',
-      });
-      const diagRes = await fetchWithTimeout(`${API}/buddypress/v1/activity?${diagParams.toString()}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const diagTotal = diagRes.headers.get('X-WP-Total');
-      const diagActivities: any[] = await diagRes.json();
-      const byType: Record<string, number> = {};
-      diagActivities.forEach((a) => {
-        byType[a.type || '(none)'] = (byType[a.type || '(none)'] || 0) + 1;
-      });
-      console.log(
-        `[GROUP FEED DIAG] group_id=${groupId} — unfiltered total=${diagTotal}, fetched=${diagActivities.length}, by type:`,
-        byType
-      );
-
-      // The combined type[]=a&type[]=b&type[]=c query returns a total (60)
-      // that doesn't match the site's own "POSTS" stat (66). Query each
-      // type SEPARATELY (per_page=1, just reading X-WP-Total) to check
-      // whether BuddyPress's total-count header is simply wrong when given
-      // multiple type[] values at once — a known kind of BuddyPress REST
-      // filtering quirk we've already hit with group_id/primary_id filters.
-      const perTypeTotals: Record<string, string | null> = {};
-      for (const t of ['activity_update', 'activity_status', 'activity_comment']) {
-        const p = new URLSearchParams({ group_id: groupId.toString(), per_page: '1', 'type[]': t });
-        const r = await fetchWithTimeout(`${API}/buddypress/v1/activity?${p.toString()}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        perTypeTotals[t] = r.headers.get('X-WP-Total');
-      }
-      console.log(`[GROUP FEED DIAG] group_id=${groupId} — per-type totals:`, perTypeTotals);
-    } catch (e) {
-      console.log('[GROUP FEED DIAG] failed', e);
-    }
-  }
-
   return result;
 }
 
@@ -1430,26 +1509,57 @@ export async function getGroupActivity(
  * @param {number} params.page - Page number
  * @returns {Promise<import('../types').BPMember[]>}
  */
+export interface GroupMembersResponse {
+  members: import('../types').BPMember[];
+  total: number;
+  pages: number;
+}
+
 export async function getGroupMembers(
   groupId: number,
   token: string,
-  params?: { per_page?: number; page?: number }
-): Promise<import('../types').BPMember[]> {
+  params?: {
+    per_page?: number;
+    page?: number;
+    /**
+     * BuddyPress member-list ordering. 'group_activity' sorts by the
+     * member's most recent activity within the group (i.e. "most active
+     * members first"), which is what the member list should default to.
+     */
+    type?: 'group_activity' | 'last_joined' | 'first_joined' | 'alphabetical' | 'online' | 'random' | 'popular';
+  }
+): Promise<GroupMembersResponse> {
   const queryParams = new URLSearchParams();
-  
+
   queryParams.append('per_page', (params?.per_page || 50).toString());
   queryParams.append('exclude_admins', 'false'); // Include admins in the list
-  
+  queryParams.append('type', params?.type || 'group_activity');
+
   if (params?.page) {
     queryParams.append('page', params.page.toString());
   }
-  
+
   const queryString = queryParams.toString();
   const endpoint = `/buddypress/v1/groups/${groupId}/members?${queryString}`;
-  
-  const response = await authedFetch<import('../types').BPMember[]>(endpoint, token);
 
-  return response;
+  // Use fetchWithTimeout directly (not authedFetch) so we can read the
+  // X-WP-Total / X-WP-TotalPages headers for pagination — same fix as
+  // getGroupActivity. Without it we have no reliable way to know whether
+  // there's another page of members to fetch.
+  const res = await fetchWithTimeout(`${API}${endpoint}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  await assertOk(res);
+  const members = (await res.json()) as import('../types').BPMember[];
+
+  const headerTotal = parseInt(res.headers.get('X-WP-Total') || '', 10);
+  const headerPages = parseInt(res.headers.get('X-WP-TotalPages') || '', 10);
+
+  return {
+    members,
+    total: Number.isFinite(headerTotal) ? headerTotal : members.length,
+    pages: Number.isFinite(headerPages) ? headerPages : 1,
+  };
 }
 
 // ---------- BuddyPress Group Membership Requests ----------

@@ -504,67 +504,77 @@ function CommunityScreen() {
       
       {/* Group Filter Dropdown - Only show in Groups Feed tab */}
       {activeTab === 'groups-feed' && (
-        <View style={styles.filterContainer}>
-          <TouchableOpacity
-            style={styles.filterButton}
-            onPress={() => setShowGroupDropdown(!showGroupDropdown)}
-          >
-            <Text style={styles.filterButtonText}>
-              {selectedGroupId 
-                ? groups.find(g => g.id === selectedGroupId)?.name || 'Select Group'
-                : 'Show posts by group'}
-            </Text>
-            <Text style={styles.filterButtonIcon}>{showGroupDropdown ? '▲' : '▼'}</Text>
-          </TouchableOpacity>
-          
-          {showGroupDropdown && (
-            <View style={styles.dropdownMenu}>
-              <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
-                <TouchableOpacity
-                  style={[styles.dropdownItem, !selectedGroupId && styles.dropdownItemActive]}
-                  onPress={() => {
-                    setSelectedGroupId(undefined);
-                    setShowGroupDropdown(false);
-                  }}
-                >
-                  <Text style={[styles.dropdownItemText, !selectedGroupId && styles.dropdownItemTextActive]}>
-                    All Groups
-                  </Text>
-                </TouchableOpacity>
-                {groups.map((group) => (
+        <View style={styles.groupsFeedToolbar}>
+          <View style={styles.filterContainer}>
+            <TouchableOpacity
+              style={styles.filterButton}
+              onPress={() => setShowGroupDropdown(!showGroupDropdown)}
+            >
+              <Text style={styles.filterButtonText}>
+                {selectedGroupId
+                  ? groups.find(g => g.id === selectedGroupId)?.name || 'Select Group'
+                  : 'Show posts by group'}
+              </Text>
+              <Text style={styles.filterButtonIcon}>{showGroupDropdown ? '▲' : '▼'}</Text>
+            </TouchableOpacity>
+
+            {showGroupDropdown && (
+              <View style={styles.dropdownMenu}>
+                <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
                   <TouchableOpacity
-                    key={group.id}
-                    style={[styles.dropdownItem, selectedGroupId === group.id && styles.dropdownItemActive]}
+                    style={[styles.dropdownItem, !selectedGroupId && styles.dropdownItemActive]}
                     onPress={() => {
-                      setSelectedGroupId(group.id);
+                      setSelectedGroupId(undefined);
                       setShowGroupDropdown(false);
                     }}
                   >
-                    <View style={styles.dropdownItemContent}>
-                      {group.avatar_urls?.thumb ? (
-                        <Image
-                          source={{ uri: group.avatar_urls.thumb }}
-                          style={styles.dropdownAvatar}
-                        />
-                      ) : (
-                        <View style={[styles.dropdownAvatar, styles.dropdownAvatarPlaceholder]}>
-                          <Text style={styles.dropdownAvatarText}>
-                            {group.name.charAt(0).toUpperCase()}
-                          </Text>
-                        </View>
-                      )}
-                      <Text style={[styles.dropdownItemText, selectedGroupId === group.id && styles.dropdownItemTextActive]}>
-                        {group.name}
-                      </Text>
-                    </View>
+                    <Text style={[styles.dropdownItemText, !selectedGroupId && styles.dropdownItemTextActive]}>
+                      All Groups
+                    </Text>
                   </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
-          )}
+                  {groups.map((group) => (
+                    <TouchableOpacity
+                      key={group.id}
+                      style={[styles.dropdownItem, selectedGroupId === group.id && styles.dropdownItemActive]}
+                      onPress={() => {
+                        setSelectedGroupId(group.id);
+                        setShowGroupDropdown(false);
+                      }}
+                    >
+                      <View style={styles.dropdownItemContent}>
+                        {group.avatar_urls?.thumb ? (
+                          <Image
+                            source={{ uri: group.avatar_urls.thumb }}
+                            style={styles.dropdownAvatar}
+                          />
+                        ) : (
+                          <View style={[styles.dropdownAvatar, styles.dropdownAvatarPlaceholder]}>
+                            <Text style={styles.dropdownAvatarText}>
+                              {group.name.charAt(0).toUpperCase()}
+                            </Text>
+                          </View>
+                        )}
+                        <Text style={[styles.dropdownItemText, selectedGroupId === group.id && styles.dropdownItemTextActive]}>
+                          {group.name}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+          </View>
+          <TouchableOpacity
+            style={styles.createGroupButton}
+            onPress={() => router.push('/create-group')}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.createGroupButtonIcon}>+</Text>
+            <Text style={styles.createGroupButtonText}>Create Group</Text>
+          </TouchableOpacity>
         </View>
       )}
-      
+
       {/* Create Post Form - Only show in My Posts tab */}
       {activeTab === 'my-posts' && (
         <View style={styles.createPostContainer}>
@@ -797,6 +807,26 @@ const styles = StyleSheet.create({
     color: '#262626',
   },
   
+  // Groups Feed toolbar (group filter dropdown + Create Group button)
+  groupsFeedToolbar: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+  },
+  createGroupButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#2563eb',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginRight: 12,
+    marginBottom: 12,
+  },
+  createGroupButtonIcon: { color: '#fff', fontSize: 16, fontWeight: '700', lineHeight: 16 },
+  createGroupButtonText: { color: '#fff', fontSize: 13, fontWeight: '700' },
+
   // Friend Filter Dropdown Styles
   filterContainer: {
     backgroundColor: '#fff',

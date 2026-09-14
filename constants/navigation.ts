@@ -136,6 +136,9 @@ export const ROUTES = {
   // In-app resource viewer (WebView)
   RESOURCE_VIEWER: '/resource-viewer',
 
+  // Groups
+  CREATE_GROUP: '/create-group',
+
   // Tabs
   TABS: '/(tabs)',
   COMMUNITY: '/(tabs)/index',

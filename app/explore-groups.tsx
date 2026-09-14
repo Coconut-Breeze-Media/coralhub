@@ -95,18 +95,21 @@ export default function ExploreGroupsScreen() {
           ) : null}
 
           <View style={styles.meta}>
-            <Ionicons name="people-outline" size={13} color="#9ca3af" />
-            <Text style={styles.metaText}>
-              {item.total_member_count === 1
-                ? '1 member'
-                : `${item.total_member_count} members`}
-            </Text>
+            <View style={styles.metaGroup}>
+              <Ionicons name="people-outline" size={13} color="#9ca3af" />
+              <Text style={styles.metaText}>
+                {item.total_member_count === 1
+                  ? '1 member'
+                  : `${item.total_member_count} members`}
+              </Text>
+            </View>
             {item.last_activity_diff ? (
-              <>
-                <Text style={styles.dot}>·</Text>
+              <View style={styles.metaGroup}>
                 <Ionicons name="time-outline" size={13} color="#9ca3af" />
-                <Text style={styles.metaText}>Active {item.last_activity_diff}</Text>
-              </>
+                <Text style={styles.metaText} numberOfLines={1}>
+                  Active {item.last_activity_diff}
+                </Text>
+              </View>
             ) : null}
           </View>
         </View>
@@ -234,8 +237,9 @@ const styles = StyleSheet.create({
   },
   badgeText: { fontSize: 11, fontWeight: '600', textTransform: 'capitalize' },
   description: { fontSize: 13, color: '#6b7280', lineHeight: 18 },
-  meta: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  metaText: { fontSize: 12, color: '#9ca3af' },
+  meta: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 10, rowGap: 2 },
+  metaGroup: { flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 1 },
+  metaText: { fontSize: 12, color: '#9ca3af', flexShrink: 1 },
   dot: { fontSize: 12, color: '#d1d5db' },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
   loadingText: { color: '#6b7280', fontSize: 14 },

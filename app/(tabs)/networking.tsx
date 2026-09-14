@@ -713,6 +713,15 @@ export default function NetworkingScreen() {
             </TouchableOpacity>
           </View>
 
+          <TouchableOpacity
+            style={styles.createGroupButton}
+            onPress={() => router.push('/create-group')}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="add-circle" size={18} color="#fff" />
+            <Text style={styles.createGroupButtonText}>Create Group</Text>
+          </TouchableOpacity>
+
           {activeGroupsTab === 'explore' ? <ExploreGroupsTab /> : <MyGroupsTab />}
         </>
       )}
@@ -862,6 +871,20 @@ const styles = StyleSheet.create({
     backgroundColor: '#ff4444', width: 40, height: 40,
     borderRadius: 20, justifyContent: 'center', alignItems: 'center',
   },
+
+  // ── Create Group button ──
+  createGroupButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#0066cc',
+    marginHorizontal: 12,
+    marginTop: 12,
+    paddingVertical: 12,
+    borderRadius: 10,
+  },
+  createGroupButtonText: { color: '#fff', fontSize: 14, fontWeight: '700' },
 
   // ── Group cards ──
   groupCard: {

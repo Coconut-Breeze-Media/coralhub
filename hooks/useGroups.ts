@@ -6,7 +6,8 @@
 
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
 import {
-  getMyGroups, getUserGroups, getGroupById, getGroupActivity, getGroupMembers, getAllGroups,
+  getMyGroups, getUserGroups, getGroupById, getGroupActivity, getGroupMembers, getAllGroups, createGroup, deleteGroup,
+  uploadGroupAvatar,
   joinGroup, leaveGroup,
   requestGroupMembership, getGroupMembershipRequests, getMyMembershipRequest,
   acceptMembershipRequest, rejectMembershipRequest,
@@ -36,6 +37,69 @@ export function useAllGroups(
 }
 
 /**
+ * Mutation hook to create a new group.
+ * Invalidates the explore/all-groups list and the user's own groups list
+ * so the new group shows up immediately without a manual refresh.
+ */
+export function useCreateGroup(token: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: {
+      name: string;
+      description: string;
+      status?: 'public' | 'private' | 'hidden';
+      types?: string[];
+      enable_forum?: boolean;
+    }) => {
+      if (!token) throw new Error('Not authenticated');
+      return createGroup(token, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['groups', 'all'] });
+      queryClient.invalidateQueries({ queryKey: ['groups', 'me'] });
+    },
+  });
+}
+
+/**
+ * Mutation hook to delete a group. Server enforces creator/admin-only;
+ * the app also gates the delete UI on group.creator_id === current user.
+ */
+export function useDeleteGroup(token: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (groupId: number) => {
+      if (!token) throw new Error('Not authenticated');
+      return deleteGroup(groupId, token);
+    },
+    onSuccess: (_data, groupId) => {
+      queryClient.invalidateQueries({ queryKey: ['groups', 'all'] });
+      queryClient.invalidateQueries({ queryKey: ['groups', 'me'] });
+      queryClient.invalidateQueries({ queryKey: ['groups', 'detail', groupId] });
+    },
+  });
+}
+
+/**
+ * Mutation hook to upload a group's avatar image (e.g. right after creating
+ * a group, since the create-group endpoint itself doesn't take a photo).
+ */
+export function useUploadGroupAvatar(token: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ groupId, imageUri }: { groupId: number; imageUri: string }) => {
+      if (!token) throw new Error('Not authenticated');
+      return uploadGroupAvatar(groupId, token, imageUri);
+    },
+    onSuccess: (_data, { groupId }) => {
+      queryClient.invalidateQueries({ queryKey: ['groups', 'detail', groupId] });
+      queryClient.invalidateQueries({ queryKey: ['groups', 'all'] });
+      queryClient.invalidateQueries({ queryKey: ['groups', 'me'] });
+    },
+  });
+}
+
+/**
  * Hook to fetch current user's groups
  * @param token - JWT authentication token
  * @param max - Maximum number of groups to return (0 = all)
@@ -51,6 +115,15 @@ export function useMyGroups(token: string | null, max?: number) {
     staleTime: 5 * 60 * 1000, // 5 minutes - groups don't change frequently
     gcTime: 10 * 60 * 1000, // 10 minutes - keep in cache
     refetchOnWindowFocus: false,
+    // /buddypress/v1/groups/me doesn't accept an orderby/order param, so
+    // sort client-side by most recent activity — groups with no recorded
+    // activity yet sort last instead of first.
+    select: (groups) =>
+      [...groups].sort((a, b) => {
+        const aTime = a.last_activity ? new Date(a.last_activity).getTime() : 0;
+        const bTime = b.last_activity ? new Date(b.last_activity).getTime() : 0;
+        return bTime - aTime;
+      }),
   });
 }
 
@@ -222,22 +295,35 @@ export function useAllGroupsActivity(
  * @param groupId - Group ID to fetch members for
  * @param perPage - Number of members per page (default 50)
  */
-export function useGroupMembers(
+/**
+ * Hook to fetch a group's members, most-active-first, paginated ~25 at a
+ * time via fetchNextPage/hasNextPage ("Show more"). The true member total
+ * comes from the group object itself (group.total_member_count) — this
+ * hook's own `total`/`pages` (from the members endpoint's X-WP-Total
+ * header) are only used to know whether another page is worth fetching.
+ */
+export function useGroupMembersInfinite(
   token: string | null,
   groupId: number | null | undefined,
-  perPage: number = 50
+  perPage: number = 25
 ) {
-  return useQuery({
-    queryKey: ['groups', 'members', groupId, perPage] as const,
-    queryFn: async () => {
+  return useInfiniteQuery({
+    queryKey: ['groups', 'members', 'infinite', groupId, perPage] as const,
+    queryFn: async ({ pageParam = 1 }) => {
       if (!token) throw new Error('No authentication token');
       if (!groupId) throw new Error('No group ID provided');
-      return getGroupMembers(groupId, token, { per_page: perPage });
+      return getGroupMembers(groupId, token, { per_page: perPage, page: pageParam, type: 'group_activity' });
     },
     enabled: !!token && !!groupId,
     staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000,
     refetchOnWindowFocus: false,
+    initialPageParam: 1,
+    getNextPageParam: (lastPage, allPages) => {
+      const currentPage = allPages.length;
+      if (currentPage < lastPage.pages) return currentPage + 1;
+      return undefined;
+    },
     // Don't retry on 403 — private group non-member access is intentionally denied
     retry: (count, error: any) => {
       if (error?.status === 403) return false;
@@ -258,7 +344,10 @@ export function useJoinGroup(token: string | null) {
       return joinGroup(groupId, userId, token);
     },
     onSuccess: (_data, { groupId }) => {
-      queryClient.invalidateQueries({ queryKey: ['groups', 'members', groupId] });
+      // 'infinite' + groupId is a prefix of useGroupMembersInfinite's full
+      // key (which also has perPage on the end), so this still invalidates
+      // it via TanStack's default partial key matching.
+      queryClient.invalidateQueries({ queryKey: ['groups', 'members', 'infinite', groupId] });
       queryClient.invalidateQueries({ queryKey: ['groups', 'detail', groupId] });
       queryClient.invalidateQueries({ queryKey: ['groups', 'me'] });
     },
@@ -277,7 +366,7 @@ export function useLeaveGroup(token: string | null) {
       return leaveGroup(groupId, userId, token);
     },
     onSuccess: (_data, { groupId }) => {
-      queryClient.invalidateQueries({ queryKey: ['groups', 'members', groupId] });
+      queryClient.invalidateQueries({ queryKey: ['groups', 'members', 'infinite', groupId] });
       queryClient.invalidateQueries({ queryKey: ['groups', 'detail', groupId] });
       queryClient.invalidateQueries({ queryKey: ['groups', 'me'] });
     },
@@ -351,7 +440,7 @@ export function useAcceptMembershipRequest(token: string | null) {
     },
     onSuccess: (_data, { groupId }) => {
       queryClient.invalidateQueries({ queryKey: ['groups', 'membership-requests', groupId] });
-      queryClient.invalidateQueries({ queryKey: ['groups', 'members', groupId] });
+      queryClient.invalidateQueries({ queryKey: ['groups', 'members', 'infinite', groupId] });
       queryClient.invalidateQueries({ queryKey: ['groups', 'detail', groupId] });
     },
   });
