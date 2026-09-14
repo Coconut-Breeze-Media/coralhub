@@ -11,6 +11,7 @@ import {
   extractPmproLevel,
   ApiError,
 } from './api';
+import { queryClient } from './queryClient';
 import {
   LEVEL_ID_TIER_MAP,
   tierFromLevelName,
@@ -310,6 +311,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setLastMembershipCheckAt(undefined);
 
     await clearStoredAuth();
+
+    // Query caches are keyed by resource, not by account. Without this, the next
+    // user to sign in on this device is served the previous user's cached
+    // conversations, profile and feeds until each key goes stale.
+    queryClient.clear();
   };
 
   return (

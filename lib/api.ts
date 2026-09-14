@@ -17,6 +17,7 @@ import type {
   UpdateXProfilePayload,
   BPActivity,
   BPConversationsResponse,
+  BPConversationSummary,
   BPMessageThreadResult,
   BPMessageMutationResponse,
   BPMessageDeleteResponse,
@@ -1784,9 +1785,51 @@ export async function searchUsers(query: string, token: string): Promise<UserSea
 }
 
 // ---------- Messages API ----------
-export async function getConversations(token: string): Promise<BPConversationsResponse> {
-  const url = `${API}/buddypress/v1/messages`;
-  const res = await fetchWithTimeout(url, {
+
+/** BuddyPress caps `per_page` at 100; request close to the max so the inbox is not truncated. */
+const CONVERSATIONS_PER_PAGE = 99;
+/** Without this the `recipients` array is truncated, which breaks name + reply-target resolution. */
+const CONVERSATION_RECIPIENTS_PER_PAGE = 50;
+
+function getConversationItemsFromResponse(
+  data: BPConversationsResponse | null | undefined
+): BPConversationSummary[] {
+  if (Array.isArray(data)) return data;
+  if (!data) return [];
+  if (Array.isArray(data.threads)) return data.threads;
+  if (Array.isArray(data.messages)) return data.messages;
+  if (Array.isArray(data.items)) return data.items;
+  return [];
+}
+
+function getConversationKey(item: BPConversationSummary): string | null {
+  const rawId = item.id ?? item.thread_id;
+  if (rawId == null) return null;
+  const parsed = Number(rawId);
+  return Number.isFinite(parsed) ? String(parsed) : String(rawId);
+}
+
+async function getConversationBox(
+  token: string,
+  box: 'inbox' | 'sentbox',
+  userId?: number | null
+): Promise<BPConversationSummary[]> {
+  const params = new URLSearchParams({
+    box,
+    type: 'all',
+    page: '1',
+    per_page: String(CONVERSATIONS_PER_PAGE),
+    recipients_per_page: String(CONVERSATION_RECIPIENTS_PER_PAGE),
+  });
+
+  // The endpoint declares `user_id` as required with a default of 0. Leaving it
+  // unset makes the box query unscoped, which surfaces threads the current user
+  // is not part of (and which then fail to render).
+  if (userId != null && Number.isFinite(userId)) {
+    params.set('user_id', String(userId));
+  }
+
+  const res = await fetchWithTimeout(`${API}/buddypress/v1/messages?${params}`, {
     method: 'GET',
     headers: {
       Authorization: `Bearer ${token}`,
@@ -1795,19 +1838,66 @@ export async function getConversations(token: string): Promise<BPConversationsRe
 
   await assertOk(res);
 
-  return (await res.json()) as BPConversationsResponse;
+  return getConversationItemsFromResponse(
+    (await res.json()) as BPConversationsResponse
+  );
+}
+
+/**
+ * BuddyPress defaults to `box=inbox`, which hides threads the current user started
+ * (and never got a reply to). Fetch inbox and sentbox and merge them by thread id so
+ * the list reflects the user's full conversation history.
+ */
+export async function getConversations(
+  token: string,
+  userId?: number | null
+): Promise<BPConversationsResponse> {
+  const [inbox, sentbox] = await Promise.all([
+    getConversationBox(token, 'inbox', userId),
+    // A failing sentbox must not blank out the whole list.
+    getConversationBox(token, 'sentbox', userId).catch(
+      () => [] as BPConversationSummary[]
+    ),
+  ]);
+
+  const merged = new Map<string, BPConversationSummary>();
+
+  // Seed with sentbox, then let inbox win: the inbox copy carries the accurate
+  // unread_count for the current user.
+  for (const item of sentbox) {
+    const key = getConversationKey(item);
+    if (key) merged.set(key, item);
+  }
+
+  for (const item of inbox) {
+    const key = getConversationKey(item);
+    if (!key) continue;
+    const existing = merged.get(key);
+    merged.set(key, existing ? { ...existing, ...item } : item);
+  }
+
+  return Array.from(merged.values());
 }
 export async function getMessages(
   threadId: number,
   token: string,
   page = 1,
-  pageSize = 20
+  pageSize = 20,
+  userId?: number | null
 ): Promise<BPMessageThreadResult> {
   const params = new URLSearchParams({
     messages_page: String(page),
     messages_per_page: String(pageSize),
+    // Without this the recipients array comes back truncated, which breaks both
+    // sender-name resolution and the reply recipient list.
+    recipients_per_page: String(CONVERSATION_RECIPIENTS_PER_PAGE),
     order: 'desc',
   });
+
+  // Scopes the thread (and its read state) to the current user.
+  if (userId != null && Number.isFinite(userId)) {
+    params.set('user_id', String(userId));
+  }
   const url = `${API}/buddypress/v1/messages/${threadId}?${params}`;
   const res = await fetchWithTimeout(url, {
     method: 'GET',
@@ -1887,7 +1977,7 @@ export async function replyToConversation(
     body: JSON.stringify({
       context: 'edit',
       id: threadId,
-      message,
+      message: encodeMessageForTransport(message),
     }),
   });
 
@@ -1927,14 +2017,26 @@ export async function markConversationAsRead(
 
 export async function deleteConversation(
   threadId: number,
-  token: string
+  token: string,
+  userId?: number | null
 ): Promise<BPMessageDeleteResponse> {
-  const res = await fetchWithTimeout(`${API}/buddypress/v1/messages/${threadId}`, {
-    method: 'DELETE',
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  });
+  // `user_id` ("the user ID to remove from the thread") is declared required with a
+  // default of 0. Without it the delete is not scoped to the current user.
+  const params = new URLSearchParams();
+  if (userId != null && Number.isFinite(userId)) {
+    params.set('user_id', String(userId));
+  }
+  const query = params.toString();
+
+  const res = await fetchWithTimeout(
+    `${API}/buddypress/v1/messages/${threadId}${query ? `?${query}` : ''}`,
+    {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    }
+  );
 
   await assertOk(res);
   const raw = await res.text();

@@ -18,6 +18,7 @@ import {
   dedupeConversationSummaries,
   extractConversationParticipantNames,
   formatConversationTitle,
+  getConversationPreview,
   getMessageTextValue,
 } from '../../lib/messagePresentation';
 import type {
@@ -40,7 +41,9 @@ function stripMarkdown(value: string): string {
     .trim();
 }
 
-function truncatePreview(value: string, maxLength = 96): string {
+// Safety cap only — the visible truncation is done by `numberOfLines` on the
+// <Text>, so the preview fills exactly the width the card already has.
+function truncatePreview(value: string, maxLength = 140): string {
   if (value.length <= maxLength) return value;
 
   return `${value.slice(0, maxLength).trimEnd()}...`;
@@ -166,7 +169,7 @@ export default function MessagesScreen() {
   const conversations = useMemo(() => dedupeConversationSummaries(getConversationItems(data), {
     excludeNames: [profile?.user_display_name],
     excludeUserIds: [userId],
-  }), [data]);
+  }), [data, profile?.user_display_name, userId]);
   const isRefreshing = isRefetching && !isLoading;
   const sentValue = Array.isArray(sent) ? sent[0] : sent;
   const deletedValue = Array.isArray(deleted) ? deleted[0] : deleted;
@@ -392,7 +395,17 @@ export default function MessagesScreen() {
               item.subject,
               'Conversation'
             );
-            const preview = getPreviewText(item.last_message_content) || 'Open conversation';
+            const lastMessage = getConversationPreview(item);
+            const previewBody = getPreviewText(lastMessage.text);
+            const isOwnLastMessage =
+              userId != null &&
+              lastMessage.senderId != null &&
+              lastMessage.senderId === userId;
+            const preview = previewBody
+              ? isOwnLastMessage
+                ? `You: ${previewBody}`
+                : previewBody
+              : 'Open conversation';
             const unreadCount = getCurrentUserUnreadCount(item, userId);
             const isDeleting = deletingThreadId === threadId;
 
@@ -463,7 +476,8 @@ export default function MessagesScreen() {
                     </Text>
 
                     <Text
-                      numberOfLines={2}
+                      numberOfLines={1}
+                      ellipsizeMode="tail"
                       style={{
                         color: '#64748b',
                         lineHeight: 19,

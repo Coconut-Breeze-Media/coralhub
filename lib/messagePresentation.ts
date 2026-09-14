@@ -101,6 +101,10 @@ export function getMessageTextValue(value: unknown): string {
   );
 }
 
+export function getParticipantDisplayName(value: unknown): string {
+  return getNameValue(value);
+}
+
 function getNameValue(value: unknown): string {
   if (typeof value === 'string') {
     return normalizeWhitespace(decodeHtmlEntities(value.replace(/<[^>]+>/g, ' ')));
@@ -362,6 +366,139 @@ export function extractConversationParticipantUserIds(
   return uniqueNumbers(userIds);
 }
 
+/**
+ * BuddyPress message items carry only `sender_id` — no display name. Build a
+ * user_id -> name map from the thread's recipients/participants so each message
+ * bubble can resolve a real name instead of falling back to a generic label.
+ */
+export function buildParticipantNameMap(source: unknown): Map<number, string> {
+  const nameById = new Map<number, string>();
+  if (!source || typeof source !== 'object') return nameById;
+
+  const record = source as MessageRecord;
+  const nestedThread =
+    record.thread && typeof record.thread === 'object'
+      ? (record.thread as MessageRecord)
+      : undefined;
+  const candidateCollections = [
+    record.participants,
+    record.recipients,
+    record.users,
+    record.members,
+    nestedThread?.participants,
+    nestedThread?.recipients,
+    nestedThread?.users,
+    nestedThread?.members,
+  ];
+
+  for (const candidate of candidateCollections) {
+    for (const item of getObjectItems(candidate)) {
+      const userId =
+        toNumberOrNull(item.user_id) ??
+        toNumberOrNull(item.id) ??
+        toNumberOrNull((item.user as MessageRecord | undefined)?.id);
+
+      if (userId == null || nameById.has(userId)) continue;
+
+      const name =
+        getNameValue(item) || getNameValue(item.user) || getNameValue(item.sender);
+
+      if (name) nameById.set(userId, name);
+    }
+  }
+
+  return nameById;
+}
+
+/**
+ * Collect sender_id -> name pairs from the messages themselves, for BuddyPress
+ * versions that embed a `sender` object on the message.
+ */
+export function buildSenderNameMapFromMessages(
+  items: MessageRecord[]
+): Map<number, string> {
+  const nameById = new Map<number, string>();
+
+  for (const item of items) {
+    const senderId =
+      toNumberOrNull(item.sender_id) ??
+      toNumberOrNull(item.user_id) ??
+      toNumberOrNull((item.sender as MessageRecord | undefined)?.id);
+
+    if (senderId == null || nameById.has(senderId)) continue;
+
+    const name =
+      getNameValue(item.sender_name) ||
+      getNameValue(item.display_name) ||
+      getNameValue(item.user_name) ||
+      getNameValue(item.sender) ||
+      getNameValue(item.user);
+
+    if (name) nameById.set(senderId, name);
+  }
+
+  return nameById;
+}
+
+/**
+ * Resolve the last message of a thread for the conversation-list preview.
+ *
+ * BuddyPress returns the latest message on the thread object as `excerpt` and
+ * `message` (both {raw, rendered}); `last_message_content` is not a BP field, so
+ * reading only that always yields an empty preview.
+ */
+export function getConversationPreview(source: unknown): {
+  text: string;
+  senderId: number | null;
+} {
+  const record = getConversationRecord(source);
+  if (!record) return { text: '', senderId: null };
+
+  const nestedThread =
+    record.thread && typeof record.thread === 'object' && !Array.isArray(record.thread)
+      ? (record.thread as MessageRecord)
+      : undefined;
+
+  const messageItems = [
+    ...getObjectItems(record.messages),
+    ...getObjectItems(nestedThread?.messages),
+  ];
+
+  const lastMessage = messageItems.reduce<MessageRecord | null>((latest, item) => {
+    if (!latest) return item;
+
+    const itemTime =
+      getTimestampValue(item.date_sent ?? item.date ?? item.date_gmt) ??
+      Number.NEGATIVE_INFINITY;
+    const latestTime =
+      getTimestampValue(latest.date_sent ?? latest.date ?? latest.date_gmt) ??
+      Number.NEGATIVE_INFINITY;
+
+    return itemTime > latestTime ? item : latest;
+  }, null);
+
+  const text =
+    getMessageTextValue(record.last_message_content) ||
+    getMessageTextValue(record.excerpt) ||
+    getMessageTextValue(record.message) ||
+    (lastMessage
+      ? getMessageTextValue(lastMessage.message) ||
+        getMessageTextValue(lastMessage.content) ||
+        getMessageTextValue(lastMessage.excerpt)
+      : '') ||
+    getMessageTextValue(nestedThread?.excerpt) ||
+    getMessageTextValue(nestedThread?.message) ||
+    '';
+
+  const senderId =
+    toNumberOrNull(record.last_sender_id) ??
+    (lastMessage ? toNumberOrNull(lastMessage.sender_id) : null) ??
+    toNumberOrNull(nestedThread?.last_sender_id);
+
+  // Collapse newlines: the preview is a single line inside a fixed-height card.
+  return { text: normalizeWhitespace(text), senderId };
+}
+
 export function getConversationThreadId(source: unknown): number | null {
   const record = getConversationRecord(source);
   if (!record) return null;
@@ -382,24 +519,26 @@ export function getConversationSortValue(source: unknown): number {
     record.thread && typeof record.thread === 'object' && !Array.isArray(record.thread)
       ? (record.thread as MessageRecord)
       : undefined;
+  // BuddyPress exposes the last message date as `date` / `date_gmt` on a thread.
+  // `last_message_date` is not a BP field, so it must not take priority.
   const candidates = [
-    record.last_message_date,
-    record.last_message_date_gmt,
     record.date_sent,
     record.date,
     record.date_gmt,
-    record.created_at,
+    record.last_message_date,
+    record.last_message_date_gmt,
+    record.last_activity,
     record.updated_at,
     record.modified,
-    record.last_activity,
-    nestedThread?.last_message_date,
-    nestedThread?.last_message_date_gmt,
+    record.created_at,
     nestedThread?.date_sent,
     nestedThread?.date,
     nestedThread?.date_gmt,
-    nestedThread?.created_at,
+    nestedThread?.last_message_date,
+    nestedThread?.last_message_date_gmt,
     nestedThread?.updated_at,
     nestedThread?.modified,
+    nestedThread?.created_at,
   ];
 
   for (const candidate of candidates) {
@@ -407,7 +546,9 @@ export function getConversationSortValue(source: unknown): number {
     if (timestamp != null) return timestamp;
   }
 
-  return getConversationThreadId(source) ?? Number.NEGATIVE_INFINITY;
+  // Never fall back to the thread id: it would be compared against epoch
+  // milliseconds from the other threads and scramble the ordering.
+  return Number.NEGATIVE_INFINITY;
 }
 
 export function getDirectConversationKey(
