@@ -196,9 +196,13 @@ export function useGroupActivity(
       return getGroupActivity(groupId, token, { per_page: perPage });
     },
     enabled: !!token && !!groupId,
-    staleTime: 2 * 60 * 1000,
+    staleTime: 0,
     gcTime: 5 * 60 * 1000, // 5 minutes
-    refetchOnWindowFocus: false,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    refetchInterval: 30 * 1000,
+    refetchIntervalInBackground: false,
   });
 }
 
@@ -223,9 +227,13 @@ export function useGroupActivityInfinite(
       return getGroupActivity(groupId, token, { per_page: perPage, page: pageParam });
     },
     enabled: !!token && !!groupId,
-    staleTime: 2 * 60 * 1000,
+    staleTime: 0,
     gcTime: 5 * 60 * 1000,
-    refetchOnWindowFocus: false,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    refetchInterval: 30 * 1000,
+    refetchIntervalInBackground: false,
     initialPageParam: 1,
     getNextPageParam: (lastPage, allPages) => {
       const currentPage = allPages.length;
@@ -280,9 +288,13 @@ export function useAllGroupsActivity(
       return { activities, hasMore };
     },
     enabled: !!token && sortedIds.length > 0,
-    staleTime: 2 * 60 * 1000,
+    staleTime: 0,
     gcTime: 5 * 60 * 1000,
-    refetchOnWindowFocus: false,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    refetchInterval: 30 * 1000,
+    refetchIntervalInBackground: false,
     initialPageParam: 1,
     getNextPageParam: (lastPage, _allPages, lastPageParam) =>
       lastPage.hasMore ? (lastPageParam as number) + 1 : undefined,

@@ -23,6 +23,62 @@ import type {
   ActivityFeedResponse,
 } from '../types';
 
+type ActivityInfiniteData = {
+  pages: ActivityFeedResponse[];
+  pageParams: unknown[];
+};
+
+function prependActivityToInfiniteData(
+  previous: ActivityInfiniteData | undefined,
+  activity: BPActivity
+): ActivityInfiniteData | undefined {
+  if (!previous?.pages?.length) return previous;
+
+  return {
+    ...previous,
+    pages: previous.pages.map((page, index) =>
+      index === 0
+        ? {
+            ...page,
+            total: page.total + (page.activities.some((item) => item.id === activity.id) ? 0 : 1),
+            activities: [activity, ...page.activities.filter((item) => item.id !== activity.id)],
+          }
+        : page
+    ),
+  };
+}
+
+function prependActivityToGroupData(previous: any, activity: BPActivity) {
+  if (previous?.pages?.length) {
+    return {
+      ...previous,
+      pages: previous.pages.map((page: ActivityFeedResponse, index: number) =>
+        index === 0
+          ? {
+              ...page,
+              total: typeof page.total === 'number'
+                ? page.total + (page.activities.some((item) => item.id === activity.id) ? 0 : 1)
+                : page.total,
+              activities: [activity, ...page.activities.filter((item) => item.id !== activity.id)],
+            }
+          : page
+      ),
+    };
+  }
+
+  if (previous?.activities) {
+    return {
+      ...previous,
+      total: typeof previous.total === 'number'
+        ? previous.total + (previous.activities.some((item: BPActivity) => item.id === activity.id) ? 0 : 1)
+        : previous.total,
+      activities: [activity, ...previous.activities.filter((item: BPActivity) => item.id !== activity.id)],
+    };
+  }
+
+  return previous;
+}
+
 /**
  * Hook to fetch activity feed with infinite scroll/pagination
  * @param token - JWT authentication token
@@ -48,9 +104,16 @@ export function useActivityFeed(
       });
     },
     enabled: !!token && enabled,
-    staleTime: 2 * 60 * 1000,
+    // Activity changes both in the app and on the website, so never treat a
+    // feed as fresh for minutes. Active screens poll lightly and also refresh
+    // on return to the app, which keeps edits and emoji removals in sync.
+    staleTime: 0,
     gcTime: 10 * 60 * 1000,
-    refetchOnWindowFocus: false,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    refetchInterval: 30 * 1000,
+    refetchIntervalInBackground: false,
     initialPageParam: 1,
     getNextPageParam: (lastPage, allPages) => {
       // Check if there are more pages
@@ -77,8 +140,13 @@ export function useActivityById(token: string | null, activityId: number | null 
       return getActivityById(activityId, token);
     },
     enabled: !!token && !!activityId,
-    staleTime: 5 * 60 * 1000,
+    staleTime: 0,
     gcTime: 10 * 60 * 1000,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    refetchInterval: 30 * 1000,
+    refetchIntervalInBackground: false,
   });
 }
 
@@ -94,9 +162,36 @@ export function useCreatePost(token: string | null) {
       if (!token) throw new Error('No authentication token');
       return createPost(token, payload);
     },
-    onSuccess: () => {
-      // Invalidate all activity queries to refetch the feed
-      queryClient.invalidateQueries({ queryKey: ['activity'] });
+    onSuccess: (activity) => {
+      // The server has accepted the post, so put that returned activity in all
+      // relevant in-memory feeds immediately. This covers "My Posts" even if
+      // that tab is currently inactive, rather than waiting for its cache TTL.
+      const matchingFeedEntries = queryClient.getQueriesData<ActivityInfiniteData>({
+        queryKey: ['activity', 'feed'],
+      });
+      let hasMyPostsCache = false;
+
+      matchingFeedEntries.forEach(([key, previous]) => {
+        const [, , scope, cachedUserId] = key as [string, string, string, string | number];
+        const includesAuthor = cachedUserId === 'all' || Number(cachedUserId) === Number(activity.user_id);
+        if (scope === 'groups' || !includesAuthor) return;
+        if (Number(cachedUserId) === Number(activity.user_id)) hasMyPostsCache = true;
+        queryClient.setQueryData(key, prependActivityToInfiniteData(previous, activity));
+      });
+
+      if (!hasMyPostsCache && activity.user_id) {
+        queryClient.setQueryData<ActivityInfiniteData>(
+          ['activity', 'feed', 'all', activity.user_id],
+          {
+            pages: [{ activities: [activity], total: 1, pages: 1 }],
+            pageParams: [1],
+          }
+        );
+      }
+
+      // Reconcile active views with WordPress right away. The optimistic cache
+      // insert above prevents any visual delay while that request is in flight.
+      queryClient.invalidateQueries({ queryKey: ['activity'], refetchType: 'active' });
     },
   });
 }
@@ -449,8 +544,17 @@ export function useCreateGroupPost(token: string | null) {
       if (!token) throw new Error('No authentication token');
       return createGroupPost(groupId, content, token);
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['activity'] });
+    onSuccess: (activity, { groupId }) => {
+      queryClient.getQueriesData<any>({ queryKey: ['groups', 'activity'] }).forEach(([key, previous]) => {
+        const keyParts = key as Array<string | number>;
+        const isSpecificGroup = Number(keyParts[2]) === groupId || Number(keyParts[3]) === groupId;
+        const isAllGroupsFeed = keyParts[2] === 'all' && String(keyParts[3]).split(',').includes(String(groupId));
+        if (isSpecificGroup || isAllGroupsFeed) {
+          queryClient.setQueryData(key, prependActivityToGroupData(previous, activity));
+        }
+      });
+      queryClient.invalidateQueries({ queryKey: ['activity'], refetchType: 'active' });
+      queryClient.invalidateQueries({ queryKey: ['groups', 'activity'], refetchType: 'active' });
       queryClient.invalidateQueries({ queryKey: ['groups'] });
     },
   });

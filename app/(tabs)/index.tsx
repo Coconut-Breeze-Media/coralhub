@@ -22,6 +22,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '../../lib/auth';
 import { uploadImage } from '../../lib/api';
+import { normalizeBareUrlsInText, normalizeExternalUrl, postLinkMarkup } from '../../lib/postContent';
 import RequireAuth from '../../components/RequireAuth';
 import MentionInput from '../../components/MentionInput';
 import PostCard from '../../components/PostCard';
@@ -185,12 +186,19 @@ function CommunityScreen() {
     }
     
     try {
-      // Build post content with text and link
-      let fullContent = postContent;
+      const normalizedLink = postLink.trim() ? normalizeExternalUrl(postLink) : null;
+      if (postLink.trim() && !normalizedLink) {
+        Alert.alert('Invalid link', 'Enter a valid web address, such as www.nature.com or https://www.nature.com.');
+        return;
+      }
+
+      // Store bare www. URLs as HTTPS so WordPress and the app receive the
+      // same valid address and can generate a preview consistently.
+      let fullContent = normalizeBareUrlsInText(postContent.trim());
       
       // Add link if provided
-      if (postLink.trim()) {
-        fullContent += `\n\n<a href="${postLink}" target="_blank">${postLink}</a>`;
+      if (normalizedLink) {
+        fullContent += `\n\n${postLinkMarkup(normalizedLink)}`;
       }
       
       // Upload images to WordPress first and get public URLs
@@ -334,7 +342,7 @@ function CommunityScreen() {
     try {
       await updatePostMutation.mutateAsync({
         activityId: editingPost.id,
-        content: editContent.trim(),
+        content: normalizeBareUrlsInText(editContent.trim()),
         component: editingPost.component,
         primary_item_id: editingPost.primary_item_id,
       });

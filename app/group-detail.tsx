@@ -8,6 +8,7 @@ import { View, Text, ScrollView, ActivityIndicator, RefreshControl, Image, Touch
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../lib/auth';
 import { uploadImage } from '../lib/api';
+import { normalizeBareUrlsInText, normalizeExternalUrl, postLinkMarkup } from '../lib/postContent';
 import {
   useGroup, useGroupActivityInfinite, useGroupMembersInfinite,
   useJoinGroup, useLeaveGroup, useDeleteGroup,
@@ -224,12 +225,18 @@ export default function GroupDetailScreen() {
     try {
       setIsPostingActivity(true);
       
-      // Build content with text and link
-      let fullContent = newPostContent.trim();
+      const normalizedLink = postLink.trim() ? normalizeExternalUrl(postLink) : null;
+      if (postLink.trim() && !normalizedLink) {
+        Alert.alert('Invalid link', 'Enter a valid web address, such as www.nature.com or https://www.nature.com.');
+        return;
+      }
+
+      // Save bare www. addresses as HTTPS, rather than a relative website URL.
+      let fullContent = normalizeBareUrlsInText(newPostContent.trim());
       
       // Add link if provided
-      if (postLink.trim()) {
-        fullContent += `\n\n<a href="${postLink}" target="_blank">${postLink}</a>`;
+      if (normalizedLink) {
+        fullContent += `\n\n${postLinkMarkup(normalizedLink)}`;
       }
       
       // Upload images to WordPress first and get public URLs
@@ -314,7 +321,7 @@ export default function GroupDetailScreen() {
     try {
       await updatePostMutation.mutateAsync({
         activityId: editingPost.id,
-        content: editContent.trim(),
+        content: normalizeBareUrlsInText(editContent.trim()),
         component: editingPost.component,
         primary_item_id: editingPost.primary_item_id,
       });
@@ -1855,4 +1862,3 @@ function MembershipRequestCard({
     </View>
   );
 }
-

@@ -25,13 +25,40 @@ import CommentsModal from './CommentsModal';
 import ShareButton from './ShareButton';
 import { useMember } from '../hooks/useMembers';
 import { useActivityById } from '../hooks/useActivity';
+import { normalizeExternalUrl } from '../lib/postContent';
 import type { BPActivity, BPGroup } from '../types';
 
 // ─────────────────────────────────────────────
 // Content helpers
 // ─────────────────────────────────────────────
 function decodeHtmlEntities(text: string): string {
-  return text
+  const decoded = text.replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (match, entity) => {
+    if (entity.startsWith('#')) {
+      const isHex = entity[1]?.toLowerCase() === 'x';
+      const codePoint = Number.parseInt(entity.slice(isHex ? 2 : 1), isHex ? 16 : 10);
+      if (!Number.isFinite(codePoint) || codePoint <= 0) return match;
+      try {
+        return String.fromCodePoint(codePoint);
+      } catch {
+        return match;
+      }
+    }
+
+    const named: Record<string, string> = {
+      amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ',
+    };
+    return named[entity.toLowerCase()] ?? match;
+  });
+
+  // Some website plugins return common emoji shortcodes instead of the
+  // character. Convert the ones supported by the in-app composer as well.
+  const emojiShortcodes: Record<string, string> = {
+    smile: '😊', joy: '😂', heart: '❤️', '+1': '👍', thumbsup: '👍',
+    tada: '🎉', fire: '🔥', '100': '💯', raised_hands: '🙌',
+  };
+
+  return decoded
+    .replace(/:([+\w-]+):/g, (match, shortcode) => emojiShortcodes[shortcode.toLowerCase()] ?? match)
     .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
@@ -64,6 +91,15 @@ function stripUnavailableShareFallback(text: string): string {
 
 function getContentText(content: string | { rendered: string; raw?: string }): string {
   let html = getContentHtml(content);
+
+  // WordPress may render emoji as <img class="emoji" alt="😊">. Preserve
+  // the accessible alt character before removing markup, while leaving normal
+  // post images alone.
+  html = html.replace(/<img\b[^>]*>/gi, (tag) => {
+    if (!/\bemoji\b/i.test(tag)) return tag;
+    const alt = tag.match(/\balt=["']([^"']*)["']/i)?.[1];
+    return alt ?? '';
+  });
 
   // Preserve paragraph/line structure before stripping tags
   html = html
@@ -149,7 +185,9 @@ function extractImageUrls(content: string | { rendered: string; raw?: string }):
   let match;
   while ((match = imgRegex.exec(html)) !== null) {
     const url = match[1];
-    if (url && !url.includes('Please-Upload-Avatar-Image')) {
+    // WordPress uses inline <img class="emoji"> markup on some installs;
+    // it belongs in the text, never as a full post attachment.
+    if (url && !/\bemoji\b/i.test(match[0]) && !url.includes('Please-Upload-Avatar-Image')) {
       imageUrls.push(url);
     }
   }
@@ -167,7 +205,13 @@ function extractImageUrls(content: string | { rendered: string; raw?: string }):
 }
 
 // Extracts all tappable links: from <a href> tags AND plain-text URLs in the content
-function extractAllLinks(content: string | { rendered: string; raw?: string }): Array<{ url: string; text: string }> {
+type ExtractedLink = {
+  url: string;
+};
+
+// Extract tappable links from anchors and plain text. Every link is normalized
+// so legacy posts containing www.example.com are still usable in the app.
+function extractAllLinks(content: string | { rendered: string; raw?: string }): ExtractedLink[] {
   let html = '';
   if (typeof content === 'string') {
     html = content;
@@ -175,37 +219,35 @@ function extractAllLinks(content: string | { rendered: string; raw?: string }): 
     html = content.rendered || content.raw || '';
   }
 
-  const results: Array<{ url: string; text: string }> = [];
+  const results: ExtractedLink[] = [];
   const seenUrls = new Set<string>();
   const imageExtensions = /\.(jpg|jpeg|png|gif|webp)(\?[^"']*)?$/i;
   const skip = (url: string) =>
-    !url.startsWith('http') ||
+    !/^https?:\/\//i.test(url) ||
     url.includes('Please-Upload-Avatar-Image') ||
     imageExtensions.test(url.split('?')[0]);
 
-  const domainOf = (url: string) => {
-    try { return new URL(url).hostname; } catch { return url; }
-  };
-
   // 1. All <a href> links (including complex content like link preview cards)
-  const hrefRegex = /<a[^>]+href=["']([^"']+)["']/gi;
+  const hrefRegex = /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
   let m: RegExpExecArray | null;
   while ((m = hrefRegex.exec(html)) !== null) {
-    const url = m[1];
+    const url = normalizeExternalUrl(decodeHtmlEntities(m[1]));
+    if (!url) continue;
     if (!skip(url) && !seenUrls.has(url)) {
       seenUrls.add(url);
-      results.push({ url, text: domainOf(url) });
+      results.push({ url });
     }
   }
 
   // 2. Plain-text URLs not already captured
   const plainText = html.replace(/<[^>]+>/g, ' ');
-  const urlRegex = /https?:\/\/[^\s<>"{}|\\^`[\]]+/g;
+  const urlRegex = /(?:https?:\/\/|www\.)[^\s<>"{}|\\^`[\]]+/gi;
   while ((m = urlRegex.exec(plainText)) !== null) {
-    const url = m[0].replace(/[.,;:!?)]+$/, '');
+    const url = normalizeExternalUrl(m[0].replace(/[.,;:!?)}\]]+$/, ''));
+    if (!url) continue;
     if (!skip(url) && !seenUrls.has(url)) {
       seenUrls.add(url);
-      results.push({ url, text: domainOf(url) });
+      results.push({ url });
     }
   }
 
@@ -213,6 +255,38 @@ function extractAllLinks(content: string | { rendered: string; raw?: string }): 
 }
 
 const COLLAPSED_POST_LINES = 5;
+const URL_TEXT_PATTERN = /(?:https?:\/\/|www\.)[^\s<>"{}|\\^`[\]]+/gi;
+
+function renderTextWithLinks(value: string, onLinkPress?: (url: string) => void) {
+  const nodes: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  URL_TEXT_PATTERN.lastIndex = 0;
+
+  while ((match = URL_TEXT_PATTERN.exec(value)) !== null) {
+    const rawMatch = match[0];
+    const trailing = rawMatch.match(/[.,;:!?)}\]]+$/)?.[0] ?? '';
+    const displayedUrl = rawMatch.slice(0, rawMatch.length - trailing.length);
+    const normalizedUrl = normalizeExternalUrl(displayedUrl);
+
+    nodes.push(value.slice(lastIndex, match.index));
+    if (normalizedUrl && onLinkPress) {
+      nodes.push(
+        <Text key={`${match.index}-${displayedUrl}`} style={styles.inlineLink} onPress={() => onLinkPress(normalizedUrl)}>
+          {displayedUrl}
+        </Text>
+      );
+    } else {
+      nodes.push(displayedUrl);
+    }
+    nodes.push(trailing);
+    lastIndex = match.index + rawMatch.length;
+  }
+
+  nodes.push(value.slice(lastIndex));
+  return nodes;
+}
 
 /**
  * A text-only line clamp for activity cards.
@@ -227,10 +301,12 @@ function ExpandablePostText({
   children,
   textStyle,
   collapsedLines = COLLAPSED_POST_LINES,
+  onLinkPress,
 }: {
   children: string;
   textStyle: object;
   collapsedLines?: number;
+  onLinkPress?: (url: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [hasOverflow, setHasOverflow] = useState(false);
@@ -251,10 +327,10 @@ function ExpandablePostText({
         accessible={false}
         importantForAccessibility="no-hide-descendants"
       >
-        {children}
+        {renderTextWithLinks(children)}
       </Text>
       <Text style={textStyle} numberOfLines={expanded ? undefined : collapsedLines}>
-        {children}
+        {renderTextWithLinks(children, onLinkPress)}
       </Text>
       {hasOverflow ? (
         <TouchableOpacity
@@ -448,7 +524,9 @@ export default function PostCard({
       {/* Post Content — text is clamped, while media and links remain available. */}
       {displayText ? (
         <View style={styles.postContentContainer}>
-          <ExpandablePostText textStyle={styles.postContent}>{displayText}</ExpandablePostText>
+          <ExpandablePostText textStyle={styles.postContent} onLinkPress={handleLinkPress}>
+            {displayText}
+          </ExpandablePostText>
         </View>
       ) : null}
 
@@ -466,24 +544,6 @@ export default function PostCard({
                 style={styles.postImage}
                 resizeMode="contain"
               />
-            </TouchableOpacity>
-          ))}
-        </View>
-      )}
-
-      {/* Post Links */}
-      {links.length > 0 && (
-        <View style={styles.postLinks}>
-          {links.map((link: { url: string; text: string }, index: number) => (
-            <TouchableOpacity
-              key={index}
-              style={styles.linkButton}
-              onPress={() => handleLinkPress(link.url)}
-            >
-              <Text style={styles.linkIcon}>🔗</Text>
-              <Text style={styles.linkText} numberOfLines={1}>
-                {link.text}
-              </Text>
             </TouchableOpacity>
           ))}
         </View>
@@ -522,7 +582,7 @@ export default function PostCard({
 
               {sharedText ? (
                 <View style={styles.sharedPostContentContainer}>
-                  <ExpandablePostText textStyle={styles.sharedPostContent}>
+                  <ExpandablePostText textStyle={styles.sharedPostContent} onLinkPress={handleLinkPress}>
                     {sharedText}
                   </ExpandablePostText>
                 </View>
@@ -536,17 +596,6 @@ export default function PostCard({
                 />
               ) : null}
 
-              {sharedLinks.length > 0 ? (
-                <TouchableOpacity
-                  style={styles.sharedPostLink}
-                  onPress={() => handleLinkPress(sharedLinks[0].url)}
-                >
-                  <Text style={styles.linkIcon}>🔗</Text>
-                  <Text style={styles.sharedPostLinkText} numberOfLines={1}>
-                    {sharedLinks[0].text}
-                  </Text>
-                </TouchableOpacity>
-              ) : null}
             </>
           ) : (
             <Text style={styles.sharedPostUnavailableText}>Original post is no longer available.</Text>
@@ -753,7 +802,7 @@ const styles = StyleSheet.create({
   },
   postContentContainer: {
     paddingHorizontal: 16,
-    paddingBottom: 12,
+    paddingBottom: 6,
   },
   hiddenTextMeasure: {
     position: 'absolute',
@@ -772,6 +821,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
   },
+  inlineLink: {
+    color: '#0077b6',
+    textDecorationLine: 'underline',
+    fontWeight: '600',
+  },
   postImages: {
     paddingHorizontal: 16,
     paddingBottom: 12,
@@ -783,30 +837,6 @@ const styles = StyleSheet.create({
     maxHeight: 400,
     borderRadius: 8,
     backgroundColor: '#f0f0f0',
-  },
-  postLinks: {
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-    gap: 8,
-  },
-  linkButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f0f8ff',
-    borderRadius: 8,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#0095f6',
-    gap: 8,
-  },
-  linkIcon: {
-    fontSize: 16,
-  },
-  linkText: {
-    flex: 1,
-    fontSize: 14,
-    color: '#0095f6',
-    fontWeight: '500',
   },
   sharedPostCard: {
     marginHorizontal: 16,
@@ -865,29 +895,12 @@ const styles = StyleSheet.create({
   },
   sharedPostContentContainer: {
     paddingHorizontal: 12,
-    paddingBottom: 12,
+    paddingBottom: 6,
   },
   sharedPostImage: {
     width: '100%',
     height: 220,
     backgroundColor: '#f0f0f0',
-  },
-  sharedPostLink: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    margin: 12,
-    backgroundColor: '#f0f8ff',
-    borderRadius: 8,
-    padding: 10,
-    borderWidth: 1,
-    borderColor: '#0095f6',
-    gap: 8,
-  },
-  sharedPostLinkText: {
-    flex: 1,
-    fontSize: 13,
-    color: '#0095f6',
-    fontWeight: '500',
   },
   sharedPostUnavailableText: {
     fontSize: 13,
