@@ -11,12 +11,10 @@ import {
   FlatList,
   Image,
   TouchableOpacity,
-  TextInput,
   RefreshControl,
   Alert,
   ActivityIndicator,
   StyleSheet,
-  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import BackButton from '../../components/BackButton';
@@ -28,165 +26,18 @@ import {
   usePendingFriendRequests,
   useAcceptFriendRequest,
   useRejectFriendRequest,
-  useSendFriendRequest,
 } from '../../hooks/useQueries';
-import { useMember, useMembersList } from '../../hooks/useMembers';
+import { useMember } from '../../hooks/useMembers';
 import RemoveFriendModal from '../../components/RemoveFriendModal';
-import type { FriendWithDetails, BPFriendship, BPMember } from '../../types';
+import type { FriendWithDetails, BPFriendship } from '../../types';
 
-type TabType = 'connect' | 'friends' | 'requests';
-
-// ─── Connect Tab ────────────────────────────────────────────────────────────
-function ConnectTab() {
-  const { token } = useAuth();
-  const [searchInput, setSearchInput] = useState('');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [sentIds, setSentIds] = useState<Set<number>>(new Set());
-  const [pendingIds, setPendingIds] = useState<Set<number>>(new Set());
-
-  const { data: members, isLoading } = useMembersList(token, {
-    search: searchQuery,
-    perPage: 20,
-  });
-
-  const sendFriendMutation = useSendFriendRequest();
-
-  const handleConnect = async (memberId: number, memberName: string) => {
-    setPendingIds(prev => new Set([...prev, memberId]));
-    try {
-      await sendFriendMutation.mutateAsync(memberId);
-      setSentIds(prev => new Set([...prev, memberId]));
-      Alert.alert('Request Sent', `Connection request sent to ${memberName}!`);
-    } catch (err) {
-      Alert.alert('Error', `Failed to send request: ${err instanceof Error ? err.message : 'Unknown error'}`);
-    } finally {
-      setPendingIds(prev => {
-        const next = new Set(prev);
-        next.delete(memberId);
-        return next;
-      });
-    }
-  };
-
-  const renderMemberItem = ({ item }: { item: BPMember }) => {
-    const avatarUrl = item.avatar_urls?.thumb || item.avatar_urls?.full;
-    const statusSlug = item.friendship_status_slug;
-    const isPending = pendingIds.has(item.id);
-    const hasSent = sentIds.has(item.id);
-
-    const isAlreadyFriend = statusSlug === 'is_friend';
-    const hasRequest =
-      statusSlug === 'pending' ||
-      statusSlug === 'awaiting_response' ||
-      hasSent;
-
-    return (
-      <View style={styles.friendCard}>
-        <View style={styles.friendInfo}>
-          {avatarUrl ? (
-            <Image source={{ uri: avatarUrl }} style={styles.avatar} />
-          ) : (
-            <View style={[styles.avatar, styles.avatarPlaceholder]}>
-              <Text style={styles.avatarPlaceholderText}>
-                {item.name.charAt(0).toUpperCase()}
-              </Text>
-            </View>
-          )}
-          <View style={styles.friendDetails}>
-            <Text style={styles.friendName}>{item.name}</Text>
-            {item.last_activity?.timediff && (
-              <Text style={styles.lastActive}>Active {item.last_activity.timediff}</Text>
-            )}
-          </View>
-        </View>
-
-        {isAlreadyFriend ? (
-          <View style={styles.friendStatusBadge}>
-            <Ionicons name="checkmark-circle" size={16} color="#22c55e" />
-            <Text style={styles.friendStatusText}>Connected</Text>
-          </View>
-        ) : hasRequest ? (
-          <View style={styles.pendingBadge}>
-            <Ionicons name="time-outline" size={16} color="#0066cc" />
-            <Text style={styles.pendingText}>Pending</Text>
-          </View>
-        ) : (
-          <TouchableOpacity
-            style={styles.addFriendButton}
-            onPress={() => handleConnect(item.id, item.name)}
-            disabled={isPending}
-            activeOpacity={0.7}
-          >
-            {isPending ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <>
-                <Ionicons name="person-add-outline" size={15} color="#fff" />
-                <Text style={styles.addFriendText}>Connect</Text>
-              </>
-            )}
-          </TouchableOpacity>
-        )}
-      </View>
-    );
-  };
-
-  return (
-    <View style={{ flex: 1 }}>
-      {/* Search bar */}
-      <View style={styles.searchContainer}>
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search members..."
-          placeholderTextColor="#999"
-          value={searchInput}
-          onChangeText={setSearchInput}
-          onSubmitEditing={() => setSearchQuery(searchInput)}
-          returnKeyType="search"
-        />
-        <TouchableOpacity
-          style={styles.searchButton}
-          onPress={() => setSearchQuery(searchInput)}
-          activeOpacity={0.8}
-        >
-          <Ionicons name="search" size={18} color="#fff" />
-        </TouchableOpacity>
-      </View>
-
-      {isLoading ? (
-        <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color="#0066cc" />
-          <Text style={styles.loadingText}>Loading members...</Text>
-        </View>
-      ) : (
-        <FlatList
-          data={members || []}
-          renderItem={renderMemberItem}
-          keyExtractor={(item) => item.id.toString()}
-          contentContainerStyle={styles.listContent}
-          ItemSeparatorComponent={() => <View style={styles.separator} />}
-          ListEmptyComponent={() => (
-            <View style={styles.emptyContainer}>
-              <Ionicons name="people-outline" size={80} color="#ccc" />
-              <Text style={styles.emptyTitle}>
-                {searchQuery ? 'No members found' : 'No members available'}
-              </Text>
-              <Text style={styles.emptyText}>
-                {searchQuery
-                  ? `No results for "${searchQuery}". Try a different search.`
-                  : 'Community members will appear here.'}
-              </Text>
-            </View>
-          )}
-        />
-      )}
-    </View>
-  );
-}
+type TabType = 'friends' | 'requests';
 
 // ─── Main Screen ────────────────────────────────────────────────────────────
 export default function ConnectionsScreen() {
-  const [activeTab, setActiveTab] = useState<TabType>('connect');
+  // Profile is a personal area: it shows the member's own confirmed
+  // connections (and their own pending requests), never the public directory.
+  const [activeTab, setActiveTab] = useState<TabType>('friends');
   const [page] = useState(1);
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedFriend, setSelectedFriend] = useState<FriendWithDetails | null>(null);
@@ -436,7 +287,7 @@ export default function ConnectionsScreen() {
       <Ionicons name="people-outline" size={80} color="#ccc" />
       <Text style={styles.emptyTitle}>No connections yet</Text>
       <Text style={styles.emptyText}>
-        Go to the Connect tab to find and add members!
+        Build your network from the Network tab.
       </Text>
     </View>
   );
@@ -465,7 +316,7 @@ export default function ConnectionsScreen() {
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
           <BackButton />
           <Text style={{ fontSize: 20, fontWeight: '700', color: '#1f2937', flex: 1 }}>
-            Connections
+            My Connections
           </Text>
         </View>
       </View>
@@ -488,20 +339,6 @@ export default function ConnectionsScreen() {
         <View style={styles.container}>
           {/* Tab Navigation */}
           <View style={styles.tabContainer}>
-            <TouchableOpacity
-              style={[styles.tab, activeTab === 'connect' && styles.activeTab]}
-              onPress={() => setActiveTab('connect')}
-            >
-              <Ionicons
-                name="person-add-outline"
-                size={15}
-                color={activeTab === 'connect' ? '#0066cc' : '#666'}
-              />
-              <Text style={[styles.tabText, activeTab === 'connect' && styles.activeTabText]}>
-                Connect
-              </Text>
-            </TouchableOpacity>
-
             <TouchableOpacity
               style={[styles.tab, activeTab === 'friends' && styles.activeTab]}
               onPress={() => setActiveTab('friends')}
@@ -532,9 +369,7 @@ export default function ConnectionsScreen() {
           </View>
 
           {/* Content */}
-          {activeTab === 'connect' ? (
-            <ConnectTab />
-          ) : activeTab === 'friends' ? (
+          {activeTab === 'friends' ? (
             friends.length === 0 ? renderEmptyFriends() : (
               <FlatList
                 data={friends}
@@ -633,69 +468,6 @@ const styles = StyleSheet.create({
   badgeText: {
     color: '#fff',
     fontSize: 11,
-    fontWeight: '600',
-  },
-  // Search bar (Connect tab)
-  searchContainer: {
-    flexDirection: 'row',
-    padding: 12,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
-    gap: 8,
-  },
-  searchInput: {
-    flex: 1,
-    backgroundColor: '#f5f5f5',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: Platform.OS === 'ios' ? 10 : 8,
-    fontSize: 15,
-    color: '#333',
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-  },
-  searchButton: {
-    backgroundColor: '#0066cc',
-    width: 44,
-    height: 44,
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  // Connect button states
-  addFriendButton: {
-    backgroundColor: '#0066cc',
-    flexDirection: 'row',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-    gap: 4,
-  },
-  addFriendText: {
-    color: '#fff',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  friendStatusBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  friendStatusText: {
-    color: '#22c55e',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  pendingBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  pendingText: {
-    color: '#0066cc',
-    fontSize: 13,
     fontWeight: '600',
   },
   // Lists

@@ -127,7 +127,7 @@ function ConnectTab() {
       <View style={styles.searchContainer}>
         <TextInput
           style={styles.searchInput}
-          placeholder="Search members..."
+          placeholder="Search member profiles"
           placeholderTextColor="#999"
           value={searchInput}
           onChangeText={setSearchInput}

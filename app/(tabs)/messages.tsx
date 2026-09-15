@@ -237,7 +237,7 @@ export default function MessagesScreen() {
           marginBottom: 16,
         }}
       >
-        <Text style={{ fontSize: 24, fontWeight: '700' }}>Messages</Text>
+        <Text style={{ fontSize: 24, fontWeight: '700' }}>My Messages</Text>
 
         <Pressable
           onPress={() => router.push('/messages/new')}

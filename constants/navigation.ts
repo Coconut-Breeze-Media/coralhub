@@ -91,22 +91,22 @@ export const PROFILE_MENU_ITEMS: ReadonlyArray<ProfileMenuItem> = [
     icon: 'person-circle-outline',
   },
   {
-    label: 'Activity',
+    label: 'My Activity',
     href: '/profile/activity',
     icon: 'time-outline',
   },
   {
-    label: 'Messages',
+    label: 'My Messages',
     href: '/messages',
     icon: 'chatbubble-ellipses-outline',
   },
   {
-    label: 'Groups',
+    label: 'My Groups',
     href: '/profile/groups',
     icon: 'people-outline',
   },
   {
-    label: 'Connections',
+    label: 'My Connections',
     href: '/profile/connections',
     icon: 'link-outline',
   },

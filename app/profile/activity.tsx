@@ -96,7 +96,7 @@ export default function ActivityScreen() {
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
           <BackButton />
           <Text style={{ fontSize: 20, fontWeight: '700', color: '#1f2937', flex: 1 }}>
-            Activity
+            My Activity
           </Text>
         </View>
       </View>
