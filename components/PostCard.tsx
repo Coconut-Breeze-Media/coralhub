@@ -212,6 +212,65 @@ function extractAllLinks(content: string | { rendered: string; raw?: string }): 
   return results;
 }
 
+const COLLAPSED_POST_LINES = 5;
+
+/**
+ * A text-only line clamp for activity cards.
+ *
+ * `numberOfLines` is intentionally applied only to the visible Text. A second,
+ * invisible Text measures the unclamped layout so "See more" is rendered only
+ * when the post really exceeds the limit, rather than based on an unreliable
+ * character-count heuristic. Keeping media, link previews and actions outside
+ * this component means expanding a post never changes their behaviour.
+ */
+function ExpandablePostText({
+  children,
+  textStyle,
+  collapsedLines = COLLAPSED_POST_LINES,
+}: {
+  children: string;
+  textStyle: object;
+  collapsedLines?: number;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [hasOverflow, setHasOverflow] = useState(false);
+
+  const handleTextLayout = (event: any) => {
+    const nextHasOverflow = event.nativeEvent.lines.length > collapsedLines;
+    setHasOverflow((current) =>
+      current === nextHasOverflow ? current : nextHasOverflow
+    );
+  };
+
+  return (
+    <View>
+      {/* Measure the complete text without contributing any visual height. */}
+      <Text
+        style={[textStyle, styles.hiddenTextMeasure]}
+        onTextLayout={handleTextLayout}
+        accessible={false}
+        importantForAccessibility="no-hide-descendants"
+      >
+        {children}
+      </Text>
+      <Text style={textStyle} numberOfLines={expanded ? undefined : collapsedLines}>
+        {children}
+      </Text>
+      {hasOverflow ? (
+        <TouchableOpacity
+          onPress={() => setExpanded((current) => !current)}
+          style={styles.expandTextButton}
+          hitSlop={6}
+          accessibilityRole="button"
+          accessibilityLabel={expanded ? 'Show less of this post' : 'See more of this post'}
+        >
+          <Text style={styles.expandTextLabel}>{expanded ? 'Show less' : 'See more'}</Text>
+        </TouchableOpacity>
+      ) : null}
+    </View>
+  );
+}
+
 // ─────────────────────────────────────────────
 // PostCard
 // ─────────────────────────────────────────────
@@ -386,8 +445,12 @@ export default function PostCard({
         )}
       </View>
 
-      {/* Post Content */}
-      {displayText ? <Text style={styles.postContent}>{displayText}</Text> : null}
+      {/* Post Content — text is clamped, while media and links remain available. */}
+      {displayText ? (
+        <View style={styles.postContentContainer}>
+          <ExpandablePostText textStyle={styles.postContent}>{displayText}</ExpandablePostText>
+        </View>
+      ) : null}
 
       {/* Post Images */}
       {imageUrls.length > 0 && (
@@ -457,7 +520,13 @@ export default function PostCard({
                 </View>
               </View>
 
-              {sharedText ? <Text style={styles.sharedPostContent}>{sharedText}</Text> : null}
+              {sharedText ? (
+                <View style={styles.sharedPostContentContainer}>
+                  <ExpandablePostText textStyle={styles.sharedPostContent}>
+                    {sharedText}
+                  </ExpandablePostText>
+                </View>
+              ) : null}
 
               {sharedImageUrls.length > 0 ? (
                 <Image
@@ -681,8 +750,27 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#262626',
     lineHeight: 20,
+  },
+  postContentContainer: {
     paddingHorizontal: 16,
     paddingBottom: 12,
+  },
+  hiddenTextMeasure: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    opacity: 0,
+  },
+  expandTextButton: {
+    alignSelf: 'flex-start',
+    marginTop: 4,
+    paddingVertical: 2,
+  },
+  expandTextLabel: {
+    color: '#0077b6',
+    fontSize: 14,
+    fontWeight: '700',
   },
   postImages: {
     paddingHorizontal: 16,
@@ -774,6 +862,8 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#262626',
     lineHeight: 20,
+  },
+  sharedPostContentContainer: {
     paddingHorizontal: 12,
     paddingBottom: 12,
   },
