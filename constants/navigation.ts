@@ -21,12 +21,6 @@ export const TAB_SCREENS: ReadonlyArray<TabNavItem> = [
     iconOutline: 'home-outline',
   },
   {
-    name: 'resources',
-    title: 'Resources',
-    icon: 'library',
-    iconOutline: 'library-outline',
-  },
-  {
     name: 'networking',
     title: 'Network',
     icon: 'people',
@@ -37,6 +31,12 @@ export const TAB_SCREENS: ReadonlyArray<TabNavItem> = [
     title: 'Messages',
     icon: 'chatbubble-ellipses',
     iconOutline: 'chatbubble-ellipses-outline',
+  },
+  {
+    name: 'resources',
+    title: 'Resources',
+    icon: 'library',
+    iconOutline: 'library-outline',
   },
   {
     name: 'profile',
