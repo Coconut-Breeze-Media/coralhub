@@ -448,8 +448,8 @@ function CommunityScreen() {
           >
             <Text style={styles.filterButtonText}>
               {selectedFriendId 
-                ? friends.find(f => f.id === selectedFriendId)?.name || 'Select Friend'
-                : 'Show posts by friend'}
+                ? friends.find(f => f.id === selectedFriendId)?.name || 'Select Connection'
+                : 'Show posts by connection'}
             </Text>
             <Text style={styles.filterButtonIcon}>{showFriendDropdown ? '▲' : '▼'}</Text>
           </TouchableOpacity>

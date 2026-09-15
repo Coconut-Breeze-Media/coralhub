@@ -45,7 +45,7 @@ export default function RemoveFriendModal({
           </View>
 
           {/* Title */}
-          <Text style={styles.title}>Remove Friend?</Text>
+          <Text style={styles.title}>Remove Connection?</Text>
 
           {/* Message */}
           <Text style={styles.message}>
@@ -56,7 +56,7 @@ export default function RemoveFriendModal({
           <View style={styles.warningBox}>
             <Ionicons name="alert-circle-outline" size={16} color="#ff9500" />
             <Text style={styles.warningText}>
-              This action is irreversible. You will need to send a new friend request to reconnect.
+              This action is irreversible. You will need to send a new connection request to reconnect.
             </Text>
           </View>
 
@@ -78,7 +78,7 @@ export default function RemoveFriendModal({
               {isRemoving ? (
                 <ActivityIndicator size="small" color="#fff" />
               ) : (
-                <Text style={styles.confirmButtonText}>Remove Friend</Text>
+                <Text style={styles.confirmButtonText}>Remove Connection</Text>
               )}
             </TouchableOpacity>
           </View>

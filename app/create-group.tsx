@@ -37,7 +37,7 @@ const PRIVACY_OPTIONS: { value: PrivacyOption; label: string; icon: keyof typeof
 const TYPE_OPTIONS: { value: GroupType; label: string }[] = [
   { value: 'collaboration', label: 'Collaboration' },
   { value: 'community', label: 'Community' },
-  { value: 'networking', label: 'Networking' },
+  { value: 'networking', label: 'Network' },
   { value: 'research', label: 'Research' },
 ];
 

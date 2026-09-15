@@ -155,8 +155,8 @@ export default function NotificationsScreen() {
                       </View>
                     )}
                     <View style={styles.cardContent}>
-                      <Text style={styles.cardTitle}>Friend request</Text>
-                      <Text style={styles.cardDescription}>{notification.userName} sent you a friend request</Text>
+                      <Text style={styles.cardTitle}>Connection request</Text>
+                      <Text style={styles.cardDescription}>{notification.userName} sent you a connection request</Text>
                       <Text style={styles.cardDate}>{formatDate(notification.createdAt)}</Text>
                     </View>
                   </View>

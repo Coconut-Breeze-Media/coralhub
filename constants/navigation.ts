@@ -28,7 +28,7 @@ export const TAB_SCREENS: ReadonlyArray<TabNavItem> = [
   },
   {
     name: 'networking',
-    title: 'Networking',
+    title: 'Network',
     icon: 'people',
     iconOutline: 'people-outline',
   },
@@ -172,7 +172,7 @@ export const SCREEN_TITLES = {
   MEMBERSHIP_LEVELS: 'Choose a Plan',
   COMMUNITY: 'Community',
   RESOURCES: 'Resources',
-  NETWORKING: 'Networking',
+  NETWORKING: 'Network',
   PROFILE: 'Profile',
 } as const;
 

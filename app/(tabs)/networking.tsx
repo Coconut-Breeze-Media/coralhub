@@ -58,7 +58,7 @@ function ConnectTab() {
     try {
       await sendFriendMutation.mutateAsync(memberId);
       setSentIds(prev => new Set([...prev, memberId]));
-      Alert.alert('Request Sent', `Friend request sent to ${memberName}!`);
+      Alert.alert('Request Sent', `Connection request sent to ${memberName}!`);
     } catch (err) {
       Alert.alert('Error', `Failed to send request: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
@@ -94,7 +94,7 @@ function ConnectTab() {
         {isAlreadyFriend ? (
           <View style={styles.friendStatusBadge}>
             <Ionicons name="checkmark-circle" size={16} color="#22c55e" />
-            <Text style={styles.friendStatusText}>Friends</Text>
+            <Text style={styles.friendStatusText}>Connected</Text>
           </View>
         ) : hasRequest ? (
           <View style={styles.pendingBadge}>
@@ -398,7 +398,7 @@ export default function NetworkingScreen() {
 
   const handleRemoveFriend = (friend: FriendWithDetails) => {
     if (!friend.id || friend.id === 0) {
-      Alert.alert('Error', 'Cannot remove friend: Invalid user ID. Please refresh and try again.');
+      Alert.alert('Error', 'Cannot remove connection: Invalid user ID. Please refresh and try again.');
       return;
     }
     setSelectedFriend(friend);
@@ -415,11 +415,11 @@ export default function NetworkingScreen() {
       setModalVisible(false);
       setSelectedFriend(null);
       await refetchFriends();
-      Alert.alert('Friend Removed', `${selectedFriend.name} has been removed from your connections.`);
+      Alert.alert('Connection Removed', `${selectedFriend.name} has been removed from your connections.`);
     } catch (err) {
       setModalVisible(false);
       setSelectedFriend(null);
-      Alert.alert('Error', `Failed to remove friend: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      Alert.alert('Error', `Failed to remove connection: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
   };
 
@@ -429,7 +429,7 @@ export default function NetworkingScreen() {
     try {
       await acceptRequestMutation.mutateAsync({ otherUserId, userId });
       await Promise.all([refetchRequests(), refetchFriends()]);
-      Alert.alert('Success', 'Friend request accepted!');
+      Alert.alert('Success', 'Connection request accepted!');
     } catch (err) {
       Alert.alert('Error', `Failed to accept request: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
@@ -437,7 +437,7 @@ export default function NetworkingScreen() {
 
   const handleRejectRequest = async (request: BPFriendship) => {
     if (!userId) { Alert.alert('Error', 'User ID not available'); return; }
-    Alert.alert('Reject Request', 'Are you sure you want to reject this friend request?', [
+    Alert.alert('Reject Connection Request', 'Are you sure you want to reject this connection request?', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Reject',
@@ -447,7 +447,7 @@ export default function NetworkingScreen() {
             const otherUserId = request.initiator_id === userId ? request.friend_id : request.initiator_id;
             await rejectRequestMutation.mutateAsync(otherUserId);
             await refetchRequests();
-            Alert.alert('Success', 'Friend request rejected.');
+            Alert.alert('Success', 'Connection request rejected.');
           } catch (err) {
             Alert.alert('Error', `Failed to reject request: ${err instanceof Error ? err.message : 'Unknown error'}`);
           }
@@ -459,12 +459,12 @@ export default function NetworkingScreen() {
   const calculateFriendshipDuration = (dateString: string): string => {
     if (!dateString) return 'Unknown';
     const diffDays = Math.floor((Date.now() - new Date(dateString).getTime()) / 86400000);
-    if (diffDays < 1) return 'Friends since today';
-    if (diffDays === 1) return 'Friends since 1 day ago';
-    if (diffDays < 30) return `Friends for ${diffDays} days`;
-    if (diffDays < 365) { const m = Math.floor(diffDays / 30); return m === 1 ? 'Friends for 1 month' : `Friends for ${m} months`; }
+    if (diffDays < 1) return 'Connected today';
+    if (diffDays === 1) return 'Connected 1 day ago';
+    if (diffDays < 30) return `Connected for ${diffDays} days`;
+    if (diffDays < 365) { const m = Math.floor(diffDays / 30); return m === 1 ? 'Connected for 1 month' : `Connected for ${m} months`; }
     const y = Math.floor(diffDays / 365);
-    return y === 1 ? 'Friends for 1 year' : `Friends for ${y} years`;
+    return y === 1 ? 'Connected for 1 year' : `Connected for ${y} years`;
   };
 
   const renderFriendItem = ({ item }: { item: FriendWithDetails }) => {
@@ -516,7 +516,7 @@ export default function NetworkingScreen() {
           )}
           <View style={styles.requestDetails}>
             <Text style={styles.requestName}>{userName}</Text>
-            <Text style={styles.requestType}>{isReceived ? 'Sent you a friend request' : 'Request sent'}</Text>
+            <Text style={styles.requestType}>{isReceived ? 'Sent you a connection request' : 'Connection request sent'}</Text>
             <Text style={styles.requestDate}>
               {new Date(item.date_created).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
             </Text>
@@ -602,7 +602,7 @@ export default function NetworkingScreen() {
               onPress={() => setActiveMembersTab('friends')}
             >
               <Ionicons name="heart-outline" size={15} color={activeMembersTab === 'friends' ? '#0066cc' : '#666'} />
-              <Text style={[styles.tabText, activeMembersTab === 'friends' && styles.activeTabText]}>Friends</Text>
+              <Text style={[styles.tabText, activeMembersTab === 'friends' && styles.activeTabText]}>Connections</Text>
               {friends.length > 0 && (
                 <View style={styles.badge}>
                   <Text style={styles.badgeText}>{friends.length}</Text>
@@ -644,7 +644,7 @@ export default function NetworkingScreen() {
             friends.length === 0 ? (
               <View style={styles.emptyContainer}>
                 <Ionicons name="people-outline" size={80} color="#ccc" />
-                <Text style={styles.emptyTitle}>No friends yet</Text>
+                <Text style={styles.emptyTitle}>No connections yet</Text>
                 <Text style={styles.emptyText}>Go to Connect to find and add members!</Text>
               </View>
             ) : (
@@ -657,7 +657,7 @@ export default function NetworkingScreen() {
                 ItemSeparatorComponent={() => <View style={styles.separator} />}
                 ListHeaderComponent={() => (
                   <View style={styles.friendsListHeader}>
-                    <Text style={styles.friendsListHeaderText}>Total friends: {friends.length}</Text>
+                  <Text style={styles.friendsListHeaderText}>Total connections: {friends.length}</Text>
                   </View>
                 )}
               />
@@ -666,8 +666,8 @@ export default function NetworkingScreen() {
             requests.length === 0 ? (
               <View style={styles.emptyContainer}>
                 <Ionicons name="mail-outline" size={80} color="#ccc" />
-                <Text style={styles.emptyTitle}>No friend requests</Text>
-                <Text style={styles.emptyText}>When someone sends you a friend request, it will appear here.</Text>
+                <Text style={styles.emptyTitle}>No connection requests</Text>
+                <Text style={styles.emptyText}>When someone sends you a connection request, it will appear here.</Text>
               </View>
             ) : (
               <FlatList
