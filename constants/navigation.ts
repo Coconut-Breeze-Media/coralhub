@@ -111,6 +111,16 @@ export const PROFILE_MENU_ITEMS: ReadonlyArray<ProfileMenuItem> = [
     icon: 'link-outline',
   },
   {
+    label: 'Contact Us',
+    href: '/profile/contact',
+    icon: 'mail-outline',
+  },
+  {
+    label: 'Terms and Conditions',
+    href: '/profile/terms',
+    icon: 'document-text-outline',
+  },
+  {
     label: 'Credits',
     href: '/profile/credits',
     icon: 'ribbon-outline',
@@ -155,6 +165,8 @@ export const ROUTES = {
   PROFILE_CONNECTIONS: '/profile/connections',
   PROFILE_ACCOUNT_SETTINGS: '/profile/account-settings',
   PROFILE_ACCOUNT: '/profile/account',
+  PROFILE_CONTACT: '/profile/contact',
+  PROFILE_TERMS: '/profile/terms',
   PROFILE_CREDITS: '/profile/credits',
 } as const;
 

@@ -1,9 +1,5 @@
 // app/profile/credits.tsx
-/**
- * Credits Screen
- * Information about the company behind the app (Coconut Breeze Media),
- * with links to Coconut Dive Manage and the Coconut Breeze Media website.
- */
+/** Credits for Coconut Breeze Media. */
 
 import { View, Text, ScrollView, Pressable, Linking } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -11,7 +7,6 @@ import BackButton from '../../components/BackButton';
 
 const COCONUT_DIVE_MANAGE_URL = 'https://divemanage.com';
 const COCONUT_BREEZE_MEDIA_URL = 'https://coconutbreezemedia.com';
-
 const PRIMARY = '#2563eb';
 
 function LinkButton({
@@ -26,10 +21,11 @@ function LinkButton({
   variant?: 'primary' | 'secondary';
 }) {
   const isPrimary = variant === 'primary';
+
   return (
     <Pressable
       onPress={() => Linking.openURL(url)}
-      accessibilityRole="button"
+      accessibilityRole="link"
       accessibilityLabel={label}
       style={({ pressed }) => ({
         flexDirection: 'row',
@@ -56,7 +52,6 @@ function LinkButton({
 export default function CreditsScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: '#f9fafb' }}>
-      {/* Header */}
       <View
         style={{
           backgroundColor: '#fff',
@@ -69,13 +64,10 @@ export default function CreditsScreen() {
       >
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
           <BackButton />
-          <Text style={{ fontSize: 20, fontWeight: '700', color: '#1f2937', flex: 1 }}>
-            Credits
-          </Text>
+          <Text style={{ fontSize: 20, fontWeight: '700', color: '#1f2937', flex: 1 }}>Credits</Text>
         </View>
       </View>
 
-      {/* Content */}
       <ScrollView contentContainerStyle={{ padding: 16 }}>
         <View
           style={{
@@ -99,28 +91,19 @@ export default function CreditsScreen() {
           >
             <Ionicons name="heart" size={28} color={PRIMARY} />
           </View>
-
           <Text style={{ fontSize: 18, fontWeight: '700', color: '#1f2937', marginBottom: 8 }}>
             Built by Coconut Breeze Media
           </Text>
-
           <Text style={{ fontSize: 15, color: '#4b5563', lineHeight: 22, marginBottom: 12 }}>
-            This app was designed and developed by Coconut Breeze Media. Supporting the
-            people and partners who build the tools we rely on is important to us.
+            This app was designed and developed by Coconut Breeze Media. Supporting the people
+            and partners who build the tools we rely on is important to us.
           </Text>
-
           <Text style={{ fontSize: 15, color: '#4b5563', lineHeight: 22, marginBottom: 20 }}>
-            We also created Coconut Dive Manage — a platform built to help dive operations
-            run smoothly. Explore our work below.
+            We also created Coconut Dive Manage — a platform built to help dive operations run
+            smoothly. Explore our work below.
           </Text>
-
           <View style={{ gap: 12 }}>
-            <LinkButton
-              label="Coconut Dive Manage"
-              url={COCONUT_DIVE_MANAGE_URL}
-              icon="boat-outline"
-              variant="primary"
-            />
+            <LinkButton label="Coconut Dive Manage" url={COCONUT_DIVE_MANAGE_URL} icon="boat-outline" />
             <LinkButton
               label="Coconut Breeze Media"
               url={COCONUT_BREEZE_MEDIA_URL}
@@ -129,15 +112,7 @@ export default function CreditsScreen() {
             />
           </View>
         </View>
-
-        <Text
-          style={{
-            fontSize: 13,
-            color: '#9ca3af',
-            textAlign: 'center',
-            marginTop: 20,
-          }}
-        >
+        <Text style={{ fontSize: 13, color: '#9ca3af', textAlign: 'center', marginTop: 20 }}>
           © {new Date().getFullYear()} Coconut Breeze Media
         </Text>
       </ScrollView>

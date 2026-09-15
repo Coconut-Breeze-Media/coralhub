@@ -63,7 +63,19 @@ export default function RootLayout() {
             }}
           />
 
-          {/* Credits screen (renders its own header) */}
+          {/* Contact, terms and credits screens (each renders its own header) */}
+          <Stack.Screen
+            name="profile/contact"
+            options={{
+              headerShown: false,
+            }}
+          />
+          <Stack.Screen
+            name="profile/terms"
+            options={{
+              headerShown: false,
+            }}
+          />
           <Stack.Screen
             name="profile/credits"
             options={{
