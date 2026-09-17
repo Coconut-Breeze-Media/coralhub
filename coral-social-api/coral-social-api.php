@@ -60,6 +60,13 @@ class Coral_Social_API {
         // only the single-activity endpoint with display_comments=threaded
         // returns nested comments, and the list endpoint returns neither.
         add_action('rest_api_init', array($this, 'register_activity_comment_count_field'));
+
+        // BuddyPress already creates notifications for activity replies,
+        // @mentions, friendships and group workflows. Favorites are the one
+        // social action used by the app that does not create a core
+        // notification, so add/remove a matching notification here.
+        add_filter('bp_notifications_get_registered_components', array($this, 'register_notification_component'));
+        add_action('bp_rest_activity_update_favorite', array($this, 'sync_activity_favorite_notification'), 10, 4);
     }
 
     /**
@@ -91,6 +98,80 @@ class Coral_Social_API {
                 ),
             )
         );
+    }
+
+    /** Register the custom notification component used for app reactions. */
+    public function register_notification_component($component_names) {
+        if (!in_array('coral', $component_names, true)) {
+            $component_names[] = 'coral';
+        }
+
+        return $component_names;
+    }
+
+    /** Notify a post author when another member favorites their activity. */
+    public function notify_activity_favorite($activity_id, $user_id) {
+        if (!function_exists('bp_notifications_add_notification')) {
+            return;
+        }
+
+        $activity = new BP_Activity_Activity($activity_id);
+        $author_id = isset($activity->user_id) ? (int) $activity->user_id : 0;
+        $user_id = (int) $user_id;
+
+        if (!$author_id || !$user_id || $author_id === $user_id) {
+            return;
+        }
+
+        $this->delete_activity_favorite_notification($activity_id, $user_id, $author_id);
+
+        bp_notifications_add_notification(array(
+            'user_id'           => $author_id,
+            'item_id'           => (int) $activity_id,
+            'secondary_item_id' => $user_id,
+            'component_name'    => 'coral',
+            'component_action'  => 'activity_favorited',
+            'date_notified'     => bp_core_current_time(),
+            'is_new'            => 1,
+        ));
+    }
+
+    /** Sync reaction notifications after BuddyPress toggles a REST favorite. */
+    public function sync_activity_favorite_notification($activity, $user_favorites, $response, $request) {
+        if (empty($activity->id)) {
+            return;
+        }
+
+        $activity_id = (int) $activity->id;
+        $user_id = get_current_user_id();
+        $favorite_ids = array_map('intval', (array) $user_favorites);
+
+        if (in_array($activity_id, $favorite_ids, true)) {
+            $this->notify_activity_favorite($activity_id, $user_id);
+        } else {
+            $this->remove_activity_favorite_notification($activity_id, $user_id);
+        }
+    }
+
+    /** Remove the corresponding unread reaction when a favorite is undone. */
+    public function remove_activity_favorite_notification($activity_id, $user_id) {
+        $activity = new BP_Activity_Activity($activity_id);
+        $author_id = isset($activity->user_id) ? (int) $activity->user_id : 0;
+        $this->delete_activity_favorite_notification($activity_id, $user_id, $author_id);
+    }
+
+    private function delete_activity_favorite_notification($activity_id, $user_id, $author_id) {
+        if (!$author_id || !class_exists('BP_Notifications_Notification')) {
+            return;
+        }
+
+        BP_Notifications_Notification::delete(array(
+            'user_id'           => (int) $author_id,
+            'item_id'           => (int) $activity_id,
+            'secondary_item_id' => (int) $user_id,
+            'component_name'    => 'coral',
+            'component_action'  => 'activity_favorited',
+        ));
     }
     
     /**

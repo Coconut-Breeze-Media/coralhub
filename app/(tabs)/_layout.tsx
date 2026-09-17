@@ -11,8 +11,18 @@ import { useAuth } from '../../lib/auth';
 import BackButton from '../../components/BackButton';
 import { useMe, usePendingFriendRequests, useFriendsList } from '../../hooks/useQueries';
 import { useConversations } from '../../hooks/useMessages';
+import { useMyGroups } from '../../hooks/useGroups';
+import {
+  useBuddyPressNotifications,
+  useGroupInvites,
+  useManagedGroupMembershipRequests,
+} from '../../hooks/useNotifications';
 import { TAB_SCREENS, DEFAULT_HEADER_OPTIONS, ROUTES } from '../../constants/navigation';
 import { getUnreadMessageNotifications } from '../../lib/messageNotifications';
+import {
+  isMessageNotification,
+  getMirroredNotificationKind,
+} from '../../lib/notificationPresentation';
 import type { TabScreen } from '../../types';
 
 /**
@@ -25,6 +35,15 @@ function NotificationButton() {
   const { data: pendingRequests } = usePendingFriendRequests(userId);
   const { data: friendsData } = useFriendsList(userId, 1, 200);
   const { data: conversationsData } = useConversations(token);
+  const { data: nativeNotifications } = useBuddyPressNotifications(token, userId);
+  const { data: groupInvites } = useGroupInvites(token, userId);
+  const { data: myGroups } = useMyGroups(token);
+  const { data: membershipRequests } = useManagedGroupMembershipRequests(
+    token,
+    userId,
+    myGroups,
+    nativeNotifications
+  );
 
   const currentUserId = Number(userId);
   const friendIds = new Set((friendsData?.friends || []).map((friend) => Number(friend.id)));
@@ -39,7 +58,20 @@ function NotificationButton() {
       })
   );
   const hasUnreadMessages = getUnreadMessageNotifications(conversationsData, userId).length > 0;
-  const hasPendingNotifications = hasPendingFriendRequests || hasUnreadMessages;
+  const hasUnreadActivity = (nativeNotifications || []).some((notification) => {
+    if (isMessageNotification(notification)) return false;
+    const mirroredKind = getMirroredNotificationKind(notification);
+    if (mirroredKind === 'friend_request') return !hasPendingFriendRequests;
+    if (mirroredKind === 'group_invite') return (groupInvites?.length || 0) === 0;
+    if (mirroredKind === 'group_request') return (membershipRequests?.length || 0) === 0;
+    return true;
+  });
+  const hasPendingNotifications =
+    hasPendingFriendRequests ||
+    hasUnreadMessages ||
+    hasUnreadActivity ||
+    (groupInvites?.length || 0) > 0 ||
+    (membershipRequests?.length || 0) > 0;
 
   return (
     <Pressable

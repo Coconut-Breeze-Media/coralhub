@@ -475,6 +475,38 @@ export interface BPFriendship {
   date_created_gmt?: string;
 }
 
+// ============================================
+// BuddyPress Notifications Types
+// ============================================
+
+export interface BPNotification {
+  id: number;
+  user_id: number;
+  item_id: number;
+  secondary_item_id: number;
+  component: string;
+  action: string;
+  date: string;
+  is_new: number;
+}
+
+export interface BPGroupInvite {
+  id: number;
+  user_id: number;
+  inviter_id: number;
+  group_id: number;
+  invite_sent?: boolean;
+  date_modified: string;
+}
+
+export interface BPGroupMembershipRequest {
+  id: number;
+  user_id: number;
+  group_id: number;
+  status: string;
+  date_modified: string;
+}
+
 /**
  * Friend with complete user details
  * Combines friendship data with member profile data

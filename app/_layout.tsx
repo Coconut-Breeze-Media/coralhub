@@ -55,6 +55,15 @@ export default function RootLayout() {
             }}
           />
 
+          <Stack.Screen
+            name="post-detail"
+            options={{
+              headerShown: true,
+              headerTitle: 'Post',
+              headerLeft: () => <BackButton />,
+            }}
+          />
+
           {/* Profile settings screen */}
           <Stack.Screen
             name="profile/settings"

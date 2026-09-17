@@ -7,7 +7,7 @@
 // and a differently-styled "ActivityCard" in app/group-detail.tsx), which is
 // why Like/Comment/Share looked and behaved differently between the two —
 // this is now the one place that look/behavior is defined.
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -359,6 +359,7 @@ export default function PostCard({
   onEdit,
   groups,
   canModifyOverride,
+  initialCommentsOpen = false,
 }: {
   item: BPActivity;
   token: string | null;
@@ -371,6 +372,7 @@ export default function PostCard({
   // admin/creator managing any post in their group, same permission the
   // group detail screen already gave before this component was unified.
   canModifyOverride?: boolean;
+  initialCommentsOpen?: boolean;
 }) {
   // Fetch member data from BuddyPress API
   const { data: memberData, isLoading: isMemberLoading } = useMember(token, item.user_id);
@@ -428,7 +430,11 @@ export default function PostCard({
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
 
   // State for comments modal
-  const [commentModalVisible, setCommentModalVisible] = useState(false);
+  const [commentModalVisible, setCommentModalVisible] = useState(initialCommentsOpen);
+
+  useEffect(() => {
+    if (initialCommentsOpen) setCommentModalVisible(true);
+  }, [initialCommentsOpen]);
 
   if (isMemberLoading || !userName) {
     return null;

@@ -454,6 +454,7 @@ export function useAcceptMembershipRequest(token: string | null) {
       queryClient.invalidateQueries({ queryKey: ['groups', 'membership-requests', groupId] });
       queryClient.invalidateQueries({ queryKey: ['groups', 'members', 'infinite', groupId] });
       queryClient.invalidateQueries({ queryKey: ['groups', 'detail', groupId] });
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
     },
   });
 }
@@ -469,6 +470,7 @@ export function useRejectMembershipRequest(token: string | null) {
     onSuccess: (_data, { groupId }) => {
       queryClient.invalidateQueries({ queryKey: ['groups', 'membership-requests', groupId] });
       queryClient.invalidateQueries({ queryKey: ['groups', 'membership-request', groupId] });
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
     },
   });
 }

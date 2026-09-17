@@ -332,6 +332,78 @@ export async function removePushToken(
   });
 }
 
+// ---------- BuddyPress Notifications ----------
+
+/** Get the current user's unread BuddyPress notifications. */
+export async function getBuddyPressNotifications(
+  userId: number,
+  token: string
+): Promise<import('../types').BPNotification[]> {
+  const params = new URLSearchParams({
+    user_id: String(userId),
+    is_new: 'true',
+    per_page: '100',
+    order_by: 'date_notified',
+    sort_order: 'DESC',
+  });
+
+  return authedFetch<import('../types').BPNotification[]>(
+    `/buddypress/v1/notifications?${params.toString()}`,
+    token
+  );
+}
+
+/** Mark a BuddyPress notification as read. */
+export async function markBuddyPressNotificationRead(
+  notificationId: number,
+  token: string
+): Promise<import('../types').BPNotification> {
+  return authedFetch<import('../types').BPNotification>(
+    `/buddypress/v1/notifications/${notificationId}`,
+    token,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({ is_new: 0 }),
+    }
+  );
+}
+
+/** Get pending group invitations addressed to the current user. */
+export async function getGroupInvites(
+  userId: number,
+  token: string
+): Promise<import('../types').BPGroupInvite[]> {
+  const params = new URLSearchParams({
+    user_id: String(userId),
+    invite_sent: 'sent',
+    per_page: '100',
+  });
+
+  return authedFetch<import('../types').BPGroupInvite[]>(
+    `/buddypress/v1/groups/invites?${params.toString()}`,
+    token
+  );
+}
+
+/** Accept a group invitation. */
+export async function acceptGroupInvite(
+  inviteId: number,
+  token: string
+): Promise<import('../types').BPGroupInvite> {
+  return authedFetch<import('../types').BPGroupInvite>(
+    `/buddypress/v1/groups/invites/${inviteId}`,
+    token,
+    { method: 'PUT', body: JSON.stringify({}) }
+  );
+}
+
+/** Reject a group invitation. */
+export async function rejectGroupInvite(inviteId: number, token: string): Promise<void> {
+  return authedFetch(`/buddypress/v1/groups/invites/${inviteId}`, token, {
+    method: 'DELETE',
+  });
+}
+
 // ---------- BuddyPress Profile API ----------
 
 /**
@@ -1614,7 +1686,7 @@ export async function acceptMembershipRequest(
   return authedFetch(
     `/buddypress/v1/groups/membership-requests/${requestId}`,
     token,
-    { method: 'POST', body: JSON.stringify({ action: 'accept' }) }
+    { method: 'PUT', body: JSON.stringify({}) }
   );
 }
 
@@ -1629,7 +1701,7 @@ export async function rejectMembershipRequest(
   return authedFetch(
     `/buddypress/v1/groups/membership-requests/${requestId}`,
     token,
-    { method: 'POST', body: JSON.stringify({ action: 'reject' }) }
+    { method: 'DELETE' }
   );
 }
 
