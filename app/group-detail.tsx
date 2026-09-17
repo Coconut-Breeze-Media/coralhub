@@ -8,6 +8,11 @@ import { View, Text, ScrollView, ActivityIndicator, RefreshControl, Image, Touch
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../lib/auth';
 import { uploadImage } from '../lib/api';
+import {
+  createImageAttachment,
+  formatFileSize,
+  type SelectedImageAttachment,
+} from '../lib/imageAttachment';
 import { normalizeBareUrlsInText, normalizeExternalUrl, postLinkMarkup } from '../lib/postContent';
 import {
   useGroup, useGroupActivityInfinite, useGroupMembersInfinite,
@@ -119,7 +124,7 @@ export default function GroupDetailScreen() {
   const [activeTab, setActiveTab] = useState<TabType>('home');
   const [newPostContent, setNewPostContent] = useState('');
   const [isPostingActivity, setIsPostingActivity] = useState(false);
-  const [selectedImages, setSelectedImages] = useState<string[]>([]);
+  const [selectedImages, setSelectedImages] = useState<SelectedImageAttachment[]>([]);
   const [postLink, setPostLink] = useState('');
   const [showLeaveModal, setShowLeaveModal] = useState(false);
   const [isEditModalVisible, setIsEditModalVisible] = useState(false);
@@ -203,7 +208,11 @@ export default function GroupDetailScreen() {
       });
 
       if (!result.canceled && result.assets) {
-        const newImages = result.assets.map(asset => asset.uri);
+        const newImages = await Promise.all(
+          result.assets.map((asset, index) =>
+            createImageAttachment(asset, selectedImages.length + index)
+          )
+        );
         setSelectedImages(prev => [...prev, ...newImages].slice(0, 5)); // Max 5 images
       }
     } catch (error) {
@@ -245,7 +254,7 @@ export default function GroupDetailScreen() {
         const uploadedUrls: string[] = [];
         
         for (let i = 0; i < selectedImages.length; i++) {
-          const imageUri = selectedImages[i];
+          const imageUri = selectedImages[i].uri;
           const fileName = `group-post-image-${Date.now()}-${i}.jpg`;
           
           try {
@@ -1168,10 +1177,10 @@ export default function GroupDetailScreen() {
                       style={{ marginTop: 12, borderTopWidth: 1, borderTopColor: '#e5e7eb', paddingTop: 12 }}
                       contentContainerStyle={{ gap: 8 }}
                     >
-                      {selectedImages.map((imageUri, index) => (
-                        <View key={index} style={{ position: 'relative' }}>
+                      {selectedImages.map((image, index) => (
+                        <View key={`${image.uri}-${index}`} style={{ position: 'relative', width: 112 }}>
                           <Image
-                            source={{ uri: imageUri }}
+                            source={{ uri: image.uri }}
                             style={{
                               width: 100,
                               height: 100,
@@ -1181,11 +1190,14 @@ export default function GroupDetailScreen() {
                           />
                           <TouchableOpacity
                             onPress={() => setSelectedImages(prev => prev.filter((_, i) => i !== index))}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Remove ${image.fileName}`}
+                            hitSlop={8}
                             style={{
                               position: 'absolute',
-                              top: 4,
-                              right: 4,
-                              backgroundColor: '#ff3b30',
+                              top: 6,
+                              right: 6,
+                              backgroundColor: 'rgba(17, 24, 39, 0.78)',
                               borderRadius: 12,
                               width: 24,
                               height: 24,
@@ -1200,6 +1212,15 @@ export default function GroupDetailScreen() {
                           >
                             <Ionicons name="close" size={16} color="#fff" />
                           </TouchableOpacity>
+                          <Text
+                            numberOfLines={1}
+                            style={{ color: '#1f2937', fontSize: 12, fontWeight: '600', marginTop: 6 }}
+                          >
+                            {image.fileName}
+                          </Text>
+                          <Text style={{ color: '#6b7280', fontSize: 11, marginTop: 2 }}>
+                            {formatFileSize(image.fileSize)}
+                          </Text>
                         </View>
                       ))}
                     </ScrollView>

@@ -18,10 +18,16 @@ import {
   Dimensions,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '../../lib/auth';
 import { uploadImage } from '../../lib/api';
+import {
+  createImageAttachment,
+  formatFileSize,
+  type SelectedImageAttachment,
+} from '../../lib/imageAttachment';
 import { normalizeBareUrlsInText, normalizeExternalUrl, postLinkMarkup } from '../../lib/postContent';
 import RequireAuth from '../../components/RequireAuth';
 import MentionInput from '../../components/MentionInput';
@@ -54,7 +60,7 @@ function CommunityScreen() {
   const [showFriendDropdown, setShowFriendDropdown] = useState(false);
   const [selectedGroupId, setSelectedGroupId] = useState<number | undefined>(undefined);
   const [showGroupDropdown, setShowGroupDropdown] = useState(false);
-  const [selectedImages, setSelectedImages] = useState<string[]>([]);
+  const [selectedImages, setSelectedImages] = useState<SelectedImageAttachment[]>([]);
   const [postLink, setPostLink] = useState('');
   const [isEditModalVisible, setIsEditModalVisible] = useState(false);
   const [editingPost, setEditingPost] = useState<BPActivity | null>(null);
@@ -207,7 +213,7 @@ function CommunityScreen() {
         const uploadedUrls: string[] = [];
         
         for (let i = 0; i < selectedImages.length; i++) {
-          const imageUri = selectedImages[i];
+          const imageUri = selectedImages[i].uri;
           const fileName = `post-image-${Date.now()}-${i}.jpg`;
           
           try {
@@ -264,8 +270,12 @@ function CommunityScreen() {
       });
       
       if (!result.canceled && result.assets) {
-        const newImages = result.assets.map(asset => asset.uri);
-        setSelectedImages([...selectedImages, ...newImages]);
+        const newImages = await Promise.all(
+          result.assets.map((asset, index) =>
+            createImageAttachment(asset, selectedImages.length + index)
+          )
+        );
+        setSelectedImages((currentImages) => [...currentImages, ...newImages]);
       }
     } catch (error) {
       Alert.alert('Error', 'Failed to select images');
@@ -612,18 +622,27 @@ function CommunityScreen() {
           {selectedImages.length > 0 && (
             <View style={styles.selectedImagesContainer}>
               <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                {selectedImages.map((imageUri, index) => (
-                  <View key={index} style={styles.selectedImageWrapper}>
+                {selectedImages.map((image, index) => (
+                  <View key={`${image.uri}-${index}`} style={styles.selectedImageWrapper}>
                     <Image
-                      source={{ uri: imageUri }}
+                      source={{ uri: image.uri }}
                       style={styles.selectedImagePreview}
                     />
                     <TouchableOpacity
                       style={styles.removeImageButton}
                       onPress={() => handleRemoveImage(index)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Remove ${image.fileName}`}
+                      hitSlop={8}
                     >
-                      <Text style={styles.removeImageText}>\u2715</Text>
+                      <Ionicons name="close" size={16} color="#fff" />
                     </TouchableOpacity>
+                    <Text style={styles.selectedImageName} numberOfLines={1}>
+                      {image.fileName}
+                    </Text>
+                    <Text style={styles.selectedImageSize}>
+                      {formatFileSize(image.fileSize)}
+                    </Text>
                   </View>
                 ))}
               </ScrollView>
@@ -1040,6 +1059,7 @@ const styles = StyleSheet.create({
   selectedImageWrapper: {
     position: 'relative',
     marginRight: 8,
+    width: 112,
   },
   selectedImagePreview: {
     width: 100,
@@ -1049,9 +1069,9 @@ const styles = StyleSheet.create({
   },
   removeImageButton: {
     position: 'absolute',
-    top: -8,
-    right: -8,
-    backgroundColor: '#ff3b30',
+    top: 6,
+    right: 6,
+    backgroundColor: 'rgba(17, 24, 39, 0.78)',
     width: 24,
     height: 24,
     borderRadius: 12,
@@ -1069,10 +1089,16 @@ const styles = StyleSheet.create({
       },
     }),
   },
-  removeImageText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: 'bold',
+  selectedImageName: {
+    color: '#262626',
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 6,
+  },
+  selectedImageSize: {
+    color: '#737373',
+    fontSize: 11,
+    marginTop: 2,
   },
   linkInputContainer: {
     flexDirection: 'row',
