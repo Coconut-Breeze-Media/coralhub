@@ -16,6 +16,7 @@ import {
   Linking,
   Modal,
   Dimensions,
+  Keyboard,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
@@ -55,7 +56,6 @@ function CommunityScreen() {
   const params = useLocalSearchParams<{ tab?: string }>();
   const [activeTab, setActiveTab] = useState<TabType>('feed');
   const [postContent, setPostContent] = useState('');
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [selectedFriendId, setSelectedFriendId] = useState<number | undefined>(undefined);
   const [showFriendDropdown, setShowFriendDropdown] = useState(false);
   const [selectedGroupId, setSelectedGroupId] = useState<number | undefined>(undefined);
@@ -67,6 +67,7 @@ function CommunityScreen() {
   const [editContent, setEditContent] = useState('');
   const [isDeleteModalVisible, setIsDeleteModalVisible] = useState(false);
   const [deletingPost, setDeletingPost] = useState<BPActivity | null>(null);
+  const hasPostDraft = postContent.length > 0 || selectedImages.length > 0 || postLink.length > 0;
   
   // Get current user data
   const { data: currentUser } = useMe();
@@ -248,10 +249,6 @@ function CommunityScreen() {
     }
   };
   
-  const handleAddEmoji = (emoji: string) => {
-    setPostContent(postContent + emoji);
-  };
-  
   const handlePickImage = async () => {
     try {
       // Request permission
@@ -285,12 +282,17 @@ function CommunityScreen() {
   const handleRemoveImage = (index: number) => {
     setSelectedImages(selectedImages.filter((_, i) => i !== index));
   };
+
+  const handleClearPost = () => {
+    setPostContent('');
+    setSelectedImages([]);
+    setPostLink('');
+    Keyboard.dismiss();
+  };
   
   const handleAttachFile = () => {
     handlePickImage();
   };
-  
-  const commonEmojis = ['😊', '😂', '❤️', '👍', '🎉', '🔥', '💯', '🙌'];
   
   const handleLikePost = async (activityId: number, isLiked: boolean) => {
     try {
@@ -668,34 +670,9 @@ function CommunityScreen() {
             )}
           </View>
           
-          {/* Emoji Picker */}
-          {showEmojiPicker && (
-            <View style={styles.emojiPickerContainer}>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                {commonEmojis.map((emoji, index) => (
-                  <TouchableOpacity
-                    key={index}
-                    style={styles.emojiButton}
-                    onPress={() => handleAddEmoji(emoji)}
-                  >
-                    <Text style={styles.emojiText}>{emoji}</Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
-          )}
-          
           {/* Action Buttons */}
           <View style={styles.createPostActions}>
             <View style={styles.createPostToolbar}>
-              <TouchableOpacity
-                style={styles.toolbarButton}
-                onPress={() => setShowEmojiPicker(!showEmojiPicker)}
-              >
-                <Text style={styles.toolbarIcon}>😊</Text>
-                <Text style={styles.toolbarLabel}>Emoji</Text>
-              </TouchableOpacity>
-              
               <TouchableOpacity
                 style={styles.toolbarButton}
                 onPress={handleAttachFile}
@@ -705,20 +682,34 @@ function CommunityScreen() {
               </TouchableOpacity>
             </View>
             
-            <TouchableOpacity
-              style={[
-                styles.publishButton,
-                (!postContent.trim() && selectedImages.length === 0 && !postLink.trim()) || createPostMutation.isPending ? styles.publishButtonDisabled : {},
-              ]}
-              onPress={handleCreatePost}
-              disabled={(!postContent.trim() && selectedImages.length === 0 && !postLink.trim()) || createPostMutation.isPending}
-            >
-              {createPostMutation.isPending ? (
-                <ActivityIndicator color="#fff" size="small" />
-              ) : (
-                <Text style={styles.publishButtonText}>Post</Text>
+            <View style={styles.createPostSubmitActions}>
+              {hasPostDraft && (
+                <TouchableOpacity
+                  style={styles.clearPostButton}
+                  onPress={handleClearPost}
+                  disabled={createPostMutation.isPending}
+                  accessibilityRole="button"
+                  accessibilityLabel="Clear post draft"
+                >
+                  <Text style={styles.clearPostButtonText}>Clear</Text>
+                </TouchableOpacity>
               )}
-            </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.publishButton,
+                  (!postContent.trim() && selectedImages.length === 0 && !postLink.trim()) || createPostMutation.isPending ? styles.publishButtonDisabled : {},
+                ]}
+                onPress={handleCreatePost}
+                disabled={(!postContent.trim() && selectedImages.length === 0 && !postLink.trim()) || createPostMutation.isPending}
+              >
+                {createPostMutation.isPending ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Text style={styles.publishButtonText}>Post</Text>
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
           
           {postContent.length > 0 && (
@@ -990,23 +981,13 @@ const styles = StyleSheet.create({
     padding: 0,
     lineHeight: 20,
   },
-  emojiPickerContainer: {
-    marginTop: 12,
-    paddingVertical: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#efefef',
-  },
-  emojiButton: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  emojiText: {
-    fontSize: 24,
-  },
   createPostActions: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'space-between',
     alignItems: 'center',
+    columnGap: 12,
+    rowGap: 8,
     marginTop: 12,
     paddingTop: 12,
     borderTopWidth: 1,
@@ -1014,7 +995,7 @@ const styles = StyleSheet.create({
   },
   createPostToolbar: {
     flexDirection: 'row',
-    gap: 16,
+    gap: 12,
   },
   toolbarButton: {
     flexDirection: 'row',
@@ -1028,6 +1009,21 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#737373',
     fontWeight: '500',
+  },
+  createPostSubmitActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginLeft: 'auto',
+  },
+  clearPostButton: {
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+  },
+  clearPostButtonText: {
+    color: '#737373',
+    fontSize: 13,
+    fontWeight: '600',
   },
   publishButton: {
     backgroundColor: '#0095f6',

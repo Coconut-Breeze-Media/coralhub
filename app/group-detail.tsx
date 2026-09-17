@@ -50,7 +50,7 @@ const ACTIVITY_TYPE_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
 };
 
 export default function GroupDetailScreen() {
-  const { token, userId } = useAuth();
+  const { token, userId, profile } = useAuth();
   const params = useLocalSearchParams();
   const groupId = params.id ? parseInt(params.id as string) : null;
   
@@ -133,6 +133,7 @@ export default function GroupDetailScreen() {
   const [isDeleteModalVisible, setIsDeleteModalVisible] = useState(false);
   const [deletingPost, setDeletingPost] = useState<BPActivity | null>(null);
   const [deleteGroupConfirmed, setDeleteGroupConfirmed] = useState(false);
+  const hasPostDraft = newPostContent.length > 0 || selectedImages.length > 0 || postLink.length > 0;
   const contentScrollRef = useRef<ScrollView | null>(null);
   const postComposerOffsetRef = useRef(0);
   const pendingScrollOffsetRef = useRef<number | null>(null);
@@ -292,6 +293,13 @@ export default function GroupDetailScreen() {
     } finally {
       setIsPostingActivity(false);
     }
+  };
+
+  const handleClearPost = () => {
+    setNewPostContent('');
+    setSelectedImages([]);
+    setPostLink('');
+    Keyboard.dismiss();
   };
 
   const handleLikePost = async (activityId: number, isLiked: boolean) => {
@@ -1112,61 +1120,51 @@ export default function GroupDetailScreen() {
                   }}
                   style={{
                     backgroundColor: '#fff',
-                    borderRadius: 12,
+                    borderRadius: 8,
                     padding: 16,
                     borderWidth: 1,
-                    borderColor: '#e5e7eb',
+                    borderColor: '#dbdbdb',
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 1 },
+                    shadowOpacity: 0.1,
+                    shadowRadius: 3,
+                    elevation: 2,
                   }}
                 >
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                    <Ionicons name="create-outline" size={20} color="#2563eb" />
-                    <Text style={{ fontSize: 16, fontWeight: '700', color: '#1f2937' }}>
-                      Create Post
-                    </Text>
-                  </View>
-                  <TextInput
-                    style={{
-                      backgroundColor: '#f9fafb',
-                      borderWidth: 1,
-                      borderColor: '#d1d5db',
-                      borderRadius: 8,
-                      padding: 12,
-                      fontSize: 14,
-                      color: '#1f2937',
-                      minHeight: 80,
-                      textAlignVertical: 'top',
-                    }}
-                    placeholder="What's on your mind?"
-                    placeholderTextColor="#9ca3af"
-                    multiline
-                    value={newPostContent}
-                    onChangeText={setNewPostContent}
-                    onFocus={revealPostComposer}
-                    editable={!isPostingActivity}
-                  />
-
-                  {/* Image Picker Button */}
-                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
-                    <TouchableOpacity
-                      onPress={handlePickImage}
-                      disabled={isPostingActivity}
-                      style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        gap: 6,
-                        paddingHorizontal: 12,
-                        paddingVertical: 8,
-                        backgroundColor: '#f3f4f6',
-                        borderRadius: 8,
-                        borderWidth: 1,
-                        borderColor: '#e5e7eb',
-                      }}
-                    >
-                      <Ionicons name="image-outline" size={18} color="#0095f6" />
-                      <Text style={{ fontSize: 13, color: '#374151', fontWeight: '500' }}>
-                        Add Photo
+                  <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+                    <View style={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: 20,
+                      backgroundColor: '#0095f6',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginRight: 12,
+                    }}>
+                      <Text style={{ color: '#fff', fontSize: 18, fontWeight: '600' }}>
+                        {profile?.user_display_name?.charAt(0).toUpperCase() || 'U'}
                       </Text>
-                    </TouchableOpacity>
+                    </View>
+                    <TextInput
+                      style={{
+                        flex: 1,
+                        fontSize: 15,
+                        color: '#262626',
+                        minHeight: 40,
+                        maxHeight: 120,
+                        padding: 0,
+                        lineHeight: 20,
+                        textAlignVertical: 'top',
+                      }}
+                      placeholder="What's on your mind?"
+                      placeholderTextColor="#999"
+                      multiline
+                      maxLength={500}
+                      value={newPostContent}
+                      onChangeText={setNewPostContent}
+                      onFocus={revealPostComposer}
+                      editable={!isPostingActivity}
+                    />
                   </View>
 
                   {/* Selected Images Preview */}
@@ -1174,7 +1172,7 @@ export default function GroupDetailScreen() {
                     <ScrollView 
                       horizontal 
                       showsHorizontalScrollIndicator={false}
-                      style={{ marginTop: 12, borderTopWidth: 1, borderTopColor: '#e5e7eb', paddingTop: 12 }}
+                      style={{ marginTop: 12, paddingVertical: 8 }}
                       contentContainerStyle={{ gap: 8 }}
                     >
                       {selectedImages.map((image, index) => (
@@ -1227,72 +1225,99 @@ export default function GroupDetailScreen() {
                   )}
 
                   {/* Link Input */}
-                  <View style={{ marginTop: 12, borderTopWidth: 1, borderTopColor: '#e5e7eb', paddingTop: 12 }}>
-                    <View style={{ flexDirection: 'row', gap: 8 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
-                        <Ionicons name="link-outline" size={18} color="#6b7280" />
-                        <TextInput
-                          style={{
-                            flex: 1,
-                            backgroundColor: '#f9fafb',
-                            borderWidth: 1,
-                            borderColor: '#d1d5db',
-                            borderRadius: 8,
-                            padding: 10,
-                            fontSize: 14,
-                            color: '#1f2937',
-                          }}
-                          placeholder="Add a link (optional)"
-                          placeholderTextColor="#9ca3af"
-                          value={postLink}
-                          onChangeText={setPostLink}
-                          onFocus={revealPostComposer}
-                          editable={!isPostingActivity}
-                          keyboardType="url"
-                          autoCapitalize="none"
-                        />
-                      </View>
-                      {postLink.length > 0 && (
+                  <View style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    marginTop: 12,
+                    paddingTop: 12,
+                    borderTopWidth: 1,
+                    borderTopColor: '#efefef',
+                    gap: 8,
+                  }}>
+                    <Text style={{ fontSize: 18 }}>🔗</Text>
+                    <TextInput
+                      style={{ flex: 1, fontSize: 14, color: '#262626', padding: 0 }}
+                      placeholder="Add a link (optional)"
+                      placeholderTextColor="#999"
+                      value={postLink}
+                      onChangeText={setPostLink}
+                      onFocus={revealPostComposer}
+                      editable={!isPostingActivity}
+                      keyboardType="url"
+                      autoCapitalize="none"
+                    />
+                    {postLink.length > 0 && (
+                      <TouchableOpacity onPress={() => setPostLink('')}>
+                        <Text style={{ fontSize: 16, color: '#8e8e8e', padding: 4 }}>✕</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+
+                  <View style={{
+                    flexDirection: 'row',
+                    flexWrap: 'wrap',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    columnGap: 12,
+                    rowGap: 8,
+                    marginTop: 12,
+                    paddingTop: 12,
+                    borderTopWidth: 1,
+                    borderTopColor: '#efefef',
+                  }}>
+                    <TouchableOpacity
+                      onPress={handlePickImage}
+                      disabled={isPostingActivity}
+                      style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                    >
+                      <Text style={{ fontSize: 20 }}>📎</Text>
+                      <Text style={{ fontSize: 13, color: '#737373', fontWeight: '500' }}>
+                        Attach
+                      </Text>
+                    </TouchableOpacity>
+
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginLeft: 'auto' }}>
+                      {hasPostDraft && (
                         <TouchableOpacity
-                          onPress={() => setPostLink('')}
-                          style={{
-                            justifyContent: 'center',
-                            alignItems: 'center',
-                            width: 36,
-                            height: 36,
-                            backgroundColor: '#f3f4f6',
-                            borderRadius: 8,
-                          }}
+                          onPress={handleClearPost}
+                          disabled={isPostingActivity}
+                          accessibilityRole="button"
+                          accessibilityLabel="Clear post draft"
+                          style={{ paddingHorizontal: 8, paddingVertical: 8 }}
                         >
-                          <Ionicons name="close-circle" size={20} color="#6b7280" />
+                          <Text style={{ color: '#737373', fontSize: 13, fontWeight: '600' }}>
+                            Clear
+                          </Text>
                         </TouchableOpacity>
                       )}
+
+                      <TouchableOpacity
+                        onPress={handleCreatePost}
+                        disabled={isPostingActivity || (!newPostContent.trim() && selectedImages.length === 0 && !postLink.trim())}
+                        style={{
+                          backgroundColor: (!newPostContent.trim() && selectedImages.length === 0 && !postLink.trim() || isPostingActivity) ? '#b2dffc' : '#0095f6',
+                          borderRadius: 8,
+                          paddingHorizontal: 20,
+                          paddingVertical: 8,
+                          minWidth: 80,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        {isPostingActivity ? (
+                          <ActivityIndicator size="small" color="#fff" />
+                        ) : (
+                          <Text style={{ color: '#fff', fontSize: 14, fontWeight: '700' }}>Post</Text>
+                        )}
+                      </TouchableOpacity>
                     </View>
                   </View>
 
-                  <TouchableOpacity
-                    onPress={handleCreatePost}
-                    disabled={isPostingActivity || (!newPostContent.trim() && selectedImages.length === 0 && !postLink.trim())}
-                    style={{
-                      backgroundColor: (!newPostContent.trim() && selectedImages.length === 0 && !postLink.trim() || isPostingActivity) ? '#d1d5db' : '#2563eb',
-                      borderRadius: 8,
-                      padding: 12,
-                      alignItems: 'center',
-                      marginTop: 12,
-                      flexDirection: 'row',
-                      justifyContent: 'center',
-                      gap: 8,
-                    }}
-                  >
-                    {isPostingActivity ? (
-                      <ActivityIndicator size="small" color="#fff" />
-                    ) : (
-                      <Ionicons name="send" size={18} color="#fff" />
-                    )}
-                    <Text style={{ fontSize: 15, fontWeight: '600', color: '#fff' }}>
-                      {isPostingActivity ? 'Posting...' : 'Post'}
+                  {newPostContent.length > 0 && (
+                    <Text style={{ fontSize: 12, color: '#8e8e8e', textAlign: 'right', marginTop: 4 }}>
+                      {newPostContent.length}/500
                     </Text>
-                  </TouchableOpacity>
+                  )}
                 </View>
 
                 {/* Activity Feed Section */}
