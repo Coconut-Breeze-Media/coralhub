@@ -53,9 +53,16 @@ export default function ProfileSettingsScreen() {
 
   // Request permissions on mount
   const requestPermissions = async () => {
+    console.log('[ProfileMedia][permission] Checking media library permission', {
+      platform: Platform.OS,
+    });
+
     if (Platform.OS !== 'web') {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      console.log('[ProfileMedia][permission] Media library permission result', { status });
+
       if (status !== 'granted') {
+        console.warn('[ProfileMedia][permission] Media library access was not granted');
         Alert.alert(
           'Permission Required',
           'Sorry, we need camera roll permissions to change your profile picture.'
@@ -67,10 +74,24 @@ export default function ProfileSettingsScreen() {
   };
 
   const handlePickImage = async (type: 'avatar' | 'cover') => {
+    console.log('[ProfileMedia][picker] Change image pressed', {
+      type,
+      userId: member?.id ?? null,
+    });
+
     const hasPermission = await requestPermissions();
-    if (!hasPermission) return;
+    if (!hasPermission) {
+      console.warn('[ProfileMedia][picker] Picker stopped because permission is missing', { type });
+      return;
+    }
 
     try {
+      console.log('[ProfileMedia][picker] Opening image library', {
+        type,
+        aspect: type === 'avatar' ? [1, 1] : [16, 9],
+        quality: 0.8,
+      });
+
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
@@ -78,33 +99,71 @@ export default function ProfileSettingsScreen() {
         quality: 0.8,
       });
 
+      console.log('[ProfileMedia][picker] Image library closed', {
+        type,
+        canceled: result.canceled,
+        assetCount: result.assets?.length ?? 0,
+      });
+
       if (!result.canceled && result.assets[0]) {
         const asset = result.assets[0];
-        
+
+        console.log('[ProfileMedia][picker] Image selected', {
+          type,
+          fileName: asset.fileName ?? null,
+          fileSize: asset.fileSize ?? null,
+          mimeType: asset.mimeType ?? null,
+          width: asset.width,
+          height: asset.height,
+          uriScheme: asset.uri.split(':')[0] || 'file',
+        });
+
         if (type === 'avatar') {
           await handleUploadAvatar(asset.uri);
         } else {
           await handleUploadCover(asset.uri);
         }
+      } else {
+        console.log('[ProfileMedia][picker] No image selected', { type });
       }
     } catch (error) {
+      console.error('[ProfileMedia][picker] Failed to select or upload image', { type, error });
       Alert.alert('Error', 'Failed to pick image. Please try again.');
     }
   };
 
   const handleUploadAvatar = async (imageUri: string) => {
-    if (!member?.id) return;
+    if (!member?.id) {
+      console.warn('[ProfileMedia][avatar] Upload skipped because member ID is missing');
+      return;
+    }
 
     try {
-      
+      console.log('[ProfileMedia][avatar] Starting upload', {
+        userId: member.id,
+        platform: Platform.OS,
+        uriScheme: imageUri.split(':')[0] || 'file',
+      });
+
       const response = await uploadAvatar.mutateAsync({ 
         userId: member.id, 
         imageUri 
       });
-      
+
+      console.log('[ProfileMedia][avatar] Upload completed', {
+        userId: member.id,
+        response,
+      });
+
       Alert.alert('Success', 'Profile picture updated successfully');
     } catch (error: any) {
-      
+      console.error('[ProfileMedia][avatar] Upload failed', {
+        userId: member.id,
+        status: error?.status ?? null,
+        message: error?.message ?? String(error),
+        error,
+      });
+
       let errorMessage = 'Failed to update profile picture';
       if (error?.message) {
         errorMessage += `: ${error.message}`;
@@ -115,10 +174,18 @@ export default function ProfileSettingsScreen() {
   };
 
   const handleUploadCover = async (imageUri: string) => {
-    if (!member?.id) return;
+    if (!member?.id) {
+      console.warn('[ProfileMedia][cover] Upload skipped because member ID is missing');
+      return;
+    }
 
     try {
-      
+      console.log('[ProfileMedia][cover] Preparing upload', {
+        userId: member.id,
+        platform: Platform.OS,
+        uriScheme: imageUri.split(':')[0] || 'file',
+      });
+
       // Create form data for cover (keeping old implementation for now)
       const formData = new FormData();
       
@@ -127,6 +194,12 @@ export default function ProfileSettingsScreen() {
         const blob = await response.blob();
         const file = new File([blob], 'cover.jpg', { type: 'image/jpeg' });
         formData.append('file', file);
+
+        console.log('[ProfileMedia][cover] Web file added to FormData', {
+          name: file.name,
+          type: file.type,
+          size: file.size,
+        });
       } else {
         const filename = imageUri.split('/').pop() || 'cover.jpg';
         const match = /\.(\w+)$/.exec(filename);
@@ -138,13 +211,30 @@ export default function ProfileSettingsScreen() {
           name: filename,
           type: fileType,
         });
+
+        console.log('[ProfileMedia][cover] Native file added to FormData', {
+          name: filename,
+          type: fileType,
+        });
       }
-      
-      await uploadCover.mutateAsync({ userId: member.id, formData });
-      
+
+      console.log('[ProfileMedia][cover] Starting upload', { userId: member.id });
+      const response = await uploadCover.mutateAsync({ userId: member.id, formData });
+
+      console.log('[ProfileMedia][cover] Upload completed', {
+        userId: member.id,
+        response,
+      });
+
       Alert.alert('Success', 'Cover image updated successfully');
     } catch (error: any) {
-      
+      console.error('[ProfileMedia][cover] Upload failed', {
+        userId: member.id,
+        status: error?.status ?? null,
+        message: error?.message ?? String(error),
+        error,
+      });
+
       let errorMessage = 'Failed to update cover image';
       if (error?.message) {
         errorMessage += `: ${error.message}`;

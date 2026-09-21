@@ -489,8 +489,14 @@ export async function uploadUserAvatar(
   token: string,
   imageUri: string
 ): Promise<BPAvatar> {
-  
   const formData = new FormData();
+  const endpoint = `${API}/buddypress/v1/members/${userId}/avatar`;
+
+  console.log('[ProfileMedia][avatar][api] Preparing request', {
+    userId,
+    platform: Platform.OS,
+    endpoint,
+  });
   
   if (Platform.OS === 'web') {
     const response = await fetch(imageUri);
@@ -503,6 +509,12 @@ export async function uploadUserAvatar(
     const file = new File([blob], `avatar.${extension}`, { type: mimeType });
     
     formData.append('file', file);
+
+    console.log('[ProfileMedia][avatar][api] Web file added to FormData', {
+      name: file.name,
+      type: file.type,
+      size: file.size,
+    });
   } else {
     const uriParts = imageUri.split('.');
     const fileType = uriParts[uriParts.length - 1] || 'jpg';
@@ -525,24 +537,54 @@ export async function uploadUserAvatar(
       name: `avatar.${fileType}`,
       type: mimeType,
     });
+
+    console.log('[ProfileMedia][avatar][api] Native file added to FormData', {
+      name: `avatar.${fileType}`,
+      type: mimeType,
+    });
   }
-  
-  const res = await fetchWithTimeout(`${API}/coral/v1/users/${userId}/avatar`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      // Don't set Content-Type - browser/RN sets it automatically with boundary
-    },
-    body: formData,
-  }, 30000);
-  
-  await assertOk(res);
-  const data = await res.json();
-  
-  return {
-    full: data.full || '',
-    thumb: data.thumb || '',
-  };
+
+  // BP_Attachment_Avatar validates this multipart action before accepting the file.
+  formData.append('action', 'bp_avatar_upload');
+  console.log('[ProfileMedia][avatar][api] Added required BuddyPress upload action', {
+    action: 'bp_avatar_upload',
+  });
+
+  try {
+    console.log('[ProfileMedia][avatar][api] Sending POST request', {
+      endpoint,
+      timeoutMs: 30000,
+    });
+
+    const res = await fetchWithTimeout(endpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        // Don't set Content-Type - browser/RN sets it automatically with boundary
+      },
+      body: formData,
+    }, 30000);
+
+    console.log('[ProfileMedia][avatar][api] Response received', {
+      status: res.status,
+      ok: res.ok,
+    });
+
+    await assertOk(res);
+    const data = await res.json();
+    console.log('[ProfileMedia][avatar][api] Response body', data);
+
+    return {
+      full: data.full || '',
+      thumb: data.thumb || '',
+    };
+  } catch (error) {
+    console.error('[ProfileMedia][avatar][api] Request failed', {
+      endpoint,
+      error,
+    });
+    throw error;
+  }
 }
 
 /**
@@ -589,19 +631,44 @@ export async function uploadUserCover(
   token: string,
   formData: FormData
 ): Promise<BPCoverImage> {
-  const res = await fetchWithTimeout(`${API}/buddypress/v1/members/${userId}/cover`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      // Don't set Content-Type - let browser set it with boundary for multipart/form-data
-    },
-    body: formData,
-  });
-  await assertOk(res);
-  const data = await res.json();
-  return {
-    image: data.image || '',
-  };
+  const endpoint = `${API}/buddypress/v1/members/${userId}/cover`;
+
+  try {
+    console.log('[ProfileMedia][cover][api] Sending POST request', {
+      userId,
+      platform: Platform.OS,
+      endpoint,
+      timeoutMs: 15000,
+    });
+
+    const res = await fetchWithTimeout(endpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        // Don't set Content-Type - let browser set it with boundary for multipart/form-data
+      },
+      body: formData,
+    });
+
+    console.log('[ProfileMedia][cover][api] Response received', {
+      status: res.status,
+      ok: res.ok,
+    });
+
+    await assertOk(res);
+    const data = await res.json();
+    console.log('[ProfileMedia][cover][api] Response body', data);
+
+    return {
+      image: data.image || '',
+    };
+  } catch (error) {
+    console.error('[ProfileMedia][cover][api] Request failed', {
+      endpoint,
+      error,
+    });
+    throw error;
+  }
 }
 
 /**
