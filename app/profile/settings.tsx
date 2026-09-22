@@ -409,9 +409,15 @@ export default function ProfileSettingsScreen() {
   }
 
   const avatarUrl = uploadedAvatarUrl || avatar?.full || avatar?.thumb || member?.avatar_urls?.full || member?.avatar_urls?.thumb;
-  const coverUrl = uploadedCoverUrl || cover?.image || (Array.isArray(member?.xprofile)
-    ? member.xprofile.find((field) => field.name.toLowerCase().includes('cover'))?.value.raw
-    : undefined);
+  // BuddyPress uses this file as the default avatar. It is not an uploaded
+  // profile picture, so users should not be offered a delete action for it.
+  const hasCustomAvatar = avatarUrl
+    ? !/\/Please-Upload-Avatar-Image\.(?:jpe?g|png|gif)(?:[?#]|$)/i.test(avatarUrl)
+    : false;
+  // Covers are stored by BuddyPress, not in xprofile. Avoid an old xprofile
+  // value keeping the delete button visible after the image is removed.
+  const coverUrl = uploadedCoverUrl || cover?.image;
+  const hasCover = Boolean(coverUrl);
   const addMediaVersion = (url?: string) => {
     if (!url) return undefined;
     return `${url}${url.includes('?') ? '&' : '?'}profile_media=${mediaVersion}`;
@@ -473,11 +479,11 @@ export default function ProfileSettingsScreen() {
                 <ActivityIndicator size="small" color="#fff" />
               ) : (
                 <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>
-                  {coverUrl ? 'Change Cover' : 'Add Cover'}
+                  {hasCover ? 'Change Cover' : 'Add Cover'}
                 </Text>
               )}
             </Pressable>
-            {coverUrl && (
+            {hasCover && (
               <Pressable
                 onPress={() => handleDeleteImage('cover')}
                 disabled={deleteCover.isPending}
@@ -539,11 +545,11 @@ export default function ProfileSettingsScreen() {
                     <ActivityIndicator size="small" color="#fff" />
                   ) : (
                     <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>
-                      {avatarUrl ? 'Change Picture' : 'Add Picture'}
+                      {hasCustomAvatar ? 'Change Picture' : 'Add Picture'}
                     </Text>
                   )}
                 </Pressable>
-                {avatarUrl && (
+                {hasCustomAvatar && (
                   <Pressable
                     onPress={() => handleDeleteImage('avatar')}
                     disabled={uploadAvatar.isPending || deleteAvatar.isPending}
@@ -643,10 +649,6 @@ export default function ProfileSettingsScreen() {
               <Text style={{ fontSize: 16, color: '#1f2937' }}>
                 {member?.user_login || member?.mention_name || 'N/A'}
               </Text>
-            </View>
-            <View>
-              <Text style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Member ID</Text>
-              <Text style={{ fontSize: 16, color: '#1f2937' }}>{member?.id}</Text>
             </View>
             <View>
               <Text style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Last Activity</Text>
