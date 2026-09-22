@@ -32,6 +32,10 @@ import {
   useUserActivity,
 } from '../../hooks';
 import BackButton from '../../components/BackButton';
+import { optimizeCoverImage } from '../../lib/imageHelpers';
+
+const COVER_ASPECT: [number, number] = [27, 7];
+const COVER_UPLOAD_WIDTH = 1400;
 
 export default function ProfileSettingsScreen() {
   const router = useRouter();
@@ -88,14 +92,14 @@ export default function ProfileSettingsScreen() {
     try {
       console.log('[ProfileMedia][picker] Opening image library', {
         type,
-        aspect: type === 'avatar' ? [1, 1] : [16, 9],
+        aspect: type === 'avatar' ? [1, 1] : COVER_ASPECT,
         quality: 0.8,
       });
 
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
-        aspect: type === 'avatar' ? [1, 1] : [16, 9],
+        aspect: type === 'avatar' ? [1, 1] : COVER_ASPECT,
         quality: 0.8,
       });
 
@@ -121,7 +125,18 @@ export default function ProfileSettingsScreen() {
         if (type === 'avatar') {
           await handleUploadAvatar(asset.uri);
         } else {
-          await handleUploadCover(asset.uri);
+          console.log('[ProfileMedia][cover] Resizing image before upload', {
+            sourceWidth: asset.width,
+            sourceHeight: asset.height,
+            targetWidth: COVER_UPLOAD_WIDTH,
+            targetAspect: COVER_ASPECT,
+          });
+          const preparedImageUri = await optimizeCoverImage(asset.uri, COVER_UPLOAD_WIDTH);
+          console.log('[ProfileMedia][cover] Image prepared for upload', {
+            targetWidth: COVER_UPLOAD_WIDTH,
+            uriScheme: preparedImageUri.split(':')[0] || 'file',
+          });
+          await handleUploadCover(preparedImageUri);
         }
       } else {
         console.log('[ProfileMedia][picker] No image selected', { type });

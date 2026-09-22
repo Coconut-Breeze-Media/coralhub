@@ -633,6 +633,12 @@ export async function uploadUserCover(
 ): Promise<BPCoverImage> {
   const endpoint = `${API}/buddypress/v1/members/${userId}/cover`;
 
+  // BP_Attachment_Cover_Image validates this multipart action before accepting the file.
+  formData.append('action', 'bp_cover_image_upload');
+  console.log('[ProfileMedia][cover][api] Added required BuddyPress upload action', {
+    action: 'bp_cover_image_upload',
+  });
+
   try {
     console.log('[ProfileMedia][cover][api] Sending POST request', {
       userId,
