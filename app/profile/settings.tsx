@@ -520,24 +520,48 @@ export default function ProfileSettingsScreen() {
               )}
             </View>
             <View style={{ flex: 1, gap: 8 }}>
-              <Pressable
-                onPress={() => handlePickImage('avatar')}
-                disabled={uploadAvatar.isPending}
-                style={{
-                  paddingVertical: 10,
-                  backgroundColor: '#2563eb',
-                  borderRadius: 8,
-                  alignItems: 'center',
-                }}
-              >
-                {uploadAvatar.isPending ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>
-                    {avatarUrl ? 'Change Picture' : 'Add Picture'}
-                  </Text>
+              <View style={{ flexDirection: 'row', gap: 12 }}>
+                <Pressable
+                  onPress={() => handlePickImage('avatar')}
+                  disabled={uploadAvatar.isPending || deleteAvatar.isPending}
+                  style={{
+                    flex: 1,
+                    paddingVertical: 10,
+                    backgroundColor: '#2563eb',
+                    borderRadius: 8,
+                    alignItems: 'center',
+                  }}
+                >
+                  {uploadAvatar.isPending ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>
+                      {avatarUrl ? 'Change Picture' : 'Add Picture'}
+                    </Text>
+                  )}
+                </Pressable>
+                {avatarUrl && (
+                  <Pressable
+                    onPress={() => handleDeleteImage('avatar')}
+                    disabled={uploadAvatar.isPending || deleteAvatar.isPending}
+                    accessibilityRole="button"
+                    accessibilityLabel="Delete profile picture"
+                    style={{
+                      paddingHorizontal: 20,
+                      paddingVertical: 10,
+                      backgroundColor: '#ef4444',
+                      borderRadius: 8,
+                      alignItems: 'center',
+                    }}
+                  >
+                    {deleteAvatar.isPending ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Ionicons name="trash-outline" size={20} color="#fff" />
+                    )}
+                  </Pressable>
                 )}
-              </Pressable>
+              </View>
             </View>
           </View>
         </View>
