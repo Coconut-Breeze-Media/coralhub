@@ -29,6 +29,8 @@ import {
   useDeleteAvatar,
   useUploadCover,
   useDeleteCover,
+  useUserAvatar,
+  useUserCover,
   useUserActivity,
 } from '../../hooks';
 import BackButton from '../../components/BackButton';
@@ -39,16 +41,70 @@ const COVER_UPLOAD_WIDTH = 1400;
 
 export default function ProfileSettingsScreen() {
   const router = useRouter();
-  const { data: member, isLoading, error } = useCurrentMember();
+  const { data: member, isLoading, error, refetch: refetchMember } = useCurrentMember();
   const updateProfile = useUpdateProfile();
   const uploadAvatar = useUploadAvatar();
   const deleteAvatar = useDeleteAvatar();
   const uploadCover = useUploadCover();
   const deleteCover = useDeleteCover();
+  // Covers are not part of the member/xprofile payload. Read BuddyPress's
+  // dedicated media endpoints so the settings page shows the actual uploads.
+  const { data: avatar, refetch: refetchAvatar } = useUserAvatar(member?.id || 0);
+  const { data: cover, refetch: refetchCover } = useUserCover(member?.id || 0);
   const { data: activities } = useUserActivity(member?.id || 0);
 
   const [displayName, setDisplayName] = useState('');
   const [isEditing, setIsEditing] = useState(false);
+  // WordPress keeps the same media URL after replacing an image. Keep the
+  // returned URL and a version so React Native's image cache loads the new file.
+  const [uploadedAvatarUrl, setUploadedAvatarUrl] = useState<string>();
+  const [uploadedCoverUrl, setUploadedCoverUrl] = useState<string>();
+  const [mediaVersion, setMediaVersion] = useState(0);
+
+  const refreshProfileMedia = async (type: 'avatar' | 'cover') => {
+    const version = Date.now();
+    setMediaVersion(version);
+
+    console.log('[ProfileMedia][refresh] Refreshing profile after upload', {
+      type,
+      userId: member?.id ?? null,
+      version,
+    });
+
+    try {
+      const memberPromise = refetchMember();
+      const [memberResult, mediaResult] = type === 'avatar'
+        ? await Promise.all([memberPromise, refetchAvatar()])
+        : await Promise.all([memberPromise, refetchCover()]);
+
+      if (memberResult.error || mediaResult.error) {
+        console.warn('[ProfileMedia][refresh] Profile refetch returned an error', {
+          type,
+          memberError: memberResult.error ?? null,
+          mediaError: mediaResult.error ?? null,
+        });
+      } else {
+        const mediaUrl = type === 'avatar'
+          ? (mediaResult.data as { full?: string; thumb?: string } | undefined)?.full
+            || (mediaResult.data as { full?: string; thumb?: string } | undefined)?.thumb
+            || null
+          : (mediaResult.data as { image?: string } | undefined)?.image || null;
+
+        console.log('[ProfileMedia][refresh] Profile data refreshed', {
+          type,
+          userId: memberResult.data?.id ?? member?.id ?? null,
+          mediaUrl,
+        });
+      }
+    } catch (refreshError) {
+      // The upload already succeeded; preserve the newly returned URL even if
+      // the follow-up profile read is temporarily unavailable.
+      console.warn('[ProfileMedia][refresh] Unable to refetch profile', {
+        type,
+        error: refreshError,
+      });
+    }
+  };
 
   // Initialize display name when member data loads
   if (member && !displayName && !isEditing) {
@@ -170,6 +226,9 @@ export default function ProfileSettingsScreen() {
         response,
       });
 
+      setUploadedAvatarUrl(response.full || response.thumb || undefined);
+      await refreshProfileMedia('avatar');
+
       Alert.alert('Success', 'Profile picture updated successfully');
     } catch (error: any) {
       console.error('[ProfileMedia][avatar] Upload failed', {
@@ -241,6 +300,9 @@ export default function ProfileSettingsScreen() {
         response,
       });
 
+      setUploadedCoverUrl(response.image || undefined);
+      await refreshProfileMedia('cover');
+
       Alert.alert('Success', 'Cover image updated successfully');
     } catch (error: any) {
       console.error('[ProfileMedia][cover] Upload failed', {
@@ -278,9 +340,12 @@ export default function ProfileSettingsScreen() {
             try {
               if (type === 'avatar') {
                 await deleteAvatar.mutateAsync(member.id);
+                setUploadedAvatarUrl(undefined);
               } else {
                 await deleteCover.mutateAsync(member.id);
+                setUploadedCoverUrl(undefined);
               }
+              await refreshProfileMedia(type);
               Alert.alert('Success', `${type === 'avatar' ? 'Profile picture' : 'Cover image'} deleted`);
             } catch (error) {
               Alert.alert('Error', `Failed to delete ${type === 'avatar' ? 'profile picture' : 'cover image'}`);
@@ -340,10 +405,16 @@ export default function ProfileSettingsScreen() {
     );
   }
 
-  const avatarUrl = member?.avatar_urls?.full || member?.avatar_urls?.thumb;
-  const coverUrl = Array.isArray(member?.xprofile) 
-    ? member.xprofile.find((field) => field.name.toLowerCase().includes('cover'))?.value.raw 
-    : undefined;
+  const avatarUrl = uploadedAvatarUrl || avatar?.full || avatar?.thumb || member?.avatar_urls?.full || member?.avatar_urls?.thumb;
+  const coverUrl = uploadedCoverUrl || cover?.image || (Array.isArray(member?.xprofile)
+    ? member.xprofile.find((field) => field.name.toLowerCase().includes('cover'))?.value.raw
+    : undefined);
+  const addMediaVersion = (url?: string) => {
+    if (!url) return undefined;
+    return `${url}${url.includes('?') ? '&' : '?'}profile_media=${mediaVersion}`;
+  };
+  const avatarImageUrl = addMediaVersion(avatarUrl);
+  const coverImageUrl = addMediaVersion(coverUrl);
 
   return (
     <View style={{ flex: 1, backgroundColor: '#f9fafb' }}>
@@ -377,8 +448,8 @@ export default function ProfileSettingsScreen() {
               alignItems: 'center',
             }}
           >
-            {coverUrl ? (
-              <Image source={{ uri: coverUrl }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+            {coverImageUrl ? (
+              <Image key={coverImageUrl} source={{ uri: coverImageUrl }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
             ) : (
               <Ionicons name="image-outline" size={48} color="#9ca3af" />
             )}
@@ -442,8 +513,8 @@ export default function ProfileSettingsScreen() {
                 overflow: 'hidden',
               }}
             >
-              {avatarUrl ? (
-                <Image source={{ uri: avatarUrl }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+              {avatarImageUrl ? (
+                <Image key={avatarImageUrl} source={{ uri: avatarImageUrl }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
               ) : (
                 <Ionicons name="person" size={40} color="#9ca3af" />
               )}

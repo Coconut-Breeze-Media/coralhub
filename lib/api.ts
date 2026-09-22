@@ -471,9 +471,11 @@ export async function getUserAvatar(userId: number, token: string): Promise<BPAv
   });
   await assertOk(res);
   const data = await res.json();
+  // BuddyPress returns media resources in a one-item array.
+  const avatar = Array.isArray(data) ? data[0] : data;
   return {
-    full: data.full || '',
-    thumb: data.thumb || '',
+    full: avatar?.full || '',
+    thumb: avatar?.thumb || '',
   };
 }
 
@@ -573,10 +575,11 @@ export async function uploadUserAvatar(
     await assertOk(res);
     const data = await res.json();
     console.log('[ProfileMedia][avatar][api] Response body', data);
+    const avatar = Array.isArray(data) ? data[0] : data;
 
     return {
-      full: data.full || '',
-      thumb: data.thumb || '',
+      full: avatar?.full || '',
+      thumb: avatar?.thumb || '',
     };
   } catch (error) {
     console.error('[ProfileMedia][avatar][api] Request failed', {
@@ -614,8 +617,10 @@ export async function getUserCover(userId: number, token: string): Promise<BPCov
   });
   await assertOk(res);
   const data = await res.json();
+  // BuddyPress returns media resources in a one-item array.
+  const cover = Array.isArray(data) ? data[0] : data;
   return {
-    image: data.image || '',
+    image: cover?.image || '',
   };
 }
 
@@ -664,9 +669,10 @@ export async function uploadUserCover(
     await assertOk(res);
     const data = await res.json();
     console.log('[ProfileMedia][cover][api] Response body', data);
+    const cover = Array.isArray(data) ? data[0] : data;
 
     return {
-      image: data.image || '',
+      image: cover?.image || '',
     };
   } catch (error) {
     console.error('[ProfileMedia][cover][api] Request failed', {
