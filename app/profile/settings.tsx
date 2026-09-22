@@ -7,7 +7,7 @@
  * - Cover image
  */
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -15,6 +15,7 @@ import {
   Pressable,
   Image,
   ScrollView,
+  KeyboardAvoidingView,
   ActivityIndicator,
   Alert,
   Platform,
@@ -62,6 +63,7 @@ export default function ProfileSettingsScreen() {
   const [uploadedAvatarUrl, setUploadedAvatarUrl] = useState<string>();
   const [uploadedCoverUrl, setUploadedCoverUrl] = useState<string>();
   const [mediaVersion, setMediaVersion] = useState(0);
+  const scrollViewRef = useRef<ScrollView>(null);
 
   const refreshProfileMedia = async (type: 'avatar' | 'cover') => {
     const version = Date.now();
@@ -428,8 +430,16 @@ export default function ProfileSettingsScreen() {
   const coverImageUrl = addMediaVersion(coverUrl);
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#f9fafb' }}>
-      <ScrollView>
+    <KeyboardAvoidingView
+      style={{ flex: 1, backgroundColor: '#f9fafb' }}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
+      <ScrollView
+        ref={scrollViewRef}
+        keyboardShouldPersistTaps="handled"
+        automaticallyAdjustKeyboardInsets
+        contentContainerStyle={{ paddingBottom: 40 }}
+      >
         {/* Header with Back Button */}
         <View
           style={{
@@ -582,25 +592,29 @@ export default function ProfileSettingsScreen() {
           <Text style={{ fontSize: 16, fontWeight: '600', color: '#1f2937', marginBottom: 12 }}>
             Display Name
           </Text>
-          <TextInput
-            value={displayName}
-            onChangeText={(text) => {
-              setDisplayName(text);
-              setIsEditing(true);
-            }}
-            placeholder="Enter your display name"
-            style={{
-              borderWidth: 1,
-              borderColor: '#d1d5db',
-              borderRadius: 8,
-              paddingHorizontal: 12,
-              paddingVertical: 10,
-              fontSize: 16,
-              color: '#1f2937',
-              backgroundColor: '#fff',
-            }}
-          />
-          {isEditing && (
+          {isEditing ? (
+            <>
+              <TextInput
+                autoFocus
+                value={displayName}
+                onChangeText={setDisplayName}
+                onFocus={() => {
+                  // Wait for the keyboard animation, then keep the editor and
+                  // its Save/Cancel controls inside the visible scroll area.
+                  setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 250);
+                }}
+                placeholder="Enter your display name"
+                style={{
+                  borderWidth: 1,
+                  borderColor: '#d1d5db',
+                  borderRadius: 8,
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                  fontSize: 16,
+                  color: '#1f2937',
+                  backgroundColor: '#fff',
+                }}
+              />
             <View style={{ flexDirection: 'row', gap: 12, marginTop: 12 }}>
               <Pressable
                 onPress={() => {
@@ -635,6 +649,33 @@ export default function ProfileSettingsScreen() {
                 ) : (
                   <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>Save</Text>
                 )}
+              </Pressable>
+            </View>
+            </>
+          ) : (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <Text style={{ flex: 1, fontSize: 16, color: '#1f2937' }}>
+                {member?.name || 'N/A'}
+              </Text>
+              <Pressable
+                onPress={() => {
+                  setDisplayName(member?.name || '');
+                  setIsEditing(true);
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Edit display name"
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 6,
+                  paddingHorizontal: 14,
+                  paddingVertical: 10,
+                  backgroundColor: '#2563eb',
+                  borderRadius: 8,
+                }}
+              >
+                <Ionicons name="pencil-outline" size={18} color="#fff" />
+                <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>Edit</Text>
               </Pressable>
             </View>
           )}
@@ -690,6 +731,6 @@ export default function ProfileSettingsScreen() {
 
         <View style={{ height: 40 }} />
       </ScrollView>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
