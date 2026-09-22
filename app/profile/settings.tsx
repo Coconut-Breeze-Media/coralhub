@@ -7,7 +7,7 @@
  * - Cover image
  */
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -43,7 +43,7 @@ const COVER_UPLOAD_WIDTH = 1400;
 
 export default function ProfileSettingsScreen() {
   const router = useRouter();
-  const { profile } = useAuth();
+  const { profile, membership, checkingMembership, refreshMembership } = useAuth();
   const { data: member, isLoading, error, refetch: refetchMember } = useCurrentMember();
   const updateProfile = useUpdateProfile();
   const uploadAvatar = useUploadAvatar();
@@ -64,6 +64,12 @@ export default function ProfileSettingsScreen() {
   const [uploadedCoverUrl, setUploadedCoverUrl] = useState<string>();
   const [mediaVersion, setMediaVersion] = useState(0);
   const scrollViewRef = useRef<ScrollView>(null);
+
+  // Fetch a current status whenever the member opens Settings. This calls
+  // /coral/v1/membership (with PMPro fallback) through the auth provider.
+  useEffect(() => {
+    refreshMembership();
+  }, [refreshMembership]);
 
   const refreshProfileMedia = async (type: 'avatar' | 'cover') => {
     const version = Date.now();
@@ -727,6 +733,77 @@ export default function ProfileSettingsScreen() {
               </View>
             )}
           </View>
+        </View>
+
+        {/* Membership (current user only) */}
+        <View style={{ backgroundColor: '#fff', padding: 16, marginBottom: 2 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+            <Text style={{ fontSize: 16, fontWeight: '600', color: '#1f2937' }}>
+              Membership
+            </Text>
+            <Pressable
+              onPress={refreshMembership}
+              disabled={checkingMembership}
+              accessibilityRole="button"
+              accessibilityLabel="Refresh membership status"
+              style={{ padding: 6 }}
+            >
+              {checkingMembership ? (
+                <ActivityIndicator size="small" color="#2563eb" />
+              ) : (
+                <Ionicons name="refresh-outline" size={20} color="#2563eb" />
+              )}
+            </Pressable>
+          </View>
+
+          {membership ? (
+            <View style={{ gap: 12 }}>
+              <View>
+                <Text style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Status</Text>
+                <Text style={{ fontSize: 16, fontWeight: '600', color: membership.is_member ? '#16a34a' : '#6b7280' }}>
+                  {membership.is_member ? 'Active' : 'No active membership'}
+                </Text>
+              </View>
+              <View>
+                <Text style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Plan</Text>
+                <Text style={{ fontSize: 16, color: '#1f2937' }}>
+                  {membership.level_name || `${membership.tier.charAt(0).toUpperCase()}${membership.tier.slice(1)}`}
+                </Text>
+              </View>
+              {membership.subscription_status && (
+                <View>
+                  <Text style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Subscription</Text>
+                  <Text style={{ fontSize: 16, color: '#1f2937' }}>{membership.subscription_status}</Text>
+                </View>
+              )}
+              {membership.expires_at && (
+                <View>
+                  <Text style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Expires</Text>
+                  <Text style={{ fontSize: 16, color: '#1f2937' }}>
+                    {new Date(membership.expires_at).toLocaleDateString()}
+                  </Text>
+                </View>
+              )}
+              <View>
+                <Text style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Available Resources</Text>
+                {membership.allowed_resources?.length ? (
+                  <View style={{ gap: 4 }}>
+                    {membership.allowed_resources.map((resource) => (
+                      <Text key={resource} style={{ fontSize: 16, color: '#1f2937' }}>
+                        • {resource.replace(/[-_]/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())}
+                      </Text>
+                    ))}
+                  </View>
+                ) : (
+                  <Text style={{ fontSize: 16, color: '#6b7280' }}>No premium resources available</Text>
+                )}
+              </View>
+            </View>
+          ) : (
+            <Text style={{ fontSize: 16, color: '#6b7280' }}>
+              {checkingMembership ? 'Loading membership…' : 'Membership information is unavailable'}
+            </Text>
+          )}
         </View>
 
         <View style={{ height: 40 }} />
