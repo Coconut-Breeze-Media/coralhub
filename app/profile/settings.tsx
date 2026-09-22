@@ -154,6 +154,9 @@ export default function ProfileSettingsScreen() {
 
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        // Profile media accepts one image only; cover/avatar upload endpoints
+        // expect a single multipart file.
+        allowsMultipleSelection: false,
         allowsEditing: true,
         aspect: type === 'avatar' ? [1, 1] : COVER_ASPECT,
         quality: 0.8,
