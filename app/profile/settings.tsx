@@ -35,12 +35,14 @@ import {
 } from '../../hooks';
 import BackButton from '../../components/BackButton';
 import { optimizeCoverImage } from '../../lib/imageHelpers';
+import { useAuth } from '../../lib/auth';
 
 const COVER_ASPECT: [number, number] = [27, 7];
 const COVER_UPLOAD_WIDTH = 1400;
 
 export default function ProfileSettingsScreen() {
   const router = useRouter();
+  const { profile } = useAuth();
   const { data: member, isLoading, error, refetch: refetchMember } = useCurrentMember();
   const updateProfile = useUpdateProfile();
   const uploadAvatar = useUploadAvatar();
@@ -650,6 +652,12 @@ export default function ProfileSettingsScreen() {
                 {member?.user_login || member?.mention_name || 'N/A'}
               </Text>
             </View>
+            {profile?.user_email && (
+              <View>
+                <Text style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Email</Text>
+                <Text style={{ fontSize: 16, color: '#1f2937' }}>{profile.user_email}</Text>
+              </View>
+            )}
             <View>
               <Text style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Last Activity</Text>
               {activities && activities.length > 0 ? (
