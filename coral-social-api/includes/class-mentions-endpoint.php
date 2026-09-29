@@ -18,7 +18,7 @@ class Coral_Mentions_Endpoint {
     private $namespace = 'coral/v1';
     
     public function register_routes() {
-        // Obtener menciones del usuario actual
+        // Get mentions for the current user
         register_rest_route($this->namespace, '/mentions', array(
             'methods'             => WP_REST_Server::READABLE,
             'callback'            => array($this, 'get_mentions'),
@@ -26,7 +26,7 @@ class Coral_Mentions_Endpoint {
             'args'                => $this->get_mentions_args(),
         ));
         
-        // Marcar menciones como leídas
+        // Mark mentions as read
         register_rest_route($this->namespace, '/mentions/mark-read', array(
             'methods'             => WP_REST_Server::CREATABLE,
             'callback'            => array($this, 'mark_mentions_read'),
@@ -91,7 +91,7 @@ class Coral_Mentions_Endpoint {
         
         if (!empty($activities['activities'])) {
             foreach ($activities['activities'] as $activity) {
-                // Verificar si debe filtrar por estado de leído
+                // Check if should filter by read status
                 $read_status = get_user_meta($user_id, 'mention_read_' . $activity->id, true);
                 
                 if ($is_read !== null) {

@@ -185,7 +185,7 @@ class Coral_Users_Endpoint {
             return new WP_Error('user_not_found', 'User not found', array('status' => 404));
         }
         
-        // Actualizar campos básicos de WordPress
+        // Update basic WordPress fields
         $update_data = array('ID' => $user_id);
         
         if ($request->has_param('display_name')) {
@@ -286,9 +286,37 @@ class Coral_Users_Endpoint {
             return new WP_Error('request_failed', 'Could not send friend request', array('status' => 500));
         }
         
+        // Ensure the recipient has a pending-request notification so the
+        // request shows up on the website (BP normally adds it via the
+        // friends_friendship_requested action; guard against it being missing).
+        $friendship_id = friends_get_friendship_id($user_id, $friend_id);
+        if ($friendship_id && function_exists('bp_is_active') && bp_is_active('notifications')
+            && class_exists('BP_Notifications_Notification')) {
+            $existing = BP_Notifications_Notification::get(array(
+                'user_id'          => $friend_id,
+                'component_name'   => 'friends',
+                'component_action' => 'friendship_request',
+                'item_id'          => $user_id,
+                'is_new'           => 'both',
+                'per_page'         => 1,
+            ));
+            if (empty($existing)) {
+                bp_notifications_add_notification(array(
+                    'user_id'           => $friend_id,
+                    'item_id'           => $user_id,
+                    'secondary_item_id' => $friendship_id,
+                    'component_name'    => 'friends',
+                    'component_action'  => 'friendship_request',
+                    'date_notified'     => bp_core_current_time(),
+                    'is_new'            => 1,
+                ));
+            }
+        }
+        
         return rest_ensure_response(array(
             'success' => true,
             'message' => 'Friend request sent successfully',
+            'friendship_id' => $friendship_id ? (int) $friendship_id : 0,
         ));
     }
     
@@ -676,7 +704,7 @@ class Coral_Users_Endpoint {
             $profile['website'] = xprofile_get_field_data('Website', $user_id);
         }
         
-        // Estadísticas
+        // Statistics
         if (function_exists('friends_get_total_friend_count')) {
             $profile['friends_count'] = friends_get_total_friend_count($user_id);
         }

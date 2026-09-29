@@ -21,6 +21,7 @@ This document provides a complete reference of all available endpoints in the Co
 | POST | `/jwt-auth/v1/token/refresh` | Refresh JWT token |
 | POST | `/coral-auth/v1/login` | Login users |
 | POST | `/coral-auth/v1/token/refresh` | Refresh token |
+| POST | `/coral/v1/auth/lost-password` | Request a password reset email (public, rate limited 5 / 15 min per IP) |
 
 **Example - Get JWT Token:**
 ```bash

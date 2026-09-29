@@ -21,16 +21,22 @@ export const TAB_SCREENS: ReadonlyArray<TabNavItem> = [
     iconOutline: 'home-outline',
   },
   {
-    name: 'resources',
-    title: 'Resources',
+    name: 'networking',
+    title: 'Network',
     icon: 'people',
     iconOutline: 'people-outline',
   },
   {
-    name: 'networking',
-    title: 'Networking',
-    icon: 'book',
-    iconOutline: 'book-outline',
+    name: 'messages',
+    title: 'Messages',
+    icon: 'chatbubble-ellipses',
+    iconOutline: 'chatbubble-ellipses-outline',
+  },
+  {
+    name: 'resources',
+    title: 'Resources',
+    icon: 'library',
+    iconOutline: 'library-outline',
   },
   {
     name: 'profile',
@@ -51,6 +57,9 @@ export const DEFAULT_HEADER_OPTIONS = {
   headerTitleAlign: 'center' as const,
   headerShadowVisible: false,
   headerBackVisible: false,
+  headerTitleStyle: {
+    fontWeight: 'bold' as const,
+  },
 };
 
 /**
@@ -82,34 +91,39 @@ export const PROFILE_MENU_ITEMS: ReadonlyArray<ProfileMenuItem> = [
     icon: 'person-circle-outline',
   },
   {
-    label: 'Activity',
+    label: 'My Activity',
     href: '/profile/activity',
     icon: 'time-outline',
   },
   {
-    label: 'Messages',
-    href: '/profile/messages',
+    label: 'My Messages',
+    href: '/messages',
     icon: 'chatbubble-ellipses-outline',
   },
   {
-    label: 'Groups',
+    label: 'My Groups',
     href: '/profile/groups',
     icon: 'people-outline',
   },
   {
-    label: 'Connections',
+    label: 'My Connections',
     href: '/profile/connections',
     icon: 'link-outline',
   },
   {
-    label: 'Account Settings',
-    href: '/profile/account-settings',
-    icon: 'settings-outline',
+    label: 'Contact Us',
+    href: '/profile/contact',
+    icon: 'mail-outline',
   },
   {
-    label: 'Account',
-    href: '/profile/account',
-    icon: 'card-outline',
+    label: 'Terms and Conditions',
+    href: '/profile/terms',
+    icon: 'document-text-outline',
+  },
+  {
+    label: 'Credits',
+    href: '/profile/credits',
+    icon: 'ribbon-outline',
   },
 ] as const;
 
@@ -124,26 +138,40 @@ export const ROUTES = {
   // Root level
   WELCOME: '/',
   SIGN_IN: '/sign-in',
+  FORGOT_PASSWORD: '/forgot-password',
   NOTIFICATIONS: '/notification',
   
   // Auth
   MEMBERSHIP_LEVELS: '/(auth)/membership-levels',
-  
+
+  // In-app resource viewer (WebView)
+  RESOURCE_VIEWER: '/resource-viewer',
+
+  // Groups
+  CREATE_GROUP: '/create-group',
+
   // Tabs
   TABS: '/(tabs)',
   COMMUNITY: '/(tabs)/index',
   RESOURCES: '/(tabs)/resources',
   NETWORKING: '/(tabs)/networking',
+  MESSAGES: '/(tabs)/messages',
   PROFILE: '/(tabs)/profile',
   
   // Profile subroutes
   PROFILE_SETTINGS: '/profile/settings',
   PROFILE_ACTIVITY: '/profile/activity',
-  PROFILE_MESSAGES: '/profile/messages',
+  PROFILE_MESSAGES: '/messages',
   PROFILE_GROUPS: '/profile/groups',
   PROFILE_CONNECTIONS: '/profile/connections',
   PROFILE_ACCOUNT_SETTINGS: '/profile/account-settings',
   PROFILE_ACCOUNT: '/profile/account',
+  PROFILE_CONTACT: '/profile/contact',
+  PROFILE_TERMS: '/profile/terms',
+  PROFILE_CREDITS: '/profile/credits',
+
+  // Member public profile (Networking)
+  MEMBER_PROFILE: '/member/[id]',
 } as const;
 
 // ============================================
@@ -156,11 +184,12 @@ export const ROUTES = {
 export const SCREEN_TITLES = {
   WELCOME: 'Welcome',
   SIGN_IN: '',
+  FORGOT_PASSWORD: 'Reset Password',
   NOTIFICATIONS: 'Notifications',
   MEMBERSHIP_LEVELS: 'Choose a Plan',
   COMMUNITY: 'Community',
   RESOURCES: 'Resources',
-  NETWORKING: 'Networking',
+  NETWORKING: 'Network',
   PROFILE: 'Profile',
 } as const;
 

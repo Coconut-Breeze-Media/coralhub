@@ -8,13 +8,72 @@ import { Tabs, Redirect, router } from 'expo-router';
 import { Pressable, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../lib/auth';
+import BackButton from '../../components/BackButton';
+import { brandHeaderTitle } from '../../components/AppHeader';
+import { useMe, usePendingFriendRequests, useFriendsList } from '../../hooks/useQueries';
+import { useConversations } from '../../hooks/useMessages';
+import { useMyGroups } from '../../hooks/useGroups';
+import {
+  useBuddyPressNotifications,
+  useGroupInvites,
+  useManagedGroupMembershipRequests,
+} from '../../hooks/useNotifications';
 import { TAB_SCREENS, DEFAULT_HEADER_OPTIONS, ROUTES } from '../../constants/navigation';
+import { getUnreadMessageNotifications } from '../../lib/messageNotifications';
+import {
+  isMessageNotification,
+  getMirroredNotificationKind,
+} from '../../lib/notificationPresentation';
 import type { TabScreen } from '../../types';
 
 /**
  * Notification bell header button component
  */
 function NotificationButton() {
+  const { token, userId: authUserId } = useAuth();
+  const { data: currentUser } = useMe();
+  const userId = currentUser?.id ?? authUserId ?? undefined;
+  const { data: pendingRequests } = usePendingFriendRequests(userId);
+  const { data: friendsData } = useFriendsList(userId, 1, 1000);
+  const { data: conversationsData } = useConversations(token);
+  const { data: nativeNotifications } = useBuddyPressNotifications(token, userId);
+  const { data: groupInvites } = useGroupInvites(token, userId);
+  const { data: myGroups } = useMyGroups(token);
+  const { data: membershipRequests } = useManagedGroupMembershipRequests(
+    token,
+    userId,
+    myGroups,
+    nativeNotifications
+  );
+
+  const currentUserId = Number(userId);
+  const friendIds = new Set((friendsData?.friends || []).map((friend) => Number(friend.id)));
+  const hasPendingFriendRequests = Boolean(
+    userId &&
+      (pendingRequests || []).some((request) => {
+        const requestFriendId = Number(request.friend_id);
+        const requestInitiatorId = Number(request.initiator_id);
+        const isConfirmed = request.is_confirmed === true || Number(request.is_confirmed) === 1;
+        if (isConfirmed) return false;
+        return requestFriendId === currentUserId && !friendIds.has(requestInitiatorId);
+      })
+  );
+  const hasUnreadMessages = getUnreadMessageNotifications(conversationsData, userId).length > 0;
+  const hasUnreadActivity = (nativeNotifications || []).some((notification) => {
+    if (isMessageNotification(notification)) return false;
+    const mirroredKind = getMirroredNotificationKind(notification);
+    if (mirroredKind === 'friend_request') return !hasPendingFriendRequests;
+    if (mirroredKind === 'group_invite') return (groupInvites?.length || 0) === 0;
+    if (mirroredKind === 'group_request') return (membershipRequests?.length || 0) === 0;
+    return true;
+  });
+  const hasPendingNotifications =
+    hasPendingFriendRequests ||
+    hasUnreadMessages ||
+    hasUnreadActivity ||
+    (groupInvites?.length || 0) > 0 ||
+    (membershipRequests?.length || 0) > 0;
+
   return (
     <Pressable
       onPress={() => router.push(ROUTES.NOTIFICATIONS)}
@@ -24,18 +83,19 @@ function NotificationButton() {
     >
       <View>
         <Ionicons name="notifications-outline" size={24} color="#1f2937" />
-        {/* Notification badge indicator */}
-        <View
-          style={{
-            position: 'absolute',
-            top: -2,
-            right: -2,
-            width: 8,
-            height: 8,
-            borderRadius: 4,
-            backgroundColor: '#ef4444',
-          }}
-        />
+        {hasPendingNotifications && (
+          <View
+            style={{
+              position: 'absolute',
+              top: -2,
+              right: -2,
+              width: 8,
+              height: 8,
+              borderRadius: 4,
+              backgroundColor: '#ef4444',
+            }}
+          />
+        )}
       </View>
     </Pressable>
   );
@@ -65,6 +125,7 @@ export default function TabsLayout() {
           name={tab.name}
           options={{
             title: tab.title,
+            headerTitle: brandHeaderTitle(tab.title),
             tabBarIcon: ({ color, size, focused }) => (
               <Ionicons 
                 name={focused ? tab.icon as any : tab.iconOutline as any} 
@@ -75,6 +136,154 @@ export default function TabsLayout() {
           }}
         />
       ))}
+      <Tabs.Screen
+      name="messages/[threadId]"
+      options={{
+        href: null,
+        title: 'Conversation',
+        headerTitle: brandHeaderTitle('Conversation'),
+        headerLeft: () => (
+          <BackButton fallbackRoute={ROUTES.MESSAGES} useHistory={false} />
+        ),
+      }}
+    />
+      <Tabs.Screen
+      name="messages/new"
+      options={{
+        href: null,
+        title: 'New Message',
+        headerTitle: brandHeaderTitle('New Message'),
+        headerLeft: () => (
+          <BackButton fallbackRoute={ROUTES.MESSAGES} useHistory={false} />
+        ),
+      }}
+    />
+      <Tabs.Screen
+        name="notification"
+        options={{
+          href: null,
+          title: 'Notifications',
+          headerTitle: brandHeaderTitle('Notifications'),
+          headerLeft: () => <BackButton />,
+        }}
+      />
+      <Tabs.Screen
+        name="profile/settings"
+        options={{
+          href: null,
+          title: 'Profile Settings',
+          headerTitle: brandHeaderTitle('Profile Settings'),
+          headerLeft: () => <BackButton fallbackRoute={ROUTES.PROFILE} />,
+        }}
+      />
+      <Tabs.Screen
+        name="profile/activity"
+        options={{
+          href: null,
+          title: 'Activity',
+          headerTitle: brandHeaderTitle('Activity'),
+          headerLeft: () => <BackButton fallbackRoute={ROUTES.PROFILE} />,
+        }}
+      />
+      <Tabs.Screen
+        name="profile/groups"
+        options={{
+          href: null,
+          title: 'Groups',
+          headerTitle: brandHeaderTitle('Groups'),
+          headerLeft: () => <BackButton fallbackRoute={ROUTES.PROFILE} />,
+        }}
+      />
+      <Tabs.Screen
+        name="profile/connections"
+        options={{
+          href: null,
+          title: 'Connections',
+          headerTitle: brandHeaderTitle('Connections'),
+          headerLeft: () => <BackButton fallbackRoute={ROUTES.PROFILE} />,
+        }}
+      />
+      <Tabs.Screen
+        name="profile/credits"
+        options={{
+          href: null,
+          title: 'Credits',
+          headerTitle: brandHeaderTitle('Credits'),
+          headerLeft: () => <BackButton fallbackRoute={ROUTES.PROFILE} />,
+        }}
+      />
+      <Tabs.Screen
+        name="group-detail"
+        options={{
+          href: null,
+          title: 'Group',
+          headerTitle: brandHeaderTitle('Group'),
+          headerLeft: () => <BackButton fallbackRoute={ROUTES.NETWORKING} />,
+        }}
+      />
+      <Tabs.Screen
+        name="explore-groups"
+        options={{
+          href: null,
+          title: 'Explore Groups',
+          headerTitle: brandHeaderTitle('Explore Groups'),
+          headerLeft: () => <BackButton fallbackRoute={ROUTES.NETWORKING} />,
+        }}
+      />
+      <Tabs.Screen
+        name="resource-viewer"
+        options={{
+          href: null,
+          title: 'Resource',
+          headerTitle: brandHeaderTitle('Resource'),
+          headerLeft: () => <BackButton fallbackRoute={ROUTES.RESOURCES} />,
+        }}
+      />
+      <Tabs.Screen
+        name="member/[id]"
+        options={{
+          href: null,
+          title: 'Member',
+          headerTitle: brandHeaderTitle('Member'),
+          headerLeft: () => <BackButton fallbackRoute={ROUTES.NETWORKING} />,
+        }}
+      />
+      <Tabs.Screen
+        name="profile/contact"
+        options={{
+          href: null,
+          title: 'Contact Us',
+          headerTitle: brandHeaderTitle('Contact Us'),
+          headerLeft: () => <BackButton fallbackRoute={ROUTES.PROFILE} />,
+        }}
+      />
+      <Tabs.Screen
+        name="profile/terms"
+        options={{
+          href: null,
+          title: 'Terms & Privacy',
+          headerTitle: brandHeaderTitle('Terms & Privacy'),
+          headerLeft: () => <BackButton fallbackRoute={ROUTES.PROFILE} />,
+        }}
+      />
+      <Tabs.Screen
+        name="post-detail"
+        options={{
+          href: null,
+          title: 'Post',
+          headerTitle: brandHeaderTitle('Post'),
+          headerLeft: () => <BackButton fallbackRoute={ROUTES.COMMUNITY} />,
+        }}
+      />
+      <Tabs.Screen
+        name="create-group"
+        options={{
+          href: null,
+          title: 'Create Group',
+          headerTitle: brandHeaderTitle('Create Group'),
+          headerLeft: () => <BackButton fallbackRoute={ROUTES.NETWORKING} />,
+        }}
+      />
     </Tabs>
   );
 }

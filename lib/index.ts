@@ -7,12 +7,10 @@
 // API functions and utilities
 export * from './api';
 export * from './auth';
+export * from './config';
 
 // Query client and utilities
 export * from './queryClient';
-
-// Notification utilities
-export * from './notifications';
 
 // Image optimization utilities
 export * from './imageHelpers';

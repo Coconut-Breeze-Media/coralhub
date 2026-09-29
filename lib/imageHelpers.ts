@@ -20,7 +20,6 @@ export async function convertToJPEG(
   quality: number = 0.8
 ): Promise<string> {
   try {
-    console.log('🔄 Converting image to JPEG:', imageUri);
     
     const result = await ImageManipulator.manipulateAsync(
       imageUri,
@@ -31,12 +30,8 @@ export async function convertToJPEG(
       }
     );
     
-    console.log('✅ Image converted to JPEG:', result.uri);
-    console.log('📏 Dimensions:', result.width, 'x', result.height);
-    
     return result.uri;
   } catch (error) {
-    console.error('❌ Error converting image to JPEG:', error);
     // If conversion fails, return original URI
     return imageUri;
   }
@@ -57,7 +52,6 @@ export async function optimizeAvatarImage(
   quality: number = 0.8
 ): Promise<string> {
   try {
-    console.log('🎨 Optimizing avatar image:', imageUri);
     
     const result = await ImageManipulator.manipulateAsync(
       imageUri,
@@ -68,48 +62,39 @@ export async function optimizeAvatarImage(
       }
     );
     
-    console.log('✅ Avatar optimized:', result.uri);
-    console.log('📏 Final size:', result.width, 'x', result.height);
-    
     return result.uri;
   } catch (error) {
-    console.error('❌ Error optimizing avatar:', error);
     return imageUri;
   }
 }
 
 /**
  * Resize and convert image for cover upload
- * Optimizes for typical cover dimensions (16:9)
+ * Resizes the selected 27:7 crop for the BuddyPress cover-image minimum.
  * 
  * @param imageUri - Original image URI
- * @param maxWidth - Maximum width, default 1300px
+ * @param targetWidth - Output width, default 1400px
  * @param quality - Compression quality (0-1), default 0.8
  * @returns URI of optimized image
  */
 export async function optimizeCoverImage(
   imageUri: string,
-  maxWidth: number = 1300,
+  targetWidth: number = 1400,
   quality: number = 0.8
 ): Promise<string> {
   try {
-    console.log('🎨 Optimizing cover image:', imageUri);
     
     const result = await ImageManipulator.manipulateAsync(
       imageUri,
-      [{ resize: { width: maxWidth } }], // Height calculated automatically to maintain aspect
+      [{ resize: { width: targetWidth } }], // Height is calculated automatically to maintain aspect.
       { 
         compress: quality, 
         format: ImageManipulator.SaveFormat.JPEG 
       }
     );
     
-    console.log('✅ Cover optimized:', result.uri);
-    console.log('📏 Final size:', result.width, 'x', result.height);
-    
     return result.uri;
   } catch (error) {
-    console.error('❌ Error optimizing cover:', error);
     return imageUri;
   }
 }
@@ -134,7 +119,6 @@ export async function getImageInfo(imageUri: string): Promise<{
       type: blob.type,
     };
   } catch (error) {
-    console.error('Error getting image info:', error);
     return {};
   }
 }

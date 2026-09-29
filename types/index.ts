@@ -12,18 +12,49 @@
  */
 export interface JWTPayload {
   token: string;
+  refresh_token?: string;
   user_email: string;
   user_nicename: string;
   user_display_name: string;
 }
 
+export interface TokenRefreshPayload {
+  token: string;
+  refresh_token?: string;
+}
+
 /**
- * Membership status response from WordPress
+ * Membership tier (mirrors coral_get_user_tier on the WordPress side).
+ * Hierarchy: none < monthly < annual < institutional.
+ */
+export type MembershipTier = 'none' | 'monthly' | 'annual' | 'institutional';
+
+/**
+ * Membership status response from WordPress (/coral/v1/membership)
  */
 export interface MembershipResponse {
   is_member: boolean;
   user_id?: number;
+  tier: MembershipTier;
+  level_id?: number | null;
+  level_name?: string | null;
+  /** Resource keys this user may access (server-computed). */
+  allowed_resources: string[];
+  subscription_status?: string | null;
+  expires_at?: string | null;
   roles?: string[];
+}
+
+/**
+ * A premium resource entry from /coral/v1/premium-resources
+ */
+export interface PremiumResource {
+  key: string;
+  title: string;
+  required_tiers: MembershipTier[];
+  unlocked: boolean;
+  /** Website URL to open when unlocked; empty string when locked. */
+  url: string;
 }
 
 /**
@@ -198,9 +229,233 @@ export interface BPActivity {
   component: string;
   type: string;
   title: string;
-  content: string;
+  content: string | { rendered: string; raw?: string };
   date: string;
   date_gmt: string;
+  user_avatar?: string | { full: string; thumb: string };
+  user_name?: string;
+  favorited?: boolean;
+  favorite_count?: number;
+  comment_count?: number;
+}
+
+/**
+ * BuddyPress message text payload
+ */
+export interface BPMessageText {
+  rendered?: string;
+  raw?: string;
+}
+
+/**
+ * BuddyPress message participant summary
+ */
+export interface BPMessageParticipant {
+  id?: number | string;
+  user_id?: number | string;
+  name?: string;
+  display_name?: string;
+  sender_name?: string;
+  user_name?: string;
+  username?: string;
+  full_name?: string;
+  sender_only?: number | string | boolean;
+  unread_count?: number | string;
+  user_avatars?: {
+    full?: string;
+    thumb?: string;
+  };
+}
+
+/**
+ * BuddyPress conversation summary item
+ */
+export interface BPConversationSummary {
+  id?: number | string;
+  thread_id?: number | string;
+  message_id?: number | string;
+  last_sender_id?: number | string;
+  date?: string;
+  date_gmt?: string;
+  subject?: string | BPMessageText;
+  excerpt?: string | BPMessageText;
+  message?: string | BPMessageText;
+  last_message_content?: string | BPMessageText;
+  unread_count?: number | string;
+  participants?: BPMessageParticipant[] | Record<string, BPMessageParticipant>;
+  recipients?: BPMessageParticipant[] | Record<string, BPMessageParticipant>;
+  users?: BPMessageParticipant[] | Record<string, BPMessageParticipant>;
+  members?: BPMessageParticipant[] | Record<string, BPMessageParticipant>;
+  participant_names?: string[] | Record<string, string>;
+  recipient_names?: string[] | Record<string, string>;
+  user_names?: string[] | Record<string, string>;
+}
+
+/**
+ * BuddyPress conversation list wrapper
+ */
+export interface BPConversationListResponse {
+  threads?: BPConversationSummary[];
+  messages?: BPConversationSummary[];
+  items?: BPConversationSummary[];
+}
+
+/**
+ * BuddyPress message item
+ */
+export interface BPMessageItem {
+  id?: number | string;
+  message_id?: number | string;
+  sender_id?: number | string;
+  user_id?: number | string;
+  sender?: BPMessageParticipant;
+  user?: BPMessageParticipant;
+  sender_name?: string;
+  display_name?: string;
+  user_name?: string;
+  message?: string | BPMessageText;
+  content?: string | BPMessageText;
+  subject?: string | BPMessageText;
+  date_sent?: string | number;
+  date?: string | number;
+  date_gmt?: string | number;
+  created_at?: string | number;
+}
+
+/**
+ * BuddyPress message thread response
+ */
+export interface BPMessageThreadResponse {
+  id?: number | string;
+  thread_id?: number | string;
+  subject?: string | BPMessageText;
+  messages?: BPMessageItem[] | Record<string, BPMessageItem>;
+  items?: BPMessageItem[] | Record<string, BPMessageItem>;
+  participants?: BPMessageParticipant[] | Record<string, BPMessageParticipant>;
+  recipients?: BPMessageParticipant[] | Record<string, BPMessageParticipant>;
+  users?: BPMessageParticipant[] | Record<string, BPMessageParticipant>;
+  members?: BPMessageParticipant[] | Record<string, BPMessageParticipant>;
+  participant_names?: string[] | Record<string, string>;
+  recipient_names?: string[] | Record<string, string>;
+  user_names?: string[] | Record<string, string>;
+  thread?: {
+    subject?: string | BPMessageText;
+    messages?: BPMessageItem[] | Record<string, BPMessageItem>;
+    items?: BPMessageItem[] | Record<string, BPMessageItem>;
+    participants?: BPMessageParticipant[] | Record<string, BPMessageParticipant>;
+    recipients?: BPMessageParticipant[] | Record<string, BPMessageParticipant>;
+    users?: BPMessageParticipant[] | Record<string, BPMessageParticipant>;
+    members?: BPMessageParticipant[] | Record<string, BPMessageParticipant>;
+    participant_names?: string[] | Record<string, string>;
+    recipient_names?: string[] | Record<string, string>;
+    user_names?: string[] | Record<string, string>;
+  };
+}
+
+export type BPConversationsResponse =
+  | BPConversationSummary[]
+  | BPConversationListResponse;
+
+export type BPMessageThreadResult =
+  | BPMessageThreadResponse
+  | BPMessageThreadResponse[]
+  | BPMessageItem[];
+
+export type BPMessageMutationResponse =
+  | BPMessageThreadResponse[]
+  | BPMessageThreadResponse
+  | BPConversationSummary;
+
+export interface BPMessageDeleteResponse {
+  deleted?: boolean;
+  previous?: BPMessageThreadResponse | BPConversationSummary | null;
+  [key: string]: unknown;
+}
+
+/**
+ * WordPress comment object (from /wp/v2/comments endpoint)
+ */
+export interface WPComment {
+  id: number;
+  post: number;
+  parent: number;
+  author: number;
+  author_name: string;
+  author_avatar_urls?: Record<string, string>;
+  date: string;
+  content: {
+    rendered: string;
+  };
+  status: string;
+}
+
+/**
+ * Create activity post payload
+ */
+export interface CreateActivityPayload {
+  content: string;
+  component?: string;
+  type?: string;
+  primary_item_id?: number;
+}
+
+/**
+ * Activity feed response with pagination
+ */
+export interface ActivityFeedResponse {
+  activities: BPActivity[];
+  total: number;
+  pages: number;
+}
+
+// ============================================
+// BuddyPress Groups Types
+// ============================================
+
+/**
+ * BuddyPress group
+ */
+export interface BPGroup {
+  id: number;
+  creator_id: number;
+  name: string;
+  slug: string;
+  description: {
+    raw: string;
+    rendered: string;
+  };
+  link: string;
+  status: 'public' | 'private' | 'hidden';
+  date_created: string;
+  date_created_gmt: string;
+  created_since?: string;
+  enable_forum?: boolean;
+  parent_id?: number;
+  types?: string[];
+  total_member_count: number;
+  last_activity?: string;
+  last_activity_diff?: string;
+  last_activity_gmt?: string;
+  avatar_urls?: {
+    full: string;
+    thumb: string;
+  };
+  cover_image?: string;
+  admins?: Array<{
+    user_id: number;
+    is_admin: boolean;
+    is_mod: boolean;
+    date_modified: string;
+  }>;
+}
+
+/**
+ * Groups response with pagination
+ */
+export interface GroupsResponse {
+  groups: BPGroup[];
+  total: number;
+  pages: number;
 }
 
 // ============================================
@@ -218,6 +473,38 @@ export interface BPFriendship {
   is_confirmed: boolean;
   date_created: string;
   date_created_gmt?: string;
+}
+
+// ============================================
+// BuddyPress Notifications Types
+// ============================================
+
+export interface BPNotification {
+  id: number;
+  user_id: number;
+  item_id: number;
+  secondary_item_id: number;
+  component: string;
+  action: string;
+  date: string;
+  is_new: number;
+}
+
+export interface BPGroupInvite {
+  id: number;
+  user_id: number;
+  inviter_id: number;
+  group_id: number;
+  invite_sent?: boolean;
+  date_modified: string;
+}
+
+export interface BPGroupMembershipRequest {
+  id: number;
+  user_id: number;
+  group_id: number;
+  status: string;
+  date_modified: string;
 }
 
 /**
@@ -257,8 +544,14 @@ export interface UserProfile {
  */
 export interface AuthContextState {
   token: string | null;
+  userId: number | null;
   profile: UserProfile | null;
+  /** Full membership state from the server (null until checked). */
+  membership: MembershipResponse | null;
+  /** Convenience flag derived from membership.tier !== 'none'. */
   isMember: boolean | null;
+  /** True when the user's tier grants access to the given resource key. */
+  canAccess: (resourceKey: string) => boolean;
   refreshMembership: () => Promise<void>;
   setAuth: (payload: JWTPayload) => Promise<void>;
   clearAuth: () => Promise<void>;
@@ -274,7 +567,7 @@ export interface AuthContextState {
 /**
  * Tab screen identifiers
  */
-export type TabScreen = 'index' | 'resources' | 'networking' | 'profile';
+export type TabScreen = 'index' | 'resources' | 'networking' | 'messages' | 'profile';
 
 /**
  * Root stack screen identifiers
@@ -419,4 +712,20 @@ export type FriendsQueryKey =
   | ['friends', 'relationships', number]
   | ['friends', 'count', number];
 
-export type QueryKey = AuthQueryKey | PostsQueryKey | MembershipQueryKey | ProfileQueryKey | FriendsQueryKey;
+export type ActivityQueryKey =
+  | ['activity', 'feed', string]
+  | ['activity', 'user', number]
+  | ['activity', 'detail', number];
+
+export type QueryKey = AuthQueryKey | PostsQueryKey | MembershipQueryKey | ProfileQueryKey | FriendsQueryKey | ActivityQueryKey;
+
+// ============================================
+// Member public profile (normalized xprofile)
+// ============================================
+
+export interface NormalizedXProfileField {
+  id: number;
+  name: string;
+  value: string;
+  group?: string;
+}

@@ -13,6 +13,10 @@ POST /jwt-auth/v1/token
 
 # Use Token
 Authorization: Bearer {token}
+
+# Forgot password (public; always 200, 429 when rate limited)
+POST /auth/lost-password
+{ "user_login": "email-or-username" }
 ```
 
 ## 📋 Activity Feed

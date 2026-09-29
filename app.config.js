@@ -1,9 +1,9 @@
 // app.config.js
 export default {
     expo: {
-      name: "The Coral Reef Research Hub",
+      name: "CoRR Hub",
       slug: "coralhub",
-      scheme: "coralhub",
+      scheme: "corrhub",
       version: "1.0.0",
       orientation: "portrait",
       icon: "./assets/icon.png",
@@ -16,21 +16,43 @@ export default {
       },
       ios: {
         supportsTablet: true,
-        bundleIdentifier: "com.coralhub.app",
+        bundleIdentifier: "com.corrhub.app",
+        buildNumber: "1",
+        infoPlist: {
+          ITSAppUsesNonExemptEncryption: false,
+          NSPhotoLibraryUsageDescription: "CoRR Hub needs access to your photo library so you can upload images to posts and update your profile photos.",
+        },
       },
       android: {
         adaptiveIcon: {
           foregroundImage: "./assets/adaptive-icon.png",
-          backgroundColor: "#ffffff",
+          backgroundColor: "#002F6C",
         },
         edgeToEdgeEnabled: true,
-        package: "com.coralhub.app",
+        softwareKeyboardLayoutMode: "resize",
+        package: "app.corrhub",
+        versionCode: 1,
+        permissions: [
+          "android.permission.READ_MEDIA_IMAGES"
+        ],
+        blockedPermissions: [
+          "android.permission.RECORD_AUDIO",
+          "android.permission.CAMERA",
+          "android.permission.SYSTEM_ALERT_WINDOW",
+          "android.permission.WRITE_EXTERNAL_STORAGE"
+        ],
       },
       web: {
         favicon: "./assets/favicon.png",
       },
       plugins: [
-        "expo-notifications"
+        "expo-router",
+        [
+          "expo-image-picker",
+          {
+            photosPermission: "CoRR Hub needs access to your photo library so you can upload images to posts and update your profile photos."
+          }
+        ]
       ],
       extra: {
         eas: {

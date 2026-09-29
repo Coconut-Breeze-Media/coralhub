@@ -1,0 +1,129 @@
+import type {
+  BPConversationSummary,
+  BPConversationsResponse,
+  BPMessageParticipant,
+  BPMessageText,
+} from '../types';
+
+export interface UnreadMessageNotification {
+  id: string;
+  threadId: number;
+  senderName: string;
+  avatarUrl?: string;
+  preview: string;
+  createdAt: string;
+  unreadCount: number;
+}
+
+function stripHtml(value: string) {
+  return value.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function getTextValue(value?: string | BPMessageText): string {
+  if (typeof value === 'string') return stripHtml(value);
+  if (!value) return '';
+
+  return stripHtml(value.rendered ?? value.raw ?? '');
+}
+
+function getNumberValue(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
+function getUnreadCount(value: unknown): number {
+  return getNumberValue(value) ?? 0;
+}
+
+function getParticipantName(participant: BPMessageParticipant | undefined): string {
+  return (
+    participant?.name?.trim() ||
+    participant?.display_name?.trim() ||
+    participant?.sender_name?.trim() ||
+    participant?.user_name?.trim() ||
+    participant?.username?.trim() ||
+    participant?.full_name?.trim() ||
+    ''
+  );
+}
+
+function getParticipants(
+  value: BPConversationSummary['recipients']
+): BPMessageParticipant[] {
+  if (Array.isArray(value)) return value;
+  if (value && typeof value === 'object') return Object.values(value);
+
+  return [];
+}
+
+export function getCurrentUserUnreadCount(
+  conversation: BPConversationSummary,
+  currentUserId: number | string | null | undefined
+): number {
+  const userId = getNumberValue(currentUserId);
+  if (!userId) return 0;
+
+  const currentRecipient = getParticipants(conversation.recipients).find(
+    (recipient) => getNumberValue(recipient.user_id ?? recipient.id) === userId
+  );
+
+  return getUnreadCount(currentRecipient?.unread_count);
+}
+
+export function getConversationItems(
+  data: BPConversationsResponse | undefined
+): BPConversationSummary[] {
+  if (Array.isArray(data)) return data;
+  if (!data) return [];
+  if (Array.isArray(data.threads)) return data.threads;
+  if (Array.isArray(data.messages)) return data.messages;
+  if (Array.isArray(data.items)) return data.items;
+  return [];
+}
+
+export function getUnreadMessageNotifications(
+  data: BPConversationsResponse | undefined,
+  currentUserId: number | string | null | undefined
+): UnreadMessageNotification[] {
+  const userId = getNumberValue(currentUserId);
+  if (!userId) return [];
+
+  return getConversationItems(data).flatMap((conversation) => {
+    const unreadCount = getCurrentUserUnreadCount(conversation, userId);
+    const senderId = getNumberValue(conversation.last_sender_id);
+    const threadId = getNumberValue(conversation.id ?? conversation.thread_id);
+    const participants = getParticipants(conversation.recipients);
+
+    if (!threadId || unreadCount <= 0) return [];
+
+    const sender =
+      participants.find((recipient) => getNumberValue(recipient.user_id) === senderId) ??
+      participants.find((recipient) => getNumberValue(recipient.user_id) !== userId);
+
+    const senderName = getParticipantName(sender) || 'Someone';
+    const avatarUrl = sender?.user_avatars?.thumb || sender?.user_avatars?.full;
+    const preview =
+      getTextValue(conversation.excerpt) ||
+      getTextValue(conversation.message) ||
+      getTextValue(conversation.last_message_content) ||
+      'Open the thread to read the latest message.';
+
+    return [
+      {
+        id: `message-${threadId}`,
+        threadId,
+        senderName,
+        avatarUrl,
+        preview,
+        createdAt:
+          String(conversation.date_gmt || conversation.date || new Date().toISOString()),
+        unreadCount,
+      },
+    ];
+  });
+}

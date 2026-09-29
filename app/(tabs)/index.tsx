@@ -1,62 +1,1525 @@
-// // app/tabs/index.tsx
-// import { useState, useEffect } from 'react';
-// import { SafeAreaView, Text, TouchableOpacity, TextInput, FlatList, View } from 'react-native';
-// import { getPosts, type WPPost } from '../../lib/api';
+// app/(tabs)/index.tsx
+import React, { useState, useMemo, useCallback } from 'react';
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  FlatList,
+  RefreshControl,
+  ActivityIndicator,
+  Alert,
+  StyleSheet,
+  Image,
+  ScrollView,
+  Platform,
+  Dimensions,
+  Keyboard,
+  AppState,
+  type AppStateStatus,
+  type NativeSyntheticEvent,
+  type NativeScrollEvent,
+} from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import { Ionicons } from '@expo/vector-icons';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { router, useLocalSearchParams, useFocusEffect } from 'expo-router';
+import { useAuth } from '../../lib/auth';
+import { uploadImage } from '../../lib/api';
+import {
+  createImageAttachment,
+  formatFileSize,
+  type SelectedImageAttachment,
+} from '../../lib/imageAttachment';
+import { normalizeBareUrlsInText, normalizeExternalUrl, postLinkMarkup } from '../../lib/postContent';
+import RequireAuth from '../../components/RequireAuth';
+import MentionInput from '../../components/MentionInput';
+import PostCard from '../../components/PostCard';
+import PostActionModals from '../../components/PostActionModals';
+import ScrollToTopButton from '../../components/ScrollToTopButton';
+import FilterDropdown, { type FilterOption } from '../../components/FilterDropdown';
+import {
+  useActivityFeed,
+  useCreatePost,
+  useLikePost,
+  useDeletePost,
+  useUpdatePost
+} from '../../hooks/useActivity';
+import { useQueryClient } from '@tanstack/react-query';
+import { getMemberById } from '../../lib/api';
+import { useMe } from '../../hooks/useQueries';
+import { useMyGroups, useGroupActivity, useAllGroupsActivity } from '../../hooks/useGroups';
+import { useEffect, useRef } from 'react';
+import type { BPActivity } from '../../types';
 
-// export default function TestScreen() {
+type TabType = 'feed' | 'my-posts' | 'groups-feed';
+type FeedFilter = 'all' | 'friends';
 
-//   const [posts, setPosts] = useState<WPPost[]>([]);
-//   const [loading, setLoading] = useState(false);
+const FEED_FILTER_OPTIONS: FilterOption[] = [
+  { key: 'all', label: 'All posts' },
+  { key: 'friends', label: 'Posts by connections' },
+];
 
-//   // fetch some posts (public) once ready
-//   useEffect(() => {
+/** Offset (px) past which the back-to-top button appears. */
+const SCROLL_TOP_THRESHOLD = 600;
 
-//     setLoading(true);
-//     getPosts(1)
-//       .then((list) => {
-//         console.log('[screen] posts len:', list.length);
-//         setPosts(list);
-//       })
-//       .catch((e: unknown) => {
-//         if (e instanceof Error) console.warn('[screen] getPosts failed:', e.message);
-//         else console.warn('[screen] getPosts failed:', e);
-//       })
-//       .finally(() => setLoading(false));
-//   }, []);
+function isNotFound(error: unknown): boolean {
+  return (error as { status?: number } | null)?.status === 404;
+}
+
+const POST_UNAVAILABLE_TITLE = 'Post unavailable';
+const POST_UNAVAILABLE_MESSAGE = 'This post was removed on the website and is no longer available.';
 
 
-//   return (
-//     <SafeAreaView style={{ flex: 1, padding: 16, gap: 12 }}>
-//       <Text style={{ fontSize: 22, fontWeight: '700' }}>Test Screen</Text>
+function CommunityScreen() {
+  const { token, profile } = useAuth();
+  const params = useLocalSearchParams<{ tab?: string }>();
+  const [activeTab, setActiveTab] = useState<TabType>('feed');
+  const [postContent, setPostContent] = useState('');
+  const [feedFilter, setFeedFilter] = useState<FeedFilter>('all');
+  const [selectedGroupId, setSelectedGroupId] = useState<number | undefined>(undefined);
+  const listRef = useRef<FlatList<BPActivity>>(null);
+  const [showScrollTop, setShowScrollTop] = useState(false);
+  const [selectedImages, setSelectedImages] = useState<SelectedImageAttachment[]>([]);
+  const [postLink, setPostLink] = useState('');
+  const [isEditModalVisible, setIsEditModalVisible] = useState(false);
+  const [editingPost, setEditingPost] = useState<BPActivity | null>(null);
+  const [editContent, setEditContent] = useState('');
+  const [isDeleteModalVisible, setIsDeleteModalVisible] = useState(false);
+  const [deletingPost, setDeletingPost] = useState<BPActivity | null>(null);
+  const hasPostDraft = postContent.length > 0 || selectedImages.length > 0 || postLink.length > 0;
+  
+  // Get current user data
+  const { data: currentUser } = useMe();
+  const userId = currentUser?.id;
+  
+  // Fetch user's groups
+  const { data: userGroups, isLoading: isLoadingMyGroups } = useMyGroups(token);
+  const groups = useMemo(() => userGroups || [], [userGroups]);
 
-//       <View style={{ flex: 1, marginTop: 16 }}>
-//         <Text style={{ fontWeight: '600', marginBottom: 8 }}>Latest posts:</Text>
-//         {loading ? (
-//           <Text>Loading posts...</Text>
-//         ) : (
-//           <FlatList
-//             data={posts}
-//             keyExtractor={(p) => String(p.id)}
-//             renderItem={({ item }) => (
-//               <View style={{ paddingVertical: 8, borderBottomWidth: 1, borderColor: '#eee' }}>
-//                 <Text style={{ fontWeight: '700' }}>{item.title.rendered}</Text>
-//               </View>
-//             )}
-//           />
-//         )}
-//       </View>
-//     </SafeAreaView>
-//   );
-// }
+  const groupFilterOptions = useMemo<FilterOption[]>(
+    () => [
+      { key: 'all', label: 'All groups' },
+      ...groups.map((g) => ({
+        key: String(g.id),
+        label: g.name,
+        avatarUrl: g.avatar_urls?.thumb || undefined,
+        initial: g.name?.charAt(0) || undefined,
+      })),
+    ],
+    [groups]
+  );
 
+  // Hide the back-to-top button whenever the list content changes tab
+  useEffect(() => {
+    setShowScrollTop(false);
+  }, [activeTab]);
+  
+  useEffect(() => {
+    if (params.tab === 'groups') {
+      setActiveTab('groups-feed');
+      return;
+    }
+    if (params.tab === 'myposts') {
+      setActiveTab('my-posts');
+      return;
+    }
+    if (params.tab === 'feed') {
+      setActiveTab('feed');
+    }
+  }, [params.tab]);
 
-// app/tabs/index.tsx
-import { Text, View } from 'react-native';
+  // Fetch group activity if a group is selected
+  const { data: groupActivityData, isLoading: isLoadingGroupActivity, refetch: refetchGroupActivity } = useGroupActivity(
+    token,
+    activeTab === 'groups-feed' && selectedGroupId ? selectedGroupId : undefined
+  );
 
-export default function PlaceholderScreen() {
+  // "All Groups" — combined, paginated feed across every group the user is
+  // in, with infinite scroll (only active while on that view).
+  const isAllGroupsView = activeTab === 'groups-feed' && !selectedGroupId;
+  const groupIds = useMemo(() => groups.map((g) => g.id), [groups]);
+  const {
+    data: allGroupsPages,
+    isLoading: isLoadingAllGroups,
+    isFetching: isFetchingAllGroups,
+    fetchNextPage: fetchNextAllGroupsPage,
+    hasNextPage: hasNextAllGroupsPage,
+    isFetchingNextPage: isFetchingNextAllGroupsPage,
+    refetch: refetchAllGroups,
+  } = useAllGroupsActivity(isAllGroupsView ? token : null, isAllGroupsView ? groupIds : []);
+  const allGroupsActivities = allGroupsPages?.pages?.flatMap((page) => page.activities) || [];
+
+  // Fetch feed based on active tab with infinite scroll
+  // 'friends' scope is resolved server-side by BuddyPress, so no client friends list is needed.
+  const scope: 'friends' | 'groups' | undefined =
+    activeTab === 'groups-feed'
+      ? 'groups'
+      : activeTab === 'feed' && feedFilter === 'friends'
+      ? 'friends'
+      : undefined;
+  const filterUserId = activeTab === 'my-posts' ? userId : undefined;
+  const { 
+    data: feedData, 
+    isLoading, 
+    refetch, 
+    isRefetching,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage
+  } = useActivityFeed(token, scope, filterUserId, activeTab !== 'groups-feed');
+  
+  // Flatten all activities from all pages
+  let allActivities = feedData?.pages?.flatMap(page => page.activities) || [];
+  
+  // For the groups tab, use posts from all groups if 'All Groups' is selected
+  if (activeTab === 'groups-feed') {
+    if (selectedGroupId && groupActivityData) {
+      allActivities = groupActivityData.activities || [];
+    } else if (!selectedGroupId && groups.length > 0) {
+      allActivities = allGroupsActivities;
+    }
+  }
+
+  // Filter out unwanted activity types
+  allActivities = allActivities.filter(activity => {
+    const unwantedTypes = ['joined_group', 'created_group', 'new_member', 'friendship_created', 'new_cover'];
+    return !unwantedTypes.includes(activity.type);
+  });
+
+  // Pre-populate individual member cache keys so PostItems render without loading state
+  const queryClient = useQueryClient();
+  const [membersReady, setMembersReady] = useState(false);
+  const prefetchKeyRef = useRef('');
+
+  useEffect(() => {
+    if (isLoading) {
+      setMembersReady(false);
+      return;
+    }
+    if (allActivities.length === 0) {
+      setMembersReady(true);
+      return;
+    }
+    const uniqueIds = Array.from(new Set(allActivities.map(a => a.user_id).filter(Boolean))) as number[];
+    const key = uniqueIds.slice().sort().join(',');
+    if (key === prefetchKeyRef.current) {
+      setMembersReady(true);
+      return;
+    }
+    // Prefetch new members in background — never block the list after initial load
+    prefetchKeyRef.current = key;
+    Promise.all(
+      uniqueIds.map(uid =>
+        queryClient.prefetchQuery({
+          queryKey: ['member', uid],
+          queryFn: () => getMemberById(uid, token!),
+          staleTime: 5 * 60 * 1000,
+        })
+      )
+    ).then(() => setMembersReady(true));
+  }, [isLoading, allActivities.length, token]);
+
+  // Mutations
+  const createPostMutation = useCreatePost(token);
+  const likePostMutation = useLikePost(token);
+  const deletePostMutation = useDeletePost(token);
+  const updatePostMutation = useUpdatePost(token);
+
+  // Keep the feed in sync with the website: refresh whenever this screen gains
+  // focus and whenever the app returns to the foreground.
+  const isGroupFeedSelected = activeTab === 'groups-feed' && !!selectedGroupId;
+  useFocusEffect(
+    useCallback(() => {
+      if (!token) return;
+      if (isGroupFeedSelected) {
+        refetchGroupActivity();
+      } else if (isAllGroupsView) {
+        refetchAllGroups();
+      } else {
+        refetch();
+      }
+    }, [token, isGroupFeedSelected, isAllGroupsView, refetch, refetchGroupActivity, refetchAllGroups])
+  );
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state: AppStateStatus) => {
+      if (state === 'active') {
+        queryClient.invalidateQueries({ queryKey: ['activity'] });
+        queryClient.invalidateQueries({ queryKey: ['groups', 'activity'] });
+      }
+    });
+    return () => subscription.remove();
+  }, [queryClient]);
+
+  const handleScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const y = e.nativeEvent.contentOffset.y;
+    setShowScrollTop((prev) => {
+      const next = y > SCROLL_TOP_THRESHOLD;
+      return next === prev ? prev : next;
+    });
+  }, []);
+
+  const handleScrollToTop = useCallback(() => {
+    listRef.current?.scrollToOffset({ offset: 0, animated: true });
+  }, []);
+  
+  const handleCreatePost = async () => {
+    if (!postContent.trim() && selectedImages.length === 0 && !postLink.trim()) {
+      Alert.alert('Error', 'Please add some content, images, or a link to your post');
+      return;
+    }
+    
+    try {
+      const normalizedLink = postLink.trim() ? normalizeExternalUrl(postLink) : null;
+      if (postLink.trim() && !normalizedLink) {
+        Alert.alert('Invalid link', 'Enter a valid web address, such as www.nature.com or https://www.nature.com.');
+        return;
+      }
+
+      // Store bare www. URLs as HTTPS so WordPress and the app receive the
+      // same valid address and can generate a preview consistently.
+      let fullContent = normalizeBareUrlsInText(postContent.trim());
+      
+      // Add link if provided
+      if (normalizedLink) {
+        fullContent += `\n\n${postLinkMarkup(normalizedLink)}`;
+      }
+      
+      // Upload images to WordPress first and get public URLs
+      if (selectedImages.length > 0) {
+        
+        const uploadedUrls: string[] = [];
+        
+        for (let i = 0; i < selectedImages.length; i++) {
+          const imageUri = selectedImages[i].uri;
+          const fileName = `post-image-${Date.now()}-${i}.jpg`;
+          
+          try {
+            const result = await uploadImage(token!, imageUri, fileName);
+            uploadedUrls.push(result.source_url);
+          } catch (error) {
+            throw new Error(`Failed to upload image ${i + 1}`);
+          }
+        }
+        
+        // Add uploaded images to content as HTML
+        if (uploadedUrls.length > 0) {
+          fullContent += '\n<div class="post-attachments">';
+          uploadedUrls.forEach(url => {
+            fullContent += `\n<img src="${url}" alt="Post image" />`;
+          });
+          fullContent += '\n</div>';
+        }
+      }
+      
+      await createPostMutation.mutateAsync({
+        content: fullContent,
+      });
+      
+      // Reset form
+      setPostContent('');
+      setSelectedImages([]);
+      setPostLink('');
+      Alert.alert('Success', 'Post created successfully!');
+    } catch (error) {
+      Alert.alert('Error', error instanceof Error ? error.message : 'Failed to create post');
+    }
+  };
+  
+  const handlePickImage = async () => {
+    try {
+      // Request permission
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Denied', 'We need camera roll permissions to select images.');
+        return;
+      }
+      
+      // Launch image picker
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsMultipleSelection: true,
+        quality: 0.8,
+        base64: false,
+      });
+      
+      if (!result.canceled && result.assets) {
+        const newImages = await Promise.all(
+          result.assets.map((asset, index) =>
+            createImageAttachment(asset, selectedImages.length + index)
+          )
+        );
+        setSelectedImages((currentImages) => [...currentImages, ...newImages]);
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Failed to select images');
+    }
+  };
+  
+  const handleRemoveImage = (index: number) => {
+    setSelectedImages(selectedImages.filter((_, i) => i !== index));
+  };
+
+  const handleClearPost = () => {
+    setPostContent('');
+    setSelectedImages([]);
+    setPostLink('');
+    Keyboard.dismiss();
+  };
+  
+  const handleAttachFile = () => {
+    handlePickImage();
+  };
+  
+  const handleLikePost = async (activityId: number, isLiked: boolean) => {
+    try {
+      await likePostMutation.mutateAsync({ activityId, isLiked });
+    } catch (error) {
+      if (isNotFound(error)) {
+        Alert.alert(POST_UNAVAILABLE_TITLE, POST_UNAVAILABLE_MESSAGE);
+        return;
+      }
+      Alert.alert('Error', 'Failed to like post');
+    }
+  };
+  
+  const handleDeletePost = (item: BPActivity) => {
+    setDeletingPost(item);
+    setIsDeleteModalVisible(true);
+  };
+
+  const closeDeleteModal = () => {
+    if (deletePostMutation.isPending) return;
+    setIsDeleteModalVisible(false);
+    setDeletingPost(null);
+  };
+
+  const confirmDeletePost = async () => {
+    if (!deletingPost) return;
+
+    try {
+      await deletePostMutation.mutateAsync(deletingPost.id);
+      closeDeleteModal();
+      Alert.alert('Success', 'Post deleted successfully!');
+    } catch (error) {
+      if (isNotFound(error)) {
+        closeDeleteModal();
+        Alert.alert(POST_UNAVAILABLE_TITLE, POST_UNAVAILABLE_MESSAGE);
+        return;
+      }
+      Alert.alert('Error', 'Failed to delete post');
+      closeDeleteModal();
+    }
+  };
+
+  const handleOpenEditPost = (item: BPActivity) => {
+    let content = '';
+    if (typeof item.content === 'string') {
+      content = item.content;
+    } else {
+      content = item.content.raw || item.content.rendered || '';
+    }
+    setEditingPost(item);
+    setEditContent(content.replace(/<[^>]+>/g, '').trim());
+    setIsEditModalVisible(true);
+  };
+
+  const closeEditModal = () => {
+    setIsEditModalVisible(false);
+    setEditingPost(null);
+    setEditContent('');
+  };
+
+  const handleSaveEditPost = async () => {
+    if (!editingPost) return;
+    if (!editContent.trim()) {
+      Alert.alert('Error', 'Post content cannot be empty');
+      return;
+    }
+
+    try {
+      await updatePostMutation.mutateAsync({
+        activityId: editingPost.id,
+        content: normalizeBareUrlsInText(editContent.trim()),
+        component: editingPost.component,
+        primary_item_id: editingPost.primary_item_id,
+      });
+      closeEditModal();
+      Alert.alert('Success', 'Post updated successfully!');
+    } catch (error: any) {
+      if (isNotFound(error)) {
+        closeEditModal();
+        Alert.alert(POST_UNAVAILABLE_TITLE, POST_UNAVAILABLE_MESSAGE);
+        return;
+      }
+      Alert.alert('Error', error?.message || 'Failed to update post');
+    }
+  };
+  
+  const handleLoadMore = () => {
+    if (isAllGroupsView) {
+      if (hasNextAllGroupsPage && !isFetchingNextAllGroupsPage) {
+        fetchNextAllGroupsPage();
+      }
+      return;
+    }
+    if (hasNextPage && !isFetchingNextPage) {
+      fetchNextPage();
+    }
+  };
+  
+  const renderPost = ({ item }: { item: BPActivity }) => {
+    return (
+      <PostCard
+        item={item}
+        token={token}
+        profile={profile}
+        onLike={handleLikePost}
+        onDelete={handleDeletePost}
+        onEdit={handleOpenEditPost}
+        groups={groups}
+      />
+    );
+  };
+  
   return (
-    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-      <Text>News Feed (placeholder)</Text>
-    </View>
+    <SafeAreaView style={styles.container} edges={[]}>
+      {/* Tab Navigation */}
+      <View style={styles.tabContainer}>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'feed' && styles.activeTab]}
+          onPress={() => setActiveTab('feed')}
+        >
+          <Text style={[styles.tabText, activeTab === 'feed' && styles.activeTabText]}>
+            News Feed
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'groups-feed' && styles.activeTab]}
+          onPress={() => setActiveTab('groups-feed')}
+        >
+          <Text style={[styles.tabText, activeTab === 'groups-feed' && styles.activeTabText]}>
+            Groups
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'my-posts' && styles.activeTab]}
+          onPress={() => setActiveTab('my-posts')}
+        >
+          <Text style={[styles.tabText, activeTab === 'my-posts' && styles.activeTabText]}>
+            My Posts
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Show groups where the user is a member before the posts in the Groups tab */}
+      {activeTab === 'groups-feed' && (
+        <View style={{paddingHorizontal: 16, marginBottom: 12}}>
+          <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8}}>
+            <Text style={{fontWeight: 'bold', fontSize: 16}}>Your Groups</Text>
+            <TouchableOpacity
+              onPress={() => router.push('/explore-groups')}
+              style={{flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#eff6ff', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20}}
+            >
+              <Text style={{color: '#2563eb', fontWeight: '600'}}>Explore</Text>
+            </TouchableOpacity>
+          </View>
+          {groups.length === 0 ? (
+            <Text style={{color: '#888'}}>You are not a member of any groups.</Text>
+          ) : (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom: 8}}>
+              {groups.map((group) => (
+                <TouchableOpacity
+                  key={group.id}
+                  style={{alignItems: 'center', marginRight: 16}}
+                  onPress={() => router.push(`/group-detail?id=${group.id}`)}
+                  activeOpacity={0.7}
+                >
+                  {group.avatar_urls?.thumb ? (
+                    <Image source={{ uri: group.avatar_urls.thumb }} style={{width: 48, height: 48, borderRadius: 24, marginBottom: 4}} />
+                  ) : (
+                    <View style={{width: 48, height: 48, borderRadius: 24, backgroundColor: '#eee', alignItems: 'center', justifyContent: 'center', marginBottom: 4}}>
+                      <Text style={{fontSize: 20, color: '#888'}}>{group.name.charAt(0).toUpperCase()}</Text>
+                    </View>
+                  )}
+                  <Text style={{fontSize: 12, textAlign: 'center', maxWidth: 60}} numberOfLines={2}>{group.name}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          )}
+        </View>
+      )}
+
+      {/* Feed Filter Dropdown - Only show in News Feed tab */}
+      {activeTab === 'feed' && (
+        <FilterDropdown
+          testID="feed-filter"
+          options={FEED_FILTER_OPTIONS}
+          selectedKey={feedFilter}
+          onSelect={(key) => setFeedFilter(key === 'friends' ? 'friends' : 'all')}
+          placeholder="All posts"
+        />
+      )}
+
+      {/* Group Filter Dropdown - Only show in Groups Feed tab */}
+      {activeTab === 'groups-feed' && (
+        <View style={styles.groupsFeedToolbar}>
+          <FilterDropdown
+            testID="group-filter"
+            options={groupFilterOptions}
+            selectedKey={selectedGroupId ? String(selectedGroupId) : 'all'}
+            onSelect={(key) => {
+              const id = Number(key);
+              setSelectedGroupId(key === 'all' || !Number.isFinite(id) ? undefined : id);
+            }}
+            placeholder="All groups"
+          />
+          <TouchableOpacity
+            style={styles.createGroupButton}
+            onPress={() => router.push('/create-group')}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.createGroupButtonIcon}>+</Text>
+            <Text style={styles.createGroupButtonText}>Create Group</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Create Post Form - Only show in My Posts tab */}
+      {activeTab === 'my-posts' && (
+        <View style={styles.createPostContainer}>
+          <View style={styles.createPostHeader}>
+            <View style={styles.createPostAvatar}>
+              <Text style={styles.createPostAvatarText}>
+                {profile?.user_display_name?.charAt(0).toUpperCase() || 'U'}
+              </Text>
+            </View>
+            <View style={styles.createPostInputWrapper}>
+              <MentionInput
+                value={postContent}
+                onChangeText={setPostContent}
+                token={token}
+                placeholder="What's on your mind?"
+                placeholderTextColor="#999"
+                multiline
+                maxLength={500}
+                maxHeight={120}
+                style={styles.createPostInput}
+                suggestionPosition="below"
+              />
+            </View>
+          </View>
+          
+          {/* Selected Images Preview */}
+          {selectedImages.length > 0 && (
+            <View style={styles.selectedImagesContainer}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                {selectedImages.map((image, index) => (
+                  <View key={`${image.uri}-${index}`} style={styles.selectedImageWrapper}>
+                    <Image
+                      source={{ uri: image.uri }}
+                      style={styles.selectedImagePreview}
+                    />
+                    <TouchableOpacity
+                      style={styles.removeImageButton}
+                      onPress={() => handleRemoveImage(index)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Remove ${image.fileName}`}
+                      hitSlop={8}
+                    >
+                      <Ionicons name="close" size={16} color="#fff" />
+                    </TouchableOpacity>
+                    <Text style={styles.selectedImageName} numberOfLines={1}>
+                      {image.fileName}
+                    </Text>
+                    <Text style={styles.selectedImageSize}>
+                      {formatFileSize(image.fileSize)}
+                    </Text>
+                  </View>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+          
+          {/* Link Input */}
+          <View style={styles.linkInputContainer}>
+            <Text style={styles.linkInputIcon}>🔗</Text>
+            <TextInput
+              style={styles.linkInput}
+              placeholder="Add a link (optional)"
+              placeholderTextColor="#999"
+              value={postLink}
+              onChangeText={setPostLink}
+              autoCapitalize="none"
+              keyboardType="url"
+            />
+            {postLink.length > 0 && (
+              <TouchableOpacity onPress={() => setPostLink('')}>
+                <Text style={styles.clearLinkButton}>✕</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          
+          {/* Action Buttons */}
+          <View style={styles.createPostActions}>
+            <View style={styles.createPostToolbar}>
+              <TouchableOpacity
+                style={styles.toolbarButton}
+                onPress={handleAttachFile}
+              >
+                <Text style={styles.toolbarIcon}>📎</Text>
+                <Text style={styles.toolbarLabel}>Attach</Text>
+              </TouchableOpacity>
+            </View>
+            
+            <View style={styles.createPostSubmitActions}>
+              {hasPostDraft && (
+                <TouchableOpacity
+                  style={styles.clearPostButton}
+                  onPress={handleClearPost}
+                  disabled={createPostMutation.isPending}
+                  accessibilityRole="button"
+                  accessibilityLabel="Clear post draft"
+                >
+                  <Text style={styles.clearPostButtonText}>Clear</Text>
+                </TouchableOpacity>
+              )}
+
+              <TouchableOpacity
+                style={[
+                  styles.publishButton,
+                  (!postContent.trim() && selectedImages.length === 0 && !postLink.trim()) || createPostMutation.isPending ? styles.publishButtonDisabled : {},
+                ]}
+                onPress={handleCreatePost}
+                disabled={(!postContent.trim() && selectedImages.length === 0 && !postLink.trim()) || createPostMutation.isPending}
+              >
+                {createPostMutation.isPending ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Text style={styles.publishButtonText}>Post</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+          
+          {postContent.length > 0 && (
+            <Text style={styles.characterCount}>
+              {postContent.length}/500
+            </Text>
+          )}
+        </View>
+      )}
+      
+      {/* Posts Feed */}
+      {(isLoading || !membersReady
+        || (activeTab === 'groups-feed' && selectedGroupId && isLoadingGroupActivity)
+        || (isAllGroupsView && (isLoadingMyGroups || isLoadingAllGroups || (groups.length > 0 && isFetchingAllGroups && allGroupsActivities.length === 0)))
+      ) ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#0066cc" />
+          <Text style={styles.loadingText}>Loading posts...</Text>
+        </View>
+      ) : (
+        <>
+          <View style={styles.feedWrapper}>
+          <FlatList
+            ref={listRef}
+            data={allActivities}
+            keyExtractor={(item) => String(item.id)}
+            renderItem={renderPost}
+            contentContainerStyle={styles.feedContainer}
+            refreshControl={
+              <RefreshControl 
+                refreshing={isRefetching || (activeTab === 'groups-feed' && selectedGroupId ? false : false)} 
+                onRefresh={() => {
+                  if (activeTab === 'groups-feed' && selectedGroupId) {
+                    refetchGroupActivity();
+                  } else if (isAllGroupsView) {
+                    refetchAllGroups();
+                  } else {
+                    refetch();
+                  }
+                }}
+                colors={['#0066cc']} 
+              />
+            }
+            onScroll={handleScroll}
+            scrollEventThrottle={16}
+            onEndReached={handleLoadMore}
+            onEndReachedThreshold={0.5}
+            ListFooterComponent={
+              (isAllGroupsView ? isFetchingNextAllGroupsPage : isFetchingNextPage) ? (
+                <View style={styles.loadMoreContainer}>
+                  <ActivityIndicator size="small" color="#0066cc" />
+                  <Text style={styles.loadMoreText}>Loading more...</Text>
+                </View>
+              ) : null
+            }
+            ListEmptyComponent={
+              <View style={styles.emptyContainer}>
+                <Text style={styles.emptyText}>
+                  {activeTab === 'my-posts'
+                    ? 'No posts yet.\nStart sharing your thoughts with the community!'
+                    : activeTab === 'groups-feed'
+                    ? selectedGroupId 
+                      ? 'No posts in this group yet.'
+                      : 'No posts from your groups.\nJoin groups to see their posts!'
+                    : feedFilter === 'friends'
+                    ? 'No posts from your connections yet.\nConnect with members to see their posts here!'
+                    : 'No posts to show.\nCheck back later for updates!'}
+                </Text>
+              </View>
+            }
+          />
+          <ScrollToTopButton visible={showScrollTop} onPress={handleScrollToTop} />
+          </View>
+
+          <PostActionModals
+            isEditVisible={isEditModalVisible}
+            editContent={editContent}
+            onChangeEditContent={setEditContent}
+            onCloseEdit={closeEditModal}
+            onSaveEdit={handleSaveEditPost}
+            isSaving={updatePostMutation.isPending}
+            isDeleteVisible={isDeleteModalVisible}
+            onCloseDelete={closeDeleteModal}
+            onConfirmDelete={confirmDeletePost}
+            isDeleting={deletePostMutation.isPending}
+          />
+        </>
+      )}
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#fafafa',
+  },
+  tabContainer: {
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#dbdbdb',
+    marginBottom: 16,
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 14,
+    alignItems: 'center',
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+  },
+  activeTab: {
+    borderBottomColor: '#0095f6',
+  },
+  tabText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#8e8e8e',
+  },
+  activeTabText: {
+    color: '#262626',
+  },
+  
+  feedWrapper: {
+    flex: 1,
+    position: 'relative',
+  },
+
+  // Groups Feed toolbar (group filter dropdown + Create Group button)
+  groupsFeedToolbar: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+  },
+  createGroupButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#2563eb',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginRight: 12,
+    marginBottom: 12,
+  },
+  createGroupButtonIcon: { color: '#fff', fontSize: 16, fontWeight: '700', lineHeight: 16 },
+  createGroupButtonText: { color: '#fff', fontSize: 13, fontWeight: '700' },
+
+  // Create Post Styles (Instagram-like)
+  createPostContainer: {
+    backgroundColor: '#fff',
+    padding: 16,
+    marginHorizontal: 12,
+    marginBottom: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#dbdbdb',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.1,
+        shadowRadius: 3,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
+  },
+  createPostHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  createPostAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#0095f6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  createPostAvatarText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  createPostInputWrapper: {
+    flex: 1,
+  },
+  createPostInput: {
+    fontSize: 15,
+    color: '#262626',
+    minHeight: 40,
+    maxHeight: 120,
+    padding: 0,
+    lineHeight: 20,
+  },
+  createPostActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    columnGap: 12,
+    rowGap: 8,
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#efefef',
+  },
+  createPostToolbar: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  toolbarButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  toolbarIcon: {
+    fontSize: 20,
+  },
+  toolbarLabel: {
+    fontSize: 13,
+    color: '#737373',
+    fontWeight: '500',
+  },
+  createPostSubmitActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginLeft: 'auto',
+  },
+  clearPostButton: {
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+  },
+  clearPostButtonText: {
+    color: '#737373',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  publishButton: {
+    backgroundColor: '#0095f6',
+    borderRadius: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    minWidth: 80,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  publishButtonDisabled: {
+    backgroundColor: '#b2dffc',
+  },
+  publishButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  characterCount: {
+    fontSize: 12,
+    color: '#8e8e8e',
+    textAlign: 'right',
+    marginTop: 4,
+  },
+  selectedImagesContainer: {
+    marginTop: 12,
+    paddingVertical: 8,
+  },
+  selectedImageWrapper: {
+    position: 'relative',
+    marginRight: 8,
+    width: 112,
+  },
+  selectedImagePreview: {
+    width: 100,
+    height: 100,
+    borderRadius: 8,
+    backgroundColor: '#f0f0f0',
+  },
+  removeImageButton: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    backgroundColor: 'rgba(17, 24, 39, 0.78)',
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.25,
+        shadowRadius: 3,
+      },
+      android: {
+        elevation: 4,
+      },
+    }),
+  },
+  selectedImageName: {
+    color: '#262626',
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 6,
+  },
+  selectedImageSize: {
+    color: '#737373',
+    fontSize: 11,
+    marginTop: 2,
+  },
+  linkInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#efefef',
+    gap: 8,
+  },
+  linkInputIcon: {
+    fontSize: 18,
+  },
+  linkInput: {
+    flex: 1,
+    fontSize: 14,
+    color: '#262626',
+    padding: 0,
+  },
+  clearLinkButton: {
+    fontSize: 16,
+    color: '#8e8e8e',
+    padding: 4,
+  },
+  
+  // Feed List Styles
+  feedContainer: {
+    paddingBottom: 16,
+    paddingHorizontal: 0,
+  },
+  
+  // Post Card Styles (Instagram-like)
+  postCard: {
+    backgroundColor: '#fff',
+    marginBottom: 12,
+    marginHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#dbdbdb',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.1,
+        shadowRadius: 3,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
+  },
+  postHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  postUserInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  avatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#0095f6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#dbdbdb',
+  },
+  avatarImage: {
+    width: 36,
+    height: 36,
+  },
+  avatarText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  userInfoText: {
+    flex: 1,
+  },
+  userName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#262626',
+    marginBottom: 2,
+  },
+  postDate: {
+    fontSize: 12,
+    color: '#8e8e8e',
+  },
+  postOwnerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  iconActionButton: {
+    padding: 6,
+  },
+  iconActionButtonText: {
+    fontSize: 18,
+  },
+  postContent: {
+    fontSize: 14,
+    color: '#262626',
+    lineHeight: 20,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+  },
+  postImages: {
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    gap: 8,
+  },
+  postImage: {
+    width: '100%',
+    minHeight: 200,
+    maxHeight: 400,
+    borderRadius: 8,
+    backgroundColor: '#f0f0f0',
+  },
+  postLinks: {
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    gap: 8,
+  },
+  linkButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f0f8ff',
+    borderRadius: 8,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#0095f6',
+    gap: 8,
+  },
+  linkIcon: {
+    fontSize: 16,
+  },
+  linkText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#0095f6',
+    fontWeight: '500',
+  },
+  sharedPostCard: {
+    marginHorizontal: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#dbdbdb',
+    borderRadius: 8,
+    backgroundColor: '#fafafa',
+    overflow: 'hidden',
+  },
+  sharedPostHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingTop: 12,
+    paddingBottom: 8,
+  },
+  sharedPostAvatar: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#0095f6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 8,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#dbdbdb',
+  },
+  sharedPostAvatarImage: {
+    width: 30,
+    height: 30,
+  },
+  sharedPostAvatarText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  sharedPostUserInfo: {
+    flex: 1,
+  },
+  sharedPostUserName: {
+    fontSize: 13,
+    color: '#262626',
+    fontWeight: '700',
+  },
+  sharedPostDate: {
+    fontSize: 11,
+    color: '#8e8e8e',
+    marginTop: 1,
+  },
+  sharedPostContent: {
+    fontSize: 14,
+    color: '#262626',
+    lineHeight: 20,
+    paddingHorizontal: 12,
+    paddingBottom: 12,
+  },
+  sharedPostImage: {
+    width: '100%',
+    height: 220,
+    backgroundColor: '#f0f0f0',
+  },
+  sharedPostLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    margin: 12,
+    backgroundColor: '#f0f8ff',
+    borderRadius: 8,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#0095f6',
+    gap: 8,
+  },
+  sharedPostLinkText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#0095f6',
+    fontWeight: '500',
+  },
+  sharedPostUnavailableText: {
+    fontSize: 13,
+    color: '#737373',
+    lineHeight: 19,
+    padding: 12,
+  },
+  postStats: {
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+  },
+  statsText: {
+    fontSize: 13,
+    color: '#262626',
+    fontWeight: '600',
+  },
+  postActions: {
+    flexDirection: 'row',
+    borderTopWidth: 1,
+    borderTopColor: '#efefef',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
+  actionButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    gap: 6,
+  },
+  actionIcon: {
+    fontSize: 20,
+  },
+  likedIcon: {
+    transform: [{ scale: 1.1 }],
+  },
+  actionLabel: {
+    fontSize: 13,
+    color: '#737373',
+    fontWeight: '600',
+  },
+  likedText: {
+    color: '#ed4956',
+  },
+  
+  // Loading & Empty States
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 32,
+    backgroundColor: '#fafafa',
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: '#8e8e8e',
+  },
+  loadMoreContainer: {
+    paddingVertical: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadMoreText: {
+    marginTop: 8,
+    fontSize: 13,
+    color: '#8e8e8e',
+  },
+  emptyContainer: {
+    padding: 48,
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    marginTop: 16,
+    marginHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#dbdbdb',
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#8e8e8e',
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  editModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  editModalCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 20,
+    maxHeight: '80%',
+  },
+  editModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  editModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1f2937',
+  },
+  editModalClose: {
+    fontSize: 22,
+    color: '#6b7280',
+  },
+  editInput: {
+    backgroundColor: '#f9fafb',
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 14,
+    color: '#1f2937',
+    minHeight: 120,
+    textAlignVertical: 'top',
+    marginBottom: 16,
+  },
+  editModalActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  editCancelButton: {
+    flex: 1,
+    backgroundColor: '#f3f4f6',
+    borderRadius: 8,
+    padding: 12,
+    alignItems: 'center',
+  },
+  editCancelText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#6b7280',
+  },
+  editSaveButton: {
+    flex: 1,
+    backgroundColor: '#2563eb',
+    borderRadius: 8,
+    padding: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  editSaveButtonDisabled: {
+    backgroundColor: '#d1d5db',
+  },
+  editSaveText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  deleteModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  deleteModalCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 20,
+    width: '100%',
+    maxWidth: 380,
+  },
+  deleteModalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1f2937',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  deleteModalDescription: {
+    fontSize: 14,
+    color: '#6b7280',
+    lineHeight: 20,
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  deleteModalActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  deleteCancelButton: {
+    flex: 1,
+    backgroundColor: '#f3f4f6',
+    borderRadius: 8,
+    padding: 12,
+    alignItems: 'center',
+  },
+  deleteCancelText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#6b7280',
+  },
+  deleteConfirmButton: {
+    flex: 1,
+    backgroundColor: '#dc2626',
+    borderRadius: 8,
+    padding: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deleteConfirmButtonDisabled: {
+    backgroundColor: '#fca5a5',
+  },
+  deleteConfirmText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.95)',
+    justifyContent: 'center',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 15,
+    paddingTop: Platform.OS === 'ios' ? 50 : 15,
+  },
+  modalCounter: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  modalCloseButton: {
+    padding: 8,
+  },
+  modalCloseText: {
+    color: '#fff',
+    fontSize: 28,
+    fontWeight: '300',
+  },
+  modalContent: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalImage: {
+    width: Dimensions.get('window').width,
+    height: Dimensions.get('window').height * 0.7,
+  },
+  modalNavigation: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 20,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 20,
+  },
+  modalNavButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  modalNavButtonDisabled: {
+    opacity: 0.3,
+  },
+  modalNavButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+});
+
+export default function CommunityTab() {
+  return (
+    <RequireAuth>
+      <CommunityScreen />
+    </RequireAuth>
   );
 }

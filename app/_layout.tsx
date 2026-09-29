@@ -9,34 +9,10 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from '../lib/auth';
 import { queryClient } from '../lib/queryClient';
 import BackButton from '../components/BackButton';
+import { brandHeaderTitle } from '../components/AppHeader';
 import { DEFAULT_HEADER_OPTIONS, SCREEN_TITLES } from '../constants/navigation';
-import { useNotifications } from '../hooks/useNotifications';
-import { useEffect } from 'react';
 
 export default function RootLayout() {
-  const { expoPushToken, notification } = useNotifications();
-
-  useEffect(() => {
-    console.log('🔔 RootLayout: Notification hook initialized');
-    console.log('📱 Push Token Status:', expoPushToken ? 'RECEIVED' : 'PENDING');
-  }, []);
-
-  useEffect(() => {
-    if (expoPushToken) {
-      console.log('✅ Expo Push Token:', expoPushToken);
-      // TODO: Send token to your backend server
-    } else {
-      console.log('⏳ Waiting for push token...');
-    }
-  }, [expoPushToken]);
-
-  useEffect(() => {
-    if (notification) {
-      console.log('📬 Notification received:', notification);
-      // TODO: Handle notification
-    }
-  }, [notification]);
-
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
@@ -53,40 +29,26 @@ export default function RootLayout() {
             options={{ headerShown: false }} 
           />
 
-          {/* Sign-in screen with back button */}
+          {/* Sign-in screen */}
           <Stack.Screen
             name="sign-in"
             options={{
-              headerShown: true,
-              headerTitle: SCREEN_TITLES.SIGN_IN,
-              headerLeft: () => <BackButton />,
+              headerShown: false,
             }}
           />
+          {/* Forgot password screen (renders its own back button) */}
+          <Stack.Screen
+            name="forgot-password"
+            options={{ headerShown: false }}
+          />
+
           {/* Membership levels screen with back button */}
           <Stack.Screen
             name="(auth)/membership-levels"
             options={{
               headerShown: true,
-              headerTitle: SCREEN_TITLES.MEMBERSHIP_LEVELS,
+              headerTitle: brandHeaderTitle(SCREEN_TITLES.MEMBERSHIP_LEVELS),
               headerLeft: () => <BackButton />,
-            }}
-          />
-
-          {/* Notifications screen */}
-          <Stack.Screen
-            name="notification"
-            options={{
-              headerShown: true,
-              headerTitle: SCREEN_TITLES.NOTIFICATIONS,
-              headerLeft: () => <BackButton />,
-            }}
-          />
-
-          {/* Profile settings screen */}
-          <Stack.Screen
-            name="profile/settings"
-            options={{
-              headerShown: false,
             }}
           />
         </Stack>

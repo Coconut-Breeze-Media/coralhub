@@ -21,6 +21,7 @@ import {
   getMe,
   getMembershipLevels,
   getMembershipStatus,
+  getPremiumResources,
   wpLogin,
 } from '../lib/api';
 
@@ -56,6 +57,34 @@ export function useMembershipStatus() {
       return getMembershipStatus(token);
     },
     enabled: !!token,
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  });
+}
+
+/**
+ * Hook to fetch the premium-resource catalog with per-user lock state.
+ * Prefers the server endpoint (coral-membership v1.4+); on older servers
+ * (404) it builds the catalog client-side from the user's tier.
+ * Requires authentication token + resolved membership.
+ */
+export function usePremiumResources() {
+  const { token, membership } = useAuth();
+  const tier = membership?.tier ?? 'none';
+
+  return useQuery({
+    queryKey: [...queryKeys.premiumResources.all(), tier] as const,
+    queryFn: async () => {
+      if (!token) throw new Error('No authentication token');
+      try {
+        return await getPremiumResources(token);
+      } catch (e) {
+        // Old plugin on the server — fall back to the local catalog.
+        const { buildPremiumResources } = await import('../constants/premiumResources');
+        return buildPremiumResources(tier);
+      }
+    },
+    enabled: !!token && !!membership,
+    retry: false, // the fallback already handles failure; don't retry the 404
     staleTime: 5 * 60 * 1000, // 5 minutes
   });
 }
@@ -188,7 +217,10 @@ export function useFriendsList(userId?: number, page = 1, perPage = 20) {
       return getFriendsList(userId, token, page, perPage);
     },
     enabled: !!token && !!userId,
-    staleTime: 3 * 60 * 1000, // 3 minutes
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    placeholderData: (previous) => previous,
   });
 }
 
@@ -208,6 +240,8 @@ export function useFriendshipRelationships(userId?: number) {
     },
     enabled: !!token && !!userId,
     staleTime: 5 * 60 * 1000, // 5 minutes
+    gcTime: 10 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -235,6 +269,125 @@ export function useRemoveFriend() {
       // Invalidate all friends queries to refresh the list
       queryClient.invalidateQueries({
         queryKey: ['friends'],
+      });
+    },
+  });
+}
+
+/**
+ * Hook to fetch pending friend requests (received and sent)
+ * @param userId - Current user ID
+ */
+export function usePendingFriendRequests(userId?: number) {
+  const { token } = useAuth();
+  
+  return useQuery({
+    queryKey: ['friends', 'pending', userId || 0] as const,
+    queryFn: async () => {
+      if (!token || !userId) throw new Error('No authentication token or user ID');
+      const { getPendingFriendRequests } = await import('../lib/api');
+      return getPendingFriendRequests(userId, token);
+    },
+    enabled: !!token && !!userId,
+    staleTime: 60 * 1000,
+    gcTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
+}
+
+/**
+ * Mutation hook to accept a friend request
+ * Invalidates friends list and pending requests on success
+ * Uses optimistic update to remove request from UI immediately
+ */
+export function useAcceptFriendRequest() {
+  const queryClient = useQueryClient();
+  const { token } = useAuth();
+  
+  return useMutation({
+    mutationFn: async ({ otherUserId, userId }: { otherUserId: number; userId: number }) => {
+      if (!token) throw new Error('No authentication token');
+      const { acceptFriendRequest } = await import('../lib/api');
+      return acceptFriendRequest(otherUserId, token);
+    },
+    onMutate: async ({ otherUserId, userId }) => {
+      // Cancel any outgoing refetches so they don't overwrite our optimistic update
+      await queryClient.cancelQueries({ queryKey: ['friends', 'pending', userId] });
+      
+      // Snapshot the previous value
+      const previousRequests = queryClient.getQueryData(['friends', 'pending', userId]);
+      
+      // Optimistically remove the accepted request from the list
+      queryClient.setQueryData(['friends', 'pending', userId], (old: any) => {
+        if (!Array.isArray(old)) return old;
+        const filtered = old.filter((req: any) => {
+          // Remove the request where the other user is involved
+          const requestOtherUserId = req.initiator_id === userId ? req.friend_id : req.initiator_id;
+          const shouldKeep = requestOtherUserId !== otherUserId;
+          if (!shouldKeep) {
+          }
+          return shouldKeep;
+        });
+        return filtered;
+      });
+      
+      return { previousRequests, userId };
+    },
+    onError: (err, variables, context) => {
+      // Rollback to previous state on error
+      if (context?.previousRequests && context?.userId) {
+        queryClient.setQueryData(['friends', 'pending', context.userId], context.previousRequests);
+      }
+    },
+    onSettled: (data, error, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['friends', 'pending', variables.userId] });
+      queryClient.invalidateQueries({ queryKey: ['friends'] });
+    },
+  });
+}
+
+/**
+ * Mutation hook to reject or cancel a friend request
+ * Invalidates pending requests on success
+ */
+export function useRejectFriendRequest() {
+  const queryClient = useQueryClient();
+  const { token } = useAuth();
+  
+  return useMutation({
+    mutationFn: async (otherUserId: number) => {
+      if (!token) throw new Error('No authentication token');
+      const { rejectFriendRequest } = await import('../lib/api');
+      return rejectFriendRequest(otherUserId, token);
+    },
+    onSuccess: () => {
+      // Invalidate pending requests to refresh the list
+      queryClient.invalidateQueries({
+        queryKey: ['friends', 'pending'],
+      });
+    },
+  });
+}
+
+/**
+ * Mutation hook to send a friend request
+ * Invalidates pending requests on success
+ */
+export function useSendFriendRequest() {
+  const queryClient = useQueryClient();
+  const { token, profile } = useAuth();
+  
+  return useMutation({
+    mutationFn: async (friendId: number) => {
+      if (!token || !profile?.user_id) throw new Error('No authentication token or user ID');
+      const { sendFriendRequest } = await import('../lib/api');
+      return sendFriendRequest(profile.user_id, friendId, token);
+    },
+    onSuccess: () => {
+      // Invalidate pending requests to show the new request
+      queryClient.invalidateQueries({
+        queryKey: ['friends', 'pending'],
+        refetchType: 'inactive',
       });
     },
   });

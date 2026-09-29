@@ -50,7 +50,7 @@ class Coral_Groups_Endpoint {
             ),
         ));
         
-        // Obtener, actualizar y eliminar grupo específico
+        // Get, update, and delete a specific group
         register_rest_route($this->namespace, '/groups/(?P<id>\d+)', array(
             array(
                 'methods'             => WP_REST_Server::READABLE,
@@ -104,7 +104,7 @@ class Coral_Groups_Endpoint {
             ),
         ));
         
-        // Remover miembro específico
+        // Remove a specific member
         register_rest_route($this->namespace, '/groups/(?P<id>\d+)/members/(?P<user_id>\d+)', array(
             'methods'             => WP_REST_Server::DELETABLE,
             'callback'            => array($this, 'remove_group_member'),
