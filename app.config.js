@@ -29,6 +29,7 @@ export default {
           backgroundColor: "#002F6C",
         },
         edgeToEdgeEnabled: true,
+        softwareKeyboardLayoutMode: "resize",
         package: "app.corrhub",
         versionCode: 1,
         permissions: [

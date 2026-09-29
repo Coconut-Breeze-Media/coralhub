@@ -7,7 +7,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Pressable } from 'react-native';
 import { router, type Href } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ROUTES } from '../constants/navigation';
 
 type BackButtonProps = {
@@ -19,8 +18,6 @@ export default function BackButton({
   fallbackRoute = ROUTES.TABS,
   useHistory = true,
 }: BackButtonProps) {
-  const insets = useSafeAreaInsets();
-
   const goBack = () => {
     if (useHistory && router.canGoBack?.()) {
       router.back();
@@ -34,8 +31,10 @@ export default function BackButton({
       onPress={goBack}
       hitSlop={10}
       style={{
-        paddingHorizontal: 1, 
-        paddingTop: insets.top ? insets.top / 4 : 8,
+        width: 40,
+        height: 40,
+        alignItems: 'center',
+        justifyContent: 'center',
       }}
       accessibilityLabel="Go back"
       accessibilityRole="button"

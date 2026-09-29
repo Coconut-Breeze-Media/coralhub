@@ -22,11 +22,14 @@ import {
   useReplyToThread,
 } from '../../../hooks/useMessages';
 import {
+  buildParticipantNameMap,
+  buildSenderNameMapFromMessages,
   extractConversationParticipantNames,
   extractConversationParticipantUserIds,
   extractParticipantNamesFromMessages,
   formatConversationTitle,
   getMessageTextValue,
+  getParticipantDisplayName,
 } from '../../../lib/messagePresentation';
 import { MessageMarkdownText } from '../../../components/MessageMarkdownText';
 import { MessageNotice } from '../../../components/MessageNotice';
@@ -160,13 +163,33 @@ function toNumberOrNull(value: unknown): number | null {
 
 function normalizeMessages(
   items: Record<string, unknown>[],
-  currentUserId: number | null
+  currentUserId: number | null,
+  options: {
+    nameByUserId?: Map<number, string>;
+    currentUserDisplayName?: string | null;
+  } = {}
 ): NormalizedMessage[] {
+  const nameByUserId = options.nameByUserId ?? new Map<number, string>();
+  const currentUserDisplayName = (options.currentUserDisplayName ?? '').trim();
+
   return items.map((item, index) => {
     const senderId =
       toNumberOrNull(item.sender_id) ??
       toNumberOrNull(item.user_id) ??
       toNumberOrNull((item.sender as Record<string, unknown> | undefined)?.id);
+    const isOwn = currentUserId != null && senderId === currentUserId;
+
+    // BuddyPress message items expose only `sender_id`, so the name almost always
+    // has to come from the thread's recipients/participants lookup.
+    const senderName =
+      getParticipantDisplayName(item.sender_name) ||
+      getParticipantDisplayName(item.display_name) ||
+      getParticipantDisplayName(item.user_name) ||
+      getParticipantDisplayName(item.sender) ||
+      getParticipantDisplayName(item.user) ||
+      (senderId != null ? nameByUserId.get(senderId) ?? '' : '') ||
+      (isOwn ? currentUserDisplayName : '') ||
+      'Member';
 
     return {
       id: String(item.id ?? item.message_id ?? item.ID ?? index),
@@ -176,19 +199,14 @@ function normalizeMessages(
         getMessageTextValue(item.excerpt) ||
         getMessageTextValue(item.subject) ||
         'Message unavailable',
-      senderName:
-        getMessageTextValue(item.sender_name) ||
-        getMessageTextValue(item.display_name) ||
-        getMessageTextValue(item.user_name) ||
-        getMessageTextValue((item.sender as Record<string, unknown> | undefined)?.name) ||
-        'Member',
+      senderName,
       sentAt: formatTimestamp(
         item.date_sent ?? item.date ?? item.date_gmt ?? item.created_at
       ),
       sentAtValue: getTimestampValue(
         item.date_sent ?? item.date ?? item.date_gmt ?? item.created_at
       ),
-      isOwn: currentUserId != null && senderId === currentUserId,
+      isOwn,
     };
   });
 }
@@ -239,8 +257,8 @@ export default function ThreadScreen() {
     () => mergeMessagePages(messagePages?.pages ?? []),
     [messagePages?.pages]
   );
-  const threadItems = getThreadItems(data);
-  const threadRecord = unwrapThreadRecord(data);
+  const threadItems = useMemo(() => getThreadItems(data), [data]);
+  const threadRecord = useMemo(() => unwrapThreadRecord(data), [data]);
   const replyRecipientIds = extractConversationParticipantUserIds(threadRecord, [userId]);
   const participantNames = [
     ...extractConversationParticipantNames(threadRecord, {
@@ -257,9 +275,24 @@ export default function ThreadScreen() {
     getConversationSubject(data),
     'Conversation'
   );
-  const messages = normalizeMessages(threadItems, userId).sort(
-    (first, second) => first.sentAtValue - second.sentAtValue
-  );
+  const senderNameByUserId = useMemo(() => {
+    const merged = buildParticipantNameMap(threadRecord);
+
+    for (const [id, name] of buildSenderNameMapFromMessages(threadItems)) {
+      if (!merged.has(id)) merged.set(id, name);
+    }
+
+    if (userId != null && profile?.user_display_name && !merged.has(userId)) {
+      merged.set(userId, profile.user_display_name);
+    }
+
+    return merged;
+  }, [threadRecord, threadItems, userId, profile?.user_display_name]);
+
+  const messages = normalizeMessages(threadItems, userId, {
+    nameByUserId: senderNameByUserId,
+    currentUserDisplayName: profile?.user_display_name,
+  }).sort((first, second) => first.sentAtValue - second.sentAtValue);
   const hasMessages = messages.length > 0;
   const isRefreshing = isRefetching && !isLoading;
   const canSendReply =

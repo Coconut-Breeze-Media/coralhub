@@ -21,14 +21,8 @@ export const TAB_SCREENS: ReadonlyArray<TabNavItem> = [
     iconOutline: 'home-outline',
   },
   {
-    name: 'resources',
-    title: 'Resources',
-    icon: 'library',
-    iconOutline: 'library-outline',
-  },
-  {
     name: 'networking',
-    title: 'Networking',
+    title: 'Network',
     icon: 'people',
     iconOutline: 'people-outline',
   },
@@ -37,6 +31,12 @@ export const TAB_SCREENS: ReadonlyArray<TabNavItem> = [
     title: 'Messages',
     icon: 'chatbubble-ellipses',
     iconOutline: 'chatbubble-ellipses-outline',
+  },
+  {
+    name: 'resources',
+    title: 'Resources',
+    icon: 'library',
+    iconOutline: 'library-outline',
   },
   {
     name: 'profile',
@@ -91,24 +91,34 @@ export const PROFILE_MENU_ITEMS: ReadonlyArray<ProfileMenuItem> = [
     icon: 'person-circle-outline',
   },
   {
-    label: 'Activity',
+    label: 'My Activity',
     href: '/profile/activity',
     icon: 'time-outline',
   },
   {
-    label: 'Messages',
+    label: 'My Messages',
     href: '/messages',
     icon: 'chatbubble-ellipses-outline',
   },
   {
-    label: 'Groups',
+    label: 'My Groups',
     href: '/profile/groups',
     icon: 'people-outline',
   },
   {
-    label: 'Connections',
+    label: 'My Connections',
     href: '/profile/connections',
     icon: 'link-outline',
+  },
+  {
+    label: 'Contact Us',
+    href: '/profile/contact',
+    icon: 'mail-outline',
+  },
+  {
+    label: 'Terms and Conditions',
+    href: '/profile/terms',
+    icon: 'document-text-outline',
   },
   {
     label: 'Credits',
@@ -137,6 +147,9 @@ export const ROUTES = {
   // In-app resource viewer (WebView)
   RESOURCE_VIEWER: '/resource-viewer',
 
+  // Groups
+  CREATE_GROUP: '/create-group',
+
   // Tabs
   TABS: '/(tabs)',
   COMMUNITY: '/(tabs)/index',
@@ -153,6 +166,8 @@ export const ROUTES = {
   PROFILE_CONNECTIONS: '/profile/connections',
   PROFILE_ACCOUNT_SETTINGS: '/profile/account-settings',
   PROFILE_ACCOUNT: '/profile/account',
+  PROFILE_CONTACT: '/profile/contact',
+  PROFILE_TERMS: '/profile/terms',
   PROFILE_CREDITS: '/profile/credits',
 
   // Member public profile (Networking)
@@ -174,7 +189,7 @@ export const SCREEN_TITLES = {
   MEMBERSHIP_LEVELS: 'Choose a Plan',
   COMMUNITY: 'Community',
   RESOURCES: 'Resources',
-  NETWORKING: 'Networking',
+  NETWORKING: 'Network',
   PROFILE: 'Profile',
 } as const;
 

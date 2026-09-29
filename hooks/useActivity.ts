@@ -24,6 +24,62 @@ import type {
   ActivityFeedResponse,
 } from '../types';
 
+type ActivityInfiniteData = {
+  pages: ActivityFeedResponse[];
+  pageParams: unknown[];
+};
+
+function prependActivityToInfiniteData(
+  previous: ActivityInfiniteData | undefined,
+  activity: BPActivity
+): ActivityInfiniteData | undefined {
+  if (!previous?.pages?.length) return previous;
+
+  return {
+    ...previous,
+    pages: previous.pages.map((page, index) =>
+      index === 0
+        ? {
+            ...page,
+            total: page.total + (page.activities.some((item) => item.id === activity.id) ? 0 : 1),
+            activities: [activity, ...page.activities.filter((item) => item.id !== activity.id)],
+          }
+        : page
+    ),
+  };
+}
+
+function prependActivityToGroupData(previous: any, activity: BPActivity) {
+  if (previous?.pages?.length) {
+    return {
+      ...previous,
+      pages: previous.pages.map((page: ActivityFeedResponse, index: number) =>
+        index === 0
+          ? {
+              ...page,
+              total: typeof page.total === 'number'
+                ? page.total + (page.activities.some((item) => item.id === activity.id) ? 0 : 1)
+                : page.total,
+              activities: [activity, ...page.activities.filter((item) => item.id !== activity.id)],
+            }
+          : page
+      ),
+    };
+  }
+
+  if (previous?.activities) {
+    return {
+      ...previous,
+      total: typeof previous.total === 'number'
+        ? previous.total + (previous.activities.some((item: BPActivity) => item.id === activity.id) ? 0 : 1)
+        : previous.total,
+      activities: [activity, ...previous.activities.filter((item: BPActivity) => item.id !== activity.id)],
+    };
+  }
+
+  return previous;
+}
+
 /**
  * Hook to fetch activity feed with infinite scroll/pagination
  * @param token - JWT authentication token
@@ -49,15 +105,16 @@ export function useActivityFeed(
       });
     },
     enabled: !!token && enabled,
-    // Keep the feed close to the website: short stale window + periodic polling
-    // while the app is foregrounded, plus a refresh whenever the screen mounts.
-    staleTime: 30 * 1000,
+    // Activity changes both in the app and on the website, so never treat a
+    // feed as fresh for minutes. Active screens poll lightly and also refresh
+    // on return to the app, which keeps edits and emoji removals in sync.
+    staleTime: 0,
     gcTime: 10 * 60 * 1000,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
     refetchInterval: 30 * 1000,
     refetchIntervalInBackground: false,
-    refetchOnMount: 'always',
-    refetchOnReconnect: true,
-    refetchOnWindowFocus: false,
     initialPageParam: 1,
     getNextPageParam: (lastPage, allPages) => {
       // Check if there are more pages
@@ -123,8 +180,13 @@ export function useActivityById(token: string | null, activityId: number | null 
       return getActivityById(activityId, token);
     },
     enabled: !!token && !!activityId,
-    staleTime: 5 * 60 * 1000,
+    staleTime: 0,
     gcTime: 10 * 60 * 1000,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    refetchInterval: 30 * 1000,
+    refetchIntervalInBackground: false,
   });
 }
 
@@ -140,9 +202,36 @@ export function useCreatePost(token: string | null) {
       if (!token) throw new Error('No authentication token');
       return createPost(token, payload);
     },
-    onSuccess: () => {
-      // Invalidate all activity queries to refetch the feed
-      queryClient.invalidateQueries({ queryKey: ['activity'] });
+    onSuccess: (activity) => {
+      // The server has accepted the post, so put that returned activity in all
+      // relevant in-memory feeds immediately. This covers "My Posts" even if
+      // that tab is currently inactive, rather than waiting for its cache TTL.
+      const matchingFeedEntries = queryClient.getQueriesData<ActivityInfiniteData>({
+        queryKey: ['activity', 'feed'],
+      });
+      let hasMyPostsCache = false;
+
+      matchingFeedEntries.forEach(([key, previous]) => {
+        const [, , scope, cachedUserId] = key as [string, string, string, string | number];
+        const includesAuthor = cachedUserId === 'all' || Number(cachedUserId) === Number(activity.user_id);
+        if (scope === 'groups' || !includesAuthor) return;
+        if (Number(cachedUserId) === Number(activity.user_id)) hasMyPostsCache = true;
+        queryClient.setQueryData(key, prependActivityToInfiniteData(previous, activity));
+      });
+
+      if (!hasMyPostsCache && activity.user_id) {
+        queryClient.setQueryData<ActivityInfiniteData>(
+          ['activity', 'feed', 'all', activity.user_id],
+          {
+            pages: [{ activities: [activity], total: 1, pages: 1 }],
+            pageParams: [1],
+          }
+        );
+      }
+
+      // Reconcile active views with WordPress right away. The optimistic cache
+      // insert above prevents any visual delay while that request is in flight.
+      queryClient.invalidateQueries({ queryKey: ['activity'], refetchType: 'active' });
     },
   });
 }
@@ -153,26 +242,104 @@ export function useCreatePost(token: string | null) {
  */
 export function useLikePost(token: string | null) {
   const queryClient = useQueryClient();
-  
+
+  const toggleActivity = (activity: BPActivity, activityId: number, nextFavorited: boolean): BPActivity => {
+    if (activity.id !== activityId) return activity;
+    const currentCount = activity.favorite_count || 0;
+    return {
+      ...activity,
+      favorited: nextFavorited,
+      favorite_count: Math.max(0, currentCount + (nextFavorited ? 1 : -1)),
+    };
+  };
+
   return useMutation({
     mutationFn: async ({ activityId, isLiked }: { activityId: number; isLiked: boolean }) => {
       if (!token) throw new Error('No authentication token');
-      
+
       if (isLiked) {
         return unlikePost(activityId, token);
       } else {
         return likePost(activityId, token);
       }
     },
-    onSuccess: () => {
-      // Invalidate activity queries to update the UI
-      queryClient.invalidateQueries({ queryKey: ['activity'] });
+    onMutate: async ({ activityId, isLiked }) => {
+      const nextFavorited = !isLiked;
+      await queryClient.cancelQueries({ queryKey: ['activity'] });
+      await queryClient.cancelQueries({ queryKey: ['groups', 'activity'] });
+
+      const previousQueries = [
+        ...queryClient.getQueriesData<unknown>({ queryKey: ['activity'] }),
+        ...queryClient.getQueriesData<unknown>({ queryKey: ['groups', 'activity'] }),
+      ];
+
+      // Main feed / "My Posts" (infinite query: { pages: [...] })
+      queryClient.setQueriesData<{ pages: ActivityFeedResponse[] } | undefined>(
+        { queryKey: ['activity', 'feed'] },
+        (old) => {
+          if (!old?.pages) return old;
+          return {
+            ...old,
+            pages: old.pages.map((page) => ({
+              ...page,
+              activities: page.activities.map((activity) =>
+                toggleActivity(activity, activityId, nextFavorited)
+              ),
+            })),
+          };
+        }
+      );
+
+      queryClient.setQueriesData<BPActivity | undefined>(
+        { queryKey: ['activity', 'detail', activityId] },
+        (old) => (old ? toggleActivity(old, activityId, nextFavorited) : old)
+      );
+
+      // Groups tab: both the single-page ({ activities: [...] }) and the
+      // infinite-scroll group-detail feed ({ pages: [{ activities: [...] }] })
+      // share the ['groups', 'activity'] key prefix.
+      queryClient.setQueriesData<any>({ queryKey: ['groups', 'activity'] }, (old: any) => {
+        if (old?.pages) {
+          return {
+            ...old,
+            pages: old.pages.map((page: ActivityFeedResponse) => ({
+              ...page,
+              activities: page.activities.map((activity) =>
+                toggleActivity(activity, activityId, nextFavorited)
+              ),
+            })),
+          };
+        }
+        if (old?.activities) {
+          return {
+            ...old,
+            activities: old.activities.map((activity: BPActivity) =>
+              toggleActivity(activity, activityId, nextFavorited)
+            ),
+          };
+        }
+        return old;
+      });
+
+      return { previousQueries };
     },
-    onError: (error, { activityId }) => {
-      if (isNotFoundError(error)) {
+    onError: (err, { activityId }, context) => {
+      if (isNotFoundError(err)) {
+        // Post was removed on the website — drop it locally instead of rolling back.
         removeActivityFromCache(queryClient, activityId);
         queryClient.invalidateQueries({ queryKey: ['activity'] });
+        return;
       }
+      // Roll back the optimistic update if the request failed
+      context?.previousQueries?.forEach(([key, data]) => {
+        queryClient.setQueryData(key, data);
+      });
+    },
+    onSettled: () => {
+      // Mark stale without forcing an immediate refetch of the whole feed;
+      // the optimistic value already reflects the change.
+      queryClient.invalidateQueries({ queryKey: ['activity'], refetchType: 'none' });
+      queryClient.invalidateQueries({ queryKey: ['groups', 'activity'], refetchType: 'none' });
     },
   });
 }
@@ -216,6 +383,9 @@ export function useSharePost(token: string | null) {
 export function useDeletePost(token: string | null) {
   const queryClient = useQueryClient();
 
+  const removeActivity = (list: BPActivity[], activityId: number) =>
+    list.filter((activity) => activity.id !== activityId);
+
   return useMutation({
     mutationFn: async (activityId: number) => {
       if (!token) throw new Error('No authentication token');
@@ -230,17 +400,68 @@ export function useDeletePost(token: string | null) {
       }
       return deletePost(activityId, token);
     },
-    onSuccess: (_data, activityId) => {
-      queryClient.invalidateQueries({ queryKey: ['activity'] });
-      queryClient.removeQueries({ queryKey: ['comments', activityId] });
+    onMutate: async (activityId) => {
+      await queryClient.cancelQueries({ queryKey: ['activity'] });
+      await queryClient.cancelQueries({ queryKey: ['groups', 'activity'] });
+
+      const previousQueries = [
+        ...queryClient.getQueriesData<unknown>({ queryKey: ['activity'] }),
+        ...queryClient.getQueriesData<unknown>({ queryKey: ['groups', 'activity'] }),
+      ];
+
+      // Main feed / "My Posts" (infinite query: { pages: [...] })
+      queryClient.setQueriesData<{ pages: ActivityFeedResponse[] } | undefined>(
+        { queryKey: ['activity', 'feed'] },
+        (old) => {
+          if (!old?.pages) return old;
+          return {
+            ...old,
+            pages: old.pages.map((page) => ({
+              ...page,
+              activities: removeActivity(page.activities, activityId),
+            })),
+          };
+        }
+      );
+
+      // Groups tab: single-page ({ activities: [...] }) and the infinite-scroll
+      // group-detail feed ({ pages: [{ activities: [...] }] }) share this prefix.
+      queryClient.setQueriesData<any>({ queryKey: ['groups', 'activity'] }, (old: any) => {
+        if (old?.pages) {
+          return {
+            ...old,
+            pages: old.pages.map((page: ActivityFeedResponse) => ({
+              ...page,
+              activities: removeActivity(page.activities, activityId),
+            })),
+          };
+        }
+        if (old?.activities) {
+          return { ...old, activities: removeActivity(old.activities, activityId) };
+        }
+        return old;
+      });
+
+      return { previousQueries };
     },
-    onError: (error, activityId) => {
-      if (isNotFoundError(error)) {
-        // Already gone on the server — drop it locally too.
+    onError: (err, activityId, context) => {
+      if (isNotFoundError(err)) {
+        // Already gone on the server — drop it locally too instead of restoring it.
         removeActivityFromCache(queryClient, activityId);
         queryClient.removeQueries({ queryKey: ['comments', activityId] });
         queryClient.invalidateQueries({ queryKey: ['activity'] });
+        return;
       }
+      context?.previousQueries?.forEach(([key, data]) => {
+        queryClient.setQueryData(key, data);
+      });
+    },
+    onSuccess: (_data, activityId) => {
+      queryClient.removeQueries({ queryKey: ['comments', activityId] });
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['activity'], refetchType: 'none' });
+      queryClient.invalidateQueries({ queryKey: ['groups', 'activity'], refetchType: 'none' });
     },
   });
 }
@@ -269,6 +490,11 @@ export function useUpdatePost(token: string | null) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['activity'] });
+      // Group post lists live under a separate query key prefix
+      // (['groups','activity',...]) — invalidate those too so an edit made
+      // from group-detail.tsx or the "All Groups" view is reflected there,
+      // not just in the News Feed.
+      queryClient.invalidateQueries({ queryKey: ['groups', 'activity'] });
     },
     onError: (error, { activityId }) => {
       if (isNotFoundError(error)) {
@@ -388,8 +614,17 @@ export function useCreateGroupPost(token: string | null) {
       if (!token) throw new Error('No authentication token');
       return createGroupPost(groupId, content, token);
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['activity'] });
+    onSuccess: (activity, { groupId }) => {
+      queryClient.getQueriesData<any>({ queryKey: ['groups', 'activity'] }).forEach(([key, previous]) => {
+        const keyParts = key as Array<string | number>;
+        const isSpecificGroup = Number(keyParts[2]) === groupId || Number(keyParts[3]) === groupId;
+        const isAllGroupsFeed = keyParts[2] === 'all' && String(keyParts[3]).split(',').includes(String(groupId));
+        if (isSpecificGroup || isAllGroupsFeed) {
+          queryClient.setQueryData(key, prependActivityToGroupData(previous, activity));
+        }
+      });
+      queryClient.invalidateQueries({ queryKey: ['activity'], refetchType: 'active' });
+      queryClient.invalidateQueries({ queryKey: ['groups', 'activity'], refetchType: 'active' });
       queryClient.invalidateQueries({ queryKey: ['groups'] });
     },
   });

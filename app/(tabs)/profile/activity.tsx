@@ -1,4 +1,4 @@
-// app/profile/activity.tsx
+// app/(tabs)/profile/activity.tsx
 /**
  * Activity Screen
  * Displays all user activities in chronological order (most recent first)

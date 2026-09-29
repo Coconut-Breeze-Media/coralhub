@@ -132,7 +132,7 @@ function ConnectTab() {
       <View style={styles.searchContainer}>
         <TextInput
           style={styles.searchInput}
-          placeholder="Search members..."
+          placeholder="Search member profiles"
           placeholderTextColor="#999"
           value={searchInput}
           onChangeText={setSearchInput}
@@ -442,7 +442,7 @@ export default function NetworkingScreen() {
 
   const handleRejectRequest = async (request: BPFriendship) => {
     if (!userId) { Alert.alert('Error', 'User ID not available'); return; }
-    Alert.alert('Reject Request', 'Are you sure you want to reject this connection request?', [
+    Alert.alert('Reject Connection Request', 'Are you sure you want to reject this connection request?', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Reject',
@@ -525,7 +525,7 @@ export default function NetworkingScreen() {
           )}
           <View style={styles.requestDetails}>
             <Text style={styles.requestName}>{userName}</Text>
-            <Text style={styles.requestType}>{isReceived ? 'Sent you a connection request' : 'Request sent'}</Text>
+            <Text style={styles.requestType}>{isReceived ? 'Sent you a connection request' : 'Connection request sent'}</Text>
             <Text style={styles.requestDate}>
               {new Date(item.date_created).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
             </Text>
@@ -740,6 +740,15 @@ export default function NetworkingScreen() {
             </TouchableOpacity>
           </View>
 
+          <TouchableOpacity
+            style={styles.createGroupButton}
+            onPress={() => router.push('/create-group')}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="add-circle" size={18} color="#fff" />
+            <Text style={styles.createGroupButtonText}>Create Group</Text>
+          </TouchableOpacity>
+
           {activeGroupsTab === 'explore' ? <ExploreGroupsTab /> : <MyGroupsTab />}
         </>
       )}
@@ -889,6 +898,20 @@ const styles = StyleSheet.create({
     backgroundColor: '#ff4444', width: 40, height: 40,
     borderRadius: 20, justifyContent: 'center', alignItems: 'center',
   },
+
+  // ── Create Group button ──
+  createGroupButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#0066cc',
+    marginHorizontal: 12,
+    marginTop: 12,
+    paddingVertical: 12,
+    borderRadius: 10,
+  },
+  createGroupButtonText: { color: '#fff', fontSize: 14, fontWeight: '700' },
 
   // ── Group cards ──
   groupCard: {

@@ -16,36 +16,41 @@ import {
   Linking,
   Modal,
   Dimensions,
+  Keyboard,
   AppState,
   type AppStateStatus,
   type NativeSyntheticEvent,
   type NativeScrollEvent,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { useAuth } from '../../lib/auth';
 import { uploadImage } from '../../lib/api';
+import {
+  createImageAttachment,
+  formatFileSize,
+  type SelectedImageAttachment,
+} from '../../lib/imageAttachment';
+import { normalizeBareUrlsInText, normalizeExternalUrl, postLinkMarkup } from '../../lib/postContent';
 import RequireAuth from '../../components/RequireAuth';
-import CommentsModal from '../../components/CommentsModal';
 import MentionInput from '../../components/MentionInput';
-import ShareButton from '../../components/ShareButton';
-import ExpandableText from '../../components/ExpandableText';
+import PostCard from '../../components/PostCard';
+import PostActionModals from '../../components/PostActionModals';
 import ScrollToTopButton from '../../components/ScrollToTopButton';
 import FilterDropdown, { type FilterOption } from '../../components/FilterDropdown';
-import { 
-  useActivityFeed, 
-  useActivityById,
-  useCreatePost, 
-  useLikePost, 
+import {
+  useActivityFeed,
+  useCreatePost,
+  useLikePost,
   useDeletePost,
-  useUpdatePost 
+  useUpdatePost
 } from '../../hooks/useActivity';
-import { useMember } from '../../hooks/useMembers';
 import { useQueryClient } from '@tanstack/react-query';
 import { getMemberById } from '../../lib/api';
 import { useMe } from '../../hooks/useQueries';
-import { useMyGroups, useGroupActivity } from '../../hooks/useGroups';
+import { useMyGroups, useGroupActivity, useAllGroupsActivity } from '../../hooks/useGroups';
 import { useEffect, useRef } from 'react';
 import type { BPActivity } from '../../types';
 
@@ -67,583 +72,31 @@ function isNotFound(error: unknown): boolean {
 const POST_UNAVAILABLE_TITLE = 'Post unavailable';
 const POST_UNAVAILABLE_MESSAGE = 'This post was removed on the website and is no longer available.';
 
-// Helper function to extract content text from BuddyPress API response
-function decodeHtmlEntities(text: string): string {
-  return text
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#8211;/g, '–')
-    .replace(/&#8212;/g, '—')
-    .replace(/&#8216;/g, '‘')
-    .replace(/&#8217;/g, '’')
-    .replace(/&#8220;/g, '“')
-    .replace(/&#8221;/g, '”')
-    .replace(/&nbsp;/g, ' ');
-}
-
-function getContentText(content: string | { rendered: string; raw?: string }): string {
-  let html = getContentHtml(content);
-
-  // Preserve paragraph/line structure before stripping tags
-  html = html
-    .replace(/<\/p\s*>/gi, '\n\n')
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/li\s*>/gi, '\n')
-    .replace(/<\/h[1-6]\s*>/gi, '\n\n');
-
-  // Strip all HTML tags
-  let text = html.replace(/<[^>]+>/g, '');
-
-  // Decode HTML entities
-  text = decodeHtmlEntities(text);
-
-  // Filter PHP warnings/notices/errors that leak into WordPress content
-  text = text
-    .split('\n')
-    .filter(line => {
-      const t = line.trim();
-      return !(t.match(/^(Warning|Notice|Fatal error|Parse error|Deprecated):/i) && t.includes('.php'));
-    })
-    .join('\n');
-
-  text = stripUnavailableShareFallback(text);
-
-  return text
-    .replace(/[ \t]+/g, ' ')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-}
-
-function getContentHtml(content: string | { rendered: string; raw?: string }): string {
-  if (typeof content === 'string') {
-    return content;
-  }
-
-  return content.rendered || content.raw || '';
-}
-
-function stripUnavailableShareFallback(text: string): string {
-  return text
-    .replace(
-      /This content isn't available right now\s*When this happens, it's usually because the owner only shared it with a small group of people, change who can see it or it's been deleted\./gi,
-      ''
-    )
-    .replace(/This content isn't available right now/gi, '')
-    .replace(/When this happens, it's usually because[^.]+\./gi, '');
-}
-
-function getShareIntroText(content: string | { rendered: string; raw?: string }): string {
-  const html = getContentHtml(content);
-  const activityInnerMatch = html.match(
-    /<div\b[^>]*class=["'][^"']*\bactivity-inner\b[^"']*["'][^>]*>([\s\S]*?)<\/div>/i
-  );
-
-  if (activityInnerMatch?.[1]) {
-    return getContentText(activityInnerMatch[1]);
-  }
-
-  const shareEmbedIndex = html.search(
-    /<div\b[^>]*class=["'][^"']*(activity-share|shared|repost|embed)[^"']*["'][^>]*>/i
-  );
-
-  return getContentText(shareEmbedIndex >= 0 ? html.slice(0, shareEmbedIndex) : html);
-}
-
-function getSharedActivityId(activity: BPActivity): number | null {
-  const sharedActivityId = Number(activity.primary_item_id);
-
-  if (
-    activity.type === 'activity_share' &&
-    Number.isFinite(sharedActivityId) &&
-    sharedActivityId > 0 &&
-    sharedActivityId !== activity.id
-  ) {
-    return sharedActivityId;
-  }
-
-  return null;
-}
-
-// Helper function to extract user name from title HTML
-function getUserNameFromTitle(title: string): string {
-  const match = title.match(/>([^<]+)</);
-  return match ? match[1].trim() : '';
-}
-
-// Helper function to extract image URLs from HTML content
-function extractImageUrls(content: string | { rendered: string; raw?: string }): string[] {
-  let html = '';
-  if (typeof content === 'string') {
-    html = content;
-  } else {
-    html = content.rendered || content.raw || '';
-  }
-
-  const imageUrls: string[] = [];
-  const imageExtensions = /\.(jpg|jpeg|png|gif|webp)(\?[^"']*)?$/i;
-
-  const imgRegex = /<img[^>]+(?:src|data-src)=["']([^"']+)["'][^>]*>/gi;
-  let match;
-  while ((match = imgRegex.exec(html)) !== null) {
-    const url = match[1];
-    if (url && !url.includes('Please-Upload-Avatar-Image')) {
-      imageUrls.push(url);
-    }
-  }
-
-  // Also catch image links from <a> tags
-  const anchorRegex = /<a[^>]+href=["']([^"']+)["'][^>]*>/gi;
-  while ((match = anchorRegex.exec(html)) !== null) {
-    const url = match[1];
-    if (url && imageExtensions.test(url) && !imageUrls.includes(url) && !url.includes('Please-Upload-Avatar-Image')) {
-      imageUrls.push(url);
-    }
-  }
-
-  return imageUrls;
-}
-
-// Extracts all tappable links: from <a href> tags AND plain-text URLs in the content
-function extractAllLinks(content: string | { rendered: string; raw?: string }): Array<{ url: string; text: string }> {
-  let html = '';
-  if (typeof content === 'string') {
-    html = content;
-  } else {
-    html = content.rendered || content.raw || '';
-  }
-
-  const results: Array<{ url: string; text: string }> = [];
-  const seenUrls = new Set<string>();
-  const imageExtensions = /\.(jpg|jpeg|png|gif|webp)(\?[^"']*)?$/i;
-  const skip = (url: string) =>
-    !url.startsWith('http') ||
-    url.includes('Please-Upload-Avatar-Image') ||
-    imageExtensions.test(url.split('?')[0]);
-
-  const domainOf = (url: string) => {
-    try { return new URL(url).hostname; } catch { return url; }
-  };
-
-  // 1. All <a href> links (including complex content like link preview cards)
-  const hrefRegex = /<a[^>]+href=["']([^"']+)["']/gi;
-  let m: RegExpExecArray | null;
-  while ((m = hrefRegex.exec(html)) !== null) {
-    const url = m[1];
-    if (!skip(url) && !seenUrls.has(url)) {
-      seenUrls.add(url);
-      results.push({ url, text: domainOf(url) });
-    }
-  }
-
-  // 2. Plain-text URLs not already captured
-  const plainText = html.replace(/<[^>]+>/g, ' ');
-  const urlRegex = /https?:\/\/[^\s<>"{}|\\^`[\]]+/g;
-  while ((m = urlRegex.exec(plainText)) !== null) {
-    const url = m[0].replace(/[.,;:!?)]+$/, '');
-    if (!skip(url) && !seenUrls.has(url)) {
-      seenUrls.add(url);
-      results.push({ url, text: domainOf(url) });
-    }
-  }
-
-  return results;
-}
-
-// Post Item Component - fetches user data for each post
-function PostItem({ 
-  item, 
-  token, 
-  profile, 
-  onLike, 
-  onDelete,
-  onEdit 
-}: { 
-  item: BPActivity;
-  token: string | null;
-  profile: any;
-  onLike: (activityId: number, isLiked: boolean) => void;
-  onDelete: (item: BPActivity) => void;
-  onEdit: (item: BPActivity) => void;
-}) {
-  // Fetch member data from BuddyPress API
-  const { data: memberData, isLoading: isMemberLoading } = useMember(token, item.user_id);
-  const sharedActivityId = getSharedActivityId(item);
-  const {
-    data: sharedActivity,
-    isLoading: isSharedActivityLoading,
-    isError: isSharedActivityError,
-  } = useActivityById(token, sharedActivityId);
-  const { data: sharedMemberData } = useMember(token, sharedActivity?.user_id);
-  
-  const isSharedPost = item.type === 'activity_share';
-  const isCurrentUserPost = item.user_id === profile?.user_id;
-  const isLiked = item.favorited || false;
-  
-  // Resolve author name before rendering to avoid showing placeholder text.
-  const userName = memberData?.name?.trim() || item.user_name?.trim() || getUserNameFromTitle(item.title);
-
-  const userAvatar = memberData?.avatar_urls?.thumb || 
-    (typeof item.user_avatar === 'object' ? item.user_avatar.thumb : item.user_avatar) || 
-    undefined;
-  
-  const displayText = isSharedPost ? getShareIntroText(item.content) : getContentText(item.content);
-
-  // Shared activities include BuddyPress embed markup in content.rendered.
-  // Render the original activity from the API instead of showing embed fallback text.
-  const imageUrls = isSharedPost ? [] : extractImageUrls(item.content);
-  const links = isSharedPost ? [] : extractAllLinks(item.content);
-  const sharedImageUrls = sharedActivity ? extractImageUrls(sharedActivity.content) : [];
-  const sharedLinks = sharedActivity ? extractAllLinks(sharedActivity.content) : [];
-  const sharedText = sharedActivity ? getContentText(sharedActivity.content) : '';
-  const sharedUserName =
-    sharedActivity
-      ? sharedMemberData?.name?.trim() ||
-        sharedActivity.user_name?.trim() ||
-        getUserNameFromTitle(sharedActivity.title)
-      : '';
-  const sharedUserAvatar =
-    sharedMemberData?.avatar_urls?.thumb ||
-    (typeof sharedActivity?.user_avatar === 'object'
-      ? sharedActivity.user_avatar.thumb
-      : sharedActivity?.user_avatar) ||
-    undefined;
-  
-  // State for image viewer modal
-  const [imageModalVisible, setImageModalVisible] = useState(false);
-  const [selectedImageIndex, setSelectedImageIndex] = useState(0);
-
-  // State for comments modal
-  const [commentModalVisible, setCommentModalVisible] = useState(false);
-
-  if (isMemberLoading || !userName) {
-    return null;
-  }
-  
-  const handleImagePress = (index: number) => {
-    setSelectedImageIndex(index);
-    setImageModalVisible(true);
-  };
-  
-  const handleNextImage = () => {
-    if (selectedImageIndex < imageUrls.length - 1) {
-      setSelectedImageIndex(selectedImageIndex + 1);
-    }
-  };
-  
-  const handlePreviousImage = () => {
-    if (selectedImageIndex > 0) {
-      setSelectedImageIndex(selectedImageIndex - 1);
-    }
-  };
-  
-  const handleLinkPress = async (url: string) => {
-    try {
-      const canOpen = await Linking.canOpenURL(url);
-      if (canOpen) {
-        await Linking.openURL(url);
-      } else {
-        Alert.alert('Error', 'Cannot open this link');
-      }
-    } catch (error) {
-      Alert.alert('Error', 'Failed to open link');
-    }
-  };
-  
-  return (
-    <View style={styles.postCard}>
-      {/* Post Header */}
-      <View style={styles.postHeader}>
-        <View style={styles.postUserInfo}>
-          <View style={styles.avatar}>
-            {userAvatar ? (
-              <Image source={{ uri: userAvatar }} style={styles.avatarImage} />
-            ) : (
-              <Text style={styles.avatarText}>
-                {userName.charAt(0).toUpperCase()}
-              </Text>
-            )}
-          </View>
-          <View style={styles.userInfoText}>
-            <Text style={styles.userName}>{userName}</Text>
-            <Text style={styles.postDate}>
-              {new Date(item.date).toLocaleDateString('en-US', {
-                month: 'short',
-                day: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit',
-              })}
-            </Text>
-          </View>
-        </View>
-        {isCurrentUserPost && (
-          <View style={styles.postOwnerActions}>
-            <TouchableOpacity
-              onPress={() => onEdit(item)}
-              style={styles.iconActionButton}
-            >
-              <Text style={styles.iconActionButtonText}>✏️</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => onDelete(item)}
-              style={styles.iconActionButton}
-            >
-              <Text style={styles.iconActionButtonText}>🗑️</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-      </View>
-      
-      {/* Post Content */}
-      {displayText ? <ExpandableText text={displayText} style={styles.postContent} /> : null}
-      
-      {/* Post Images */}
-      {imageUrls.length > 0 && (
-        <View style={styles.postImages}>
-          {imageUrls.map((url, index) => (
-            <TouchableOpacity
-              key={index}
-              onPress={() => handleImagePress(index)}
-              activeOpacity={0.9}
-            >
-              <Image
-                source={{ uri: url }}
-                style={styles.postImage}
-                resizeMode="contain"
-              />
-            </TouchableOpacity>
-          ))}
-        </View>
-      )}
-      
-      {/* Post Links */}
-      {links.length > 0 && (
-        <View style={styles.postLinks}>
-          {links.map((link: { url: string; text: string }, index: number) => (
-            <TouchableOpacity
-              key={index}
-              style={styles.linkButton}
-              onPress={() => handleLinkPress(link.url)}
-            >
-              <Text style={styles.linkIcon}>🔗</Text>
-              <Text style={styles.linkText} numberOfLines={1}>
-                {link.text}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      )}
-
-      {sharedActivityId ? (
-        <View style={styles.sharedPostCard}>
-          {isSharedActivityLoading ? (
-            <Text style={styles.sharedPostUnavailableText}>Loading shared post...</Text>
-          ) : sharedActivity && !isSharedActivityError ? (
-            <>
-              <View style={styles.sharedPostHeader}>
-                <View style={styles.sharedPostAvatar}>
-                  {sharedUserAvatar ? (
-                    <Image source={{ uri: sharedUserAvatar }} style={styles.sharedPostAvatarImage} />
-                  ) : (
-                    <Text style={styles.sharedPostAvatarText}>
-                      {(sharedUserName || 'P').charAt(0).toUpperCase()}
-                    </Text>
-                  )}
-                </View>
-                <View style={styles.sharedPostUserInfo}>
-                  <Text style={styles.sharedPostUserName} numberOfLines={1}>
-                    {sharedUserName || 'Post'}
-                  </Text>
-                  <Text style={styles.sharedPostDate}>
-                    {new Date(sharedActivity.date).toLocaleDateString('en-US', {
-                      month: 'short',
-                      day: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                  </Text>
-                </View>
-              </View>
-
-              {sharedText ? (
-                <ExpandableText text={sharedText} style={styles.sharedPostContent} numberOfLines={3} />
-              ) : null}
-
-              {sharedImageUrls.length > 0 ? (
-                <Image
-                  source={{ uri: sharedImageUrls[0] }}
-                  style={styles.sharedPostImage}
-                  resizeMode="cover"
-                />
-              ) : null}
-
-              {sharedLinks.length > 0 ? (
-                <TouchableOpacity
-                  style={styles.sharedPostLink}
-                  onPress={() => handleLinkPress(sharedLinks[0].url)}
-                >
-                  <Text style={styles.linkIcon}>🔗</Text>
-                  <Text style={styles.sharedPostLinkText} numberOfLines={1}>
-                    {sharedLinks[0].text}
-                  </Text>
-                </TouchableOpacity>
-              ) : null}
-            </>
-          ) : (
-            <Text style={styles.sharedPostUnavailableText}>Original post is no longer available.</Text>
-          )}
-        </View>
-      ) : null}
-      
-      {/* Post Stats */}
-      <View style={styles.postStats}>
-        {item.favorite_count && item.favorite_count > 0 ? (
-          <Text style={styles.statsText}>
-            ❤️ {item.favorite_count} {item.favorite_count === 1 ? 'like' : 'likes'}
-          </Text>
-        ) : null}
-      </View>
-      
-      {/* Post Actions */}
-      <View style={styles.postActions}>
-        <TouchableOpacity
-          onPress={() => onLike(item.id, isLiked)}
-          style={styles.actionButton}
-        >
-          <Text style={[styles.actionIcon, isLiked && styles.likedIcon]}>
-            {isLiked ? '❤️' : '🤍'}
-          </Text>
-          <Text style={[styles.actionLabel, isLiked && styles.likedText]}>
-            Like
-          </Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity
-          onPress={() => setCommentModalVisible(true)}
-          style={styles.actionButton}
-        >
-          <Text style={styles.actionIcon}>💬</Text>
-          <Text style={styles.actionLabel}>
-            {item.comment_count && item.comment_count > 0
-              ? `${item.comment_count}`
-              : 'Comment'}
-          </Text>
-        </TouchableOpacity>
-        
-        <ShareButton
-          activityId={item.id}
-          postUrl={item.link}
-          style={styles.actionButton}
-          iconColor="#6b7280"
-          textColor="#737373"
-          previewAuthorName={userName}
-          previewAuthorAvatarUrl={userAvatar}
-          previewTimeLabel={new Date(item.date).toLocaleDateString('en-US', {
-            month: 'short',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-          })}
-          previewText={displayText}
-          previewImageUrl={imageUrls[0] || sharedImageUrls[0]}
-          previewLinkUrl={links[0]?.url || sharedLinks[0]?.url || item.link}
-        />
-      </View>
-      
-      {/* Comments Modal */}
-      <CommentsModal
-        visible={commentModalVisible}
-        onClose={() => setCommentModalVisible(false)}
-        postId={item.id}
-        token={token}
-        currentUserId={profile?.user_id}
-      />
-
-      {/* Image Viewer Modal */}
-      <Modal
-        visible={imageModalVisible}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => setImageModalVisible(false)}
-      >
-        <View style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalCounter}>
-              {selectedImageIndex + 1} / {imageUrls.length}
-            </Text>
-            <TouchableOpacity
-              onPress={() => setImageModalVisible(false)}
-              style={styles.modalCloseButton}
-            >
-              <Text style={styles.modalCloseText}>✕</Text>
-            </TouchableOpacity>
-          </View>
-          
-          <View style={styles.modalContent}>
-            {imageUrls.length > 0 && (
-              <Image
-                source={{ uri: imageUrls[selectedImageIndex] }}
-                style={styles.modalImage}
-                resizeMode="contain"
-              />
-            )}
-          </View>
-          
-          {imageUrls.length > 1 && (
-            <View style={styles.modalNavigation}>
-              <TouchableOpacity
-                onPress={handlePreviousImage}
-                disabled={selectedImageIndex === 0}
-                style={[
-                  styles.modalNavButton,
-                  selectedImageIndex === 0 && styles.modalNavButtonDisabled,
-                ]}
-              >
-                <Text style={styles.modalNavButtonText}>‹ Previous</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={handleNextImage}
-                disabled={selectedImageIndex === imageUrls.length - 1}
-                style={[
-                  styles.modalNavButton,
-                  selectedImageIndex === imageUrls.length - 1 && styles.modalNavButtonDisabled,
-                ]}
-              >
-                <Text style={styles.modalNavButtonText}>Next ›</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-        </View>
-      </Modal>
-    </View>
-  );
-}
 
 function CommunityScreen() {
   const { token, profile } = useAuth();
   const params = useLocalSearchParams<{ tab?: string }>();
   const [activeTab, setActiveTab] = useState<TabType>('feed');
   const [postContent, setPostContent] = useState('');
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [feedFilter, setFeedFilter] = useState<FeedFilter>('all');
   const [selectedGroupId, setSelectedGroupId] = useState<number | undefined>(undefined);
-  const [selectedImages, setSelectedImages] = useState<string[]>([]);
   const listRef = useRef<FlatList<BPActivity>>(null);
   const [showScrollTop, setShowScrollTop] = useState(false);
+  const [selectedImages, setSelectedImages] = useState<SelectedImageAttachment[]>([]);
   const [postLink, setPostLink] = useState('');
   const [isEditModalVisible, setIsEditModalVisible] = useState(false);
   const [editingPost, setEditingPost] = useState<BPActivity | null>(null);
   const [editContent, setEditContent] = useState('');
   const [isDeleteModalVisible, setIsDeleteModalVisible] = useState(false);
   const [deletingPost, setDeletingPost] = useState<BPActivity | null>(null);
+  const hasPostDraft = postContent.length > 0 || selectedImages.length > 0 || postLink.length > 0;
   
   // Get current user data
   const { data: currentUser } = useMe();
   const userId = currentUser?.id;
-
+  
   // Fetch user's groups
-  const { data: userGroups } = useMyGroups(token);
+  const { data: userGroups, isLoading: isLoadingMyGroups } = useMyGroups(token);
   const groups = useMemo(() => userGroups || [], [userGroups]);
 
   const groupFilterOptions = useMemo<FilterOption[]>(
@@ -664,10 +117,6 @@ function CommunityScreen() {
     setShowScrollTop(false);
   }, [activeTab]);
   
-  // State to store posts from all groups
-  const [allGroupsActivities, setAllGroupsActivities] = useState<BPActivity[]>([]);
-  const allGroupsFetchedRef = useRef(false);
-
   useEffect(() => {
     if (params.tab === 'groups') {
       setActiveTab('groups-feed');
@@ -688,40 +137,22 @@ function CommunityScreen() {
     activeTab === 'groups-feed' && selectedGroupId ? selectedGroupId : undefined
   );
 
-  
-  useEffect(() => {
-    const fetchAllGroupsActivities = async () => {
-      if (
-        activeTab === 'groups-feed' &&
-        !selectedGroupId &&
-        groups.length > 0 &&
-        token &&
-        !allGroupsFetchedRef.current
-      ) {
-        try {
-          const results = await Promise.all(
-            groups.map(async (g) => {
-              // getGroupActivity expects (token, groupId, params)
-              const res = await import('../../lib/api').then(m => m.getGroupActivity(g.id, token, { per_page: 20 }));
-              return res.activities || [];
-            })
-          );
-          setAllGroupsActivities(results.flat());
-          allGroupsFetchedRef.current = true;
-        } catch (e) {
-          setAllGroupsActivities([]);
-        }
-      }
-      if (activeTab !== 'groups-feed' || selectedGroupId) {
-        setAllGroupsActivities([]);
-        allGroupsFetchedRef.current = false;
-      }
-    };
-    fetchAllGroupsActivities();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, selectedGroupId, groups, token]);
-  
-  // Fetch feed based on active tab with infinite scroll.
+  // "All Groups" — combined, paginated feed across every group the user is
+  // in, with infinite scroll (only active while on that view).
+  const isAllGroupsView = activeTab === 'groups-feed' && !selectedGroupId;
+  const groupIds = useMemo(() => groups.map((g) => g.id), [groups]);
+  const {
+    data: allGroupsPages,
+    isLoading: isLoadingAllGroups,
+    isFetching: isFetchingAllGroups,
+    fetchNextPage: fetchNextAllGroupsPage,
+    hasNextPage: hasNextAllGroupsPage,
+    isFetchingNextPage: isFetchingNextAllGroupsPage,
+    refetch: refetchAllGroups,
+  } = useAllGroupsActivity(isAllGroupsView ? token : null, isAllGroupsView ? groupIds : []);
+  const allGroupsActivities = allGroupsPages?.pages?.flatMap((page) => page.activities) || [];
+
+  // Fetch feed based on active tab with infinite scroll
   // 'friends' scope is resolved server-side by BuddyPress, so no client friends list is needed.
   const scope: 'friends' | 'groups' | undefined =
     activeTab === 'groups-feed'
@@ -805,10 +236,12 @@ function CommunityScreen() {
       if (!token) return;
       if (isGroupFeedSelected) {
         refetchGroupActivity();
+      } else if (isAllGroupsView) {
+        refetchAllGroups();
       } else {
         refetch();
       }
-    }, [token, isGroupFeedSelected, refetch, refetchGroupActivity])
+    }, [token, isGroupFeedSelected, isAllGroupsView, refetch, refetchGroupActivity, refetchAllGroups])
   );
 
   useEffect(() => {
@@ -832,7 +265,7 @@ function CommunityScreen() {
   const handleScrollToTop = useCallback(() => {
     listRef.current?.scrollToOffset({ offset: 0, animated: true });
   }, []);
-
+  
   const handleCreatePost = async () => {
     if (!postContent.trim() && selectedImages.length === 0 && !postLink.trim()) {
       Alert.alert('Error', 'Please add some content, images, or a link to your post');
@@ -840,12 +273,19 @@ function CommunityScreen() {
     }
     
     try {
-      // Build post content with text and link
-      let fullContent = postContent;
+      const normalizedLink = postLink.trim() ? normalizeExternalUrl(postLink) : null;
+      if (postLink.trim() && !normalizedLink) {
+        Alert.alert('Invalid link', 'Enter a valid web address, such as www.nature.com or https://www.nature.com.');
+        return;
+      }
+
+      // Store bare www. URLs as HTTPS so WordPress and the app receive the
+      // same valid address and can generate a preview consistently.
+      let fullContent = normalizeBareUrlsInText(postContent.trim());
       
       // Add link if provided
-      if (postLink.trim()) {
-        fullContent += `\n\n<a href="${postLink}" target="_blank">${postLink}</a>`;
+      if (normalizedLink) {
+        fullContent += `\n\n${postLinkMarkup(normalizedLink)}`;
       }
       
       // Upload images to WordPress first and get public URLs
@@ -854,7 +294,7 @@ function CommunityScreen() {
         const uploadedUrls: string[] = [];
         
         for (let i = 0; i < selectedImages.length; i++) {
-          const imageUri = selectedImages[i];
+          const imageUri = selectedImages[i].uri;
           const fileName = `post-image-${Date.now()}-${i}.jpg`;
           
           try {
@@ -889,10 +329,6 @@ function CommunityScreen() {
     }
   };
   
-  const handleAddEmoji = (emoji: string) => {
-    setPostContent(postContent + emoji);
-  };
-  
   const handlePickImage = async () => {
     try {
       // Request permission
@@ -911,8 +347,12 @@ function CommunityScreen() {
       });
       
       if (!result.canceled && result.assets) {
-        const newImages = result.assets.map(asset => asset.uri);
-        setSelectedImages([...selectedImages, ...newImages]);
+        const newImages = await Promise.all(
+          result.assets.map((asset, index) =>
+            createImageAttachment(asset, selectedImages.length + index)
+          )
+        );
+        setSelectedImages((currentImages) => [...currentImages, ...newImages]);
       }
     } catch (error) {
       Alert.alert('Error', 'Failed to select images');
@@ -922,16 +362,17 @@ function CommunityScreen() {
   const handleRemoveImage = (index: number) => {
     setSelectedImages(selectedImages.filter((_, i) => i !== index));
   };
+
+  const handleClearPost = () => {
+    setPostContent('');
+    setSelectedImages([]);
+    setPostLink('');
+    Keyboard.dismiss();
+  };
   
   const handleAttachFile = () => {
     handlePickImage();
   };
-  
-  const handleTagFriend = () => {
-    Alert.alert('Tag Connection', 'Tag connection feature coming soon!');
-  };
-  
-  const commonEmojis = ['😊', '😂', '❤️', '👍', '🎉', '🔥', '💯', '🙌'];
   
   const handleLikePost = async (activityId: number, isLiked: boolean) => {
     try {
@@ -964,12 +405,13 @@ function CommunityScreen() {
       closeDeleteModal();
       Alert.alert('Success', 'Post deleted successfully!');
     } catch (error) {
-      closeDeleteModal();
       if (isNotFound(error)) {
+        closeDeleteModal();
         Alert.alert(POST_UNAVAILABLE_TITLE, POST_UNAVAILABLE_MESSAGE);
         return;
       }
       Alert.alert('Error', 'Failed to delete post');
+      closeDeleteModal();
     }
   };
 
@@ -1001,7 +443,7 @@ function CommunityScreen() {
     try {
       await updatePostMutation.mutateAsync({
         activityId: editingPost.id,
-        content: editContent.trim(),
+        content: normalizeBareUrlsInText(editContent.trim()),
         component: editingPost.component,
         primary_item_id: editingPost.primary_item_id,
       });
@@ -1018,6 +460,12 @@ function CommunityScreen() {
   };
   
   const handleLoadMore = () => {
+    if (isAllGroupsView) {
+      if (hasNextAllGroupsPage && !isFetchingNextAllGroupsPage) {
+        fetchNextAllGroupsPage();
+      }
+      return;
+    }
     if (hasNextPage && !isFetchingNextPage) {
       fetchNextPage();
     }
@@ -1025,13 +473,14 @@ function CommunityScreen() {
   
   const renderPost = ({ item }: { item: BPActivity }) => {
     return (
-      <PostItem
+      <PostCard
         item={item}
         token={token}
         profile={profile}
         onLike={handleLikePost}
         onDelete={handleDeletePost}
         onEdit={handleOpenEditPost}
+        groups={groups}
       />
     );
   };
@@ -1117,18 +566,28 @@ function CommunityScreen() {
 
       {/* Group Filter Dropdown - Only show in Groups Feed tab */}
       {activeTab === 'groups-feed' && (
-        <FilterDropdown
-          testID="group-filter"
-          options={groupFilterOptions}
-          selectedKey={selectedGroupId ? String(selectedGroupId) : 'all'}
-          onSelect={(key) => {
-            const id = Number(key);
-            setSelectedGroupId(key === 'all' || !Number.isFinite(id) ? undefined : id);
-          }}
-          placeholder="All groups"
-        />
+        <View style={styles.groupsFeedToolbar}>
+          <FilterDropdown
+            testID="group-filter"
+            options={groupFilterOptions}
+            selectedKey={selectedGroupId ? String(selectedGroupId) : 'all'}
+            onSelect={(key) => {
+              const id = Number(key);
+              setSelectedGroupId(key === 'all' || !Number.isFinite(id) ? undefined : id);
+            }}
+            placeholder="All groups"
+          />
+          <TouchableOpacity
+            style={styles.createGroupButton}
+            onPress={() => router.push('/create-group')}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.createGroupButtonIcon}>+</Text>
+            <Text style={styles.createGroupButtonText}>Create Group</Text>
+          </TouchableOpacity>
+        </View>
       )}
-      
+
       {/* Create Post Form - Only show in My Posts tab */}
       {activeTab === 'my-posts' && (
         <View style={styles.createPostContainer}>
@@ -1158,18 +617,27 @@ function CommunityScreen() {
           {selectedImages.length > 0 && (
             <View style={styles.selectedImagesContainer}>
               <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                {selectedImages.map((imageUri, index) => (
-                  <View key={index} style={styles.selectedImageWrapper}>
+                {selectedImages.map((image, index) => (
+                  <View key={`${image.uri}-${index}`} style={styles.selectedImageWrapper}>
                     <Image
-                      source={{ uri: imageUri }}
+                      source={{ uri: image.uri }}
                       style={styles.selectedImagePreview}
                     />
                     <TouchableOpacity
                       style={styles.removeImageButton}
                       onPress={() => handleRemoveImage(index)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Remove ${image.fileName}`}
+                      hitSlop={8}
                     >
-                      <Text style={styles.removeImageText}>\u2715</Text>
+                      <Ionicons name="close" size={16} color="#fff" />
                     </TouchableOpacity>
+                    <Text style={styles.selectedImageName} numberOfLines={1}>
+                      {image.fileName}
+                    </Text>
+                    <Text style={styles.selectedImageSize}>
+                      {formatFileSize(image.fileSize)}
+                    </Text>
                   </View>
                 ))}
               </ScrollView>
@@ -1195,34 +663,9 @@ function CommunityScreen() {
             )}
           </View>
           
-          {/* Emoji Picker */}
-          {showEmojiPicker && (
-            <View style={styles.emojiPickerContainer}>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                {commonEmojis.map((emoji, index) => (
-                  <TouchableOpacity
-                    key={index}
-                    style={styles.emojiButton}
-                    onPress={() => handleAddEmoji(emoji)}
-                  >
-                    <Text style={styles.emojiText}>{emoji}</Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
-          )}
-          
           {/* Action Buttons */}
           <View style={styles.createPostActions}>
             <View style={styles.createPostToolbar}>
-              <TouchableOpacity
-                style={styles.toolbarButton}
-                onPress={() => setShowEmojiPicker(!showEmojiPicker)}
-              >
-                <Text style={styles.toolbarIcon}>😊</Text>
-                <Text style={styles.toolbarLabel}>Emoji</Text>
-              </TouchableOpacity>
-              
               <TouchableOpacity
                 style={styles.toolbarButton}
                 onPress={handleAttachFile}
@@ -1230,30 +673,36 @@ function CommunityScreen() {
                 <Text style={styles.toolbarIcon}>📎</Text>
                 <Text style={styles.toolbarLabel}>Attach</Text>
               </TouchableOpacity>
-              
-              <TouchableOpacity
-                style={styles.toolbarButton}
-                onPress={handleTagFriend}
-              >
-                <Text style={styles.toolbarIcon}>👥</Text>
-                <Text style={styles.toolbarLabel}>Tag</Text>
-              </TouchableOpacity>
             </View>
             
-            <TouchableOpacity
-              style={[
-                styles.publishButton,
-                (!postContent.trim() && selectedImages.length === 0 && !postLink.trim()) || createPostMutation.isPending ? styles.publishButtonDisabled : {},
-              ]}
-              onPress={handleCreatePost}
-              disabled={(!postContent.trim() && selectedImages.length === 0 && !postLink.trim()) || createPostMutation.isPending}
-            >
-              {createPostMutation.isPending ? (
-                <ActivityIndicator color="#fff" size="small" />
-              ) : (
-                <Text style={styles.publishButtonText}>Post</Text>
+            <View style={styles.createPostSubmitActions}>
+              {hasPostDraft && (
+                <TouchableOpacity
+                  style={styles.clearPostButton}
+                  onPress={handleClearPost}
+                  disabled={createPostMutation.isPending}
+                  accessibilityRole="button"
+                  accessibilityLabel="Clear post draft"
+                >
+                  <Text style={styles.clearPostButtonText}>Clear</Text>
+                </TouchableOpacity>
               )}
-            </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.publishButton,
+                  (!postContent.trim() && selectedImages.length === 0 && !postLink.trim()) || createPostMutation.isPending ? styles.publishButtonDisabled : {},
+                ]}
+                onPress={handleCreatePost}
+                disabled={(!postContent.trim() && selectedImages.length === 0 && !postLink.trim()) || createPostMutation.isPending}
+              >
+                {createPostMutation.isPending ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Text style={styles.publishButtonText}>Post</Text>
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
           
           {postContent.length > 0 && (
@@ -1265,38 +714,44 @@ function CommunityScreen() {
       )}
       
       {/* Posts Feed */}
-      {(isLoading || !membersReady || (activeTab === 'groups-feed' && selectedGroupId && isLoadingGroupActivity)) ? (
+      {(isLoading || !membersReady
+        || (activeTab === 'groups-feed' && selectedGroupId && isLoadingGroupActivity)
+        || (isAllGroupsView && (isLoadingMyGroups || isLoadingAllGroups || (groups.length > 0 && isFetchingAllGroups && allGroupsActivities.length === 0)))
+      ) ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#0066cc" />
           <Text style={styles.loadingText}>Loading posts...</Text>
         </View>
       ) : (
-        <View style={styles.feedWrapper}>
+        <>
+          <View style={styles.feedWrapper}>
           <FlatList
             ref={listRef}
             data={allActivities}
             keyExtractor={(item) => String(item.id)}
             renderItem={renderPost}
             contentContainerStyle={styles.feedContainer}
-            onScroll={handleScroll}
-            scrollEventThrottle={16}
             refreshControl={
               <RefreshControl 
                 refreshing={isRefetching || (activeTab === 'groups-feed' && selectedGroupId ? false : false)} 
                 onRefresh={() => {
                   if (activeTab === 'groups-feed' && selectedGroupId) {
                     refetchGroupActivity();
+                  } else if (isAllGroupsView) {
+                    refetchAllGroups();
                   } else {
                     refetch();
                   }
-                }} 
+                }}
                 colors={['#0066cc']} 
               />
             }
+            onScroll={handleScroll}
+            scrollEventThrottle={16}
             onEndReached={handleLoadMore}
             onEndReachedThreshold={0.5}
             ListFooterComponent={
-              isFetchingNextPage ? (
+              (isAllGroupsView ? isFetchingNextAllGroupsPage : isFetchingNextPage) ? (
                 <View style={styles.loadMoreContainer}>
                   <ActivityIndicator size="small" color="#0066cc" />
                   <Text style={styles.loadMoreText}>Loading more...</Text>
@@ -1309,7 +764,7 @@ function CommunityScreen() {
                   {activeTab === 'my-posts'
                     ? 'No posts yet.\nStart sharing your thoughts with the community!'
                     : activeTab === 'groups-feed'
-                    ? selectedGroupId
+                    ? selectedGroupId 
                       ? 'No posts in this group yet.'
                       : 'No posts from your groups.\nJoin groups to see their posts!'
                     : feedFilter === 'friends'
@@ -1319,103 +774,22 @@ function CommunityScreen() {
               </View>
             }
           />
-
           <ScrollToTopButton visible={showScrollTop} onPress={handleScrollToTop} />
+          </View>
 
-          <Modal
-            visible={isEditModalVisible}
-            animationType="slide"
-            transparent={true}
-            onRequestClose={closeEditModal}
-          >
-            <View style={styles.editModalOverlay}>
-              <View style={styles.editModalCard}>
-                <View style={styles.editModalHeader}>
-                  <Text style={styles.editModalTitle}>Edit Post</Text>
-                  <TouchableOpacity onPress={closeEditModal}>
-                    <Text style={styles.editModalClose}>✕</Text>
-                  </TouchableOpacity>
-                </View>
-
-                <TextInput
-                  style={styles.editInput}
-                  placeholder="Edit your post..."
-                  placeholderTextColor="#9ca3af"
-                  multiline
-                  value={editContent}
-                  onChangeText={setEditContent}
-                  editable={!updatePostMutation.isPending}
-                />
-
-                <View style={styles.editModalActions}>
-                  <TouchableOpacity
-                    onPress={closeEditModal}
-                    style={styles.editCancelButton}
-                    disabled={updatePostMutation.isPending}
-                  >
-                    <Text style={styles.editCancelText}>Cancel</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    onPress={handleSaveEditPost}
-                    disabled={updatePostMutation.isPending || !editContent.trim()}
-                    style={[
-                      styles.editSaveButton,
-                      (updatePostMutation.isPending || !editContent.trim()) && styles.editSaveButtonDisabled,
-                    ]}
-                  >
-                    {updatePostMutation.isPending ? (
-                      <ActivityIndicator size="small" color="#fff" />
-                    ) : (
-                      <Text style={styles.editSaveText}>Save</Text>
-                    )}
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </View>
-          </Modal>
-
-          <Modal
-            visible={isDeleteModalVisible}
-            animationType="fade"
-            transparent={true}
-            onRequestClose={closeDeleteModal}
-          >
-            <View style={styles.deleteModalOverlay}>
-              <View style={styles.deleteModalCard}>
-                <Text style={styles.deleteModalTitle}>Delete Post?</Text>
-                <Text style={styles.deleteModalDescription}>
-                  Are you sure you want to delete this post? This action cannot be undone.
-                </Text>
-
-                <View style={styles.deleteModalActions}>
-                  <TouchableOpacity
-                    onPress={closeDeleteModal}
-                    style={styles.deleteCancelButton}
-                    disabled={deletePostMutation.isPending}
-                  >
-                    <Text style={styles.deleteCancelText}>Cancel</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    onPress={confirmDeletePost}
-                    disabled={deletePostMutation.isPending}
-                    style={[
-                      styles.deleteConfirmButton,
-                      deletePostMutation.isPending && styles.deleteConfirmButtonDisabled,
-                    ]}
-                  >
-                    {deletePostMutation.isPending ? (
-                      <ActivityIndicator size="small" color="#fff" />
-                    ) : (
-                      <Text style={styles.deleteConfirmText}>Delete</Text>
-                    )}
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </View>
-          </Modal>
-        </View>
+          <PostActionModals
+            isEditVisible={isEditModalVisible}
+            editContent={editContent}
+            onChangeEditContent={setEditContent}
+            onCloseEdit={closeEditModal}
+            onSaveEdit={handleSaveEditPost}
+            isSaving={updatePostMutation.isPending}
+            isDeleteVisible={isDeleteModalVisible}
+            onCloseDelete={closeDeleteModal}
+            onConfirmDelete={confirmDeletePost}
+            isDeleting={deletePostMutation.isPending}
+          />
+        </>
       )}
     </SafeAreaView>
   );
@@ -1452,11 +826,30 @@ const styles = StyleSheet.create({
     color: '#262626',
   },
   
-  // Feed list wrapper — relative so the floating back-to-top button can anchor to it
   feedWrapper: {
     flex: 1,
     position: 'relative',
   },
+
+  // Groups Feed toolbar (group filter dropdown + Create Group button)
+  groupsFeedToolbar: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+  },
+  createGroupButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#2563eb',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginRight: 12,
+    marginBottom: 12,
+  },
+  createGroupButtonIcon: { color: '#fff', fontSize: 16, fontWeight: '700', lineHeight: 16 },
+  createGroupButtonText: { color: '#fff', fontSize: 13, fontWeight: '700' },
 
   // Create Post Styles (Instagram-like)
   createPostContainer: {
@@ -1508,23 +901,13 @@ const styles = StyleSheet.create({
     padding: 0,
     lineHeight: 20,
   },
-  emojiPickerContainer: {
-    marginTop: 12,
-    paddingVertical: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#efefef',
-  },
-  emojiButton: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  emojiText: {
-    fontSize: 24,
-  },
   createPostActions: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'space-between',
     alignItems: 'center',
+    columnGap: 12,
+    rowGap: 8,
     marginTop: 12,
     paddingTop: 12,
     borderTopWidth: 1,
@@ -1532,7 +915,7 @@ const styles = StyleSheet.create({
   },
   createPostToolbar: {
     flexDirection: 'row',
-    gap: 16,
+    gap: 12,
   },
   toolbarButton: {
     flexDirection: 'row',
@@ -1546,6 +929,21 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#737373',
     fontWeight: '500',
+  },
+  createPostSubmitActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginLeft: 'auto',
+  },
+  clearPostButton: {
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+  },
+  clearPostButtonText: {
+    color: '#737373',
+    fontSize: 13,
+    fontWeight: '600',
   },
   publishButton: {
     backgroundColor: '#0095f6',
@@ -1577,6 +975,7 @@ const styles = StyleSheet.create({
   selectedImageWrapper: {
     position: 'relative',
     marginRight: 8,
+    width: 112,
   },
   selectedImagePreview: {
     width: 100,
@@ -1586,9 +985,9 @@ const styles = StyleSheet.create({
   },
   removeImageButton: {
     position: 'absolute',
-    top: -8,
-    right: -8,
-    backgroundColor: '#ff3b30',
+    top: 6,
+    right: 6,
+    backgroundColor: 'rgba(17, 24, 39, 0.78)',
     width: 24,
     height: 24,
     borderRadius: 12,
@@ -1606,10 +1005,16 @@ const styles = StyleSheet.create({
       },
     }),
   },
-  removeImageText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: 'bold',
+  selectedImageName: {
+    color: '#262626',
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 6,
+  },
+  selectedImageSize: {
+    color: '#737373',
+    fontSize: 11,
+    marginTop: 2,
   },
   linkInputContainer: {
     flexDirection: 'row',

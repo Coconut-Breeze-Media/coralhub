@@ -172,13 +172,24 @@ export function useUploadAvatar() {
   return useMutation({
     mutationFn: ({ userId, imageUri }: { userId: number; imageUri: string }) => {
       if (!token) throw new Error('No authentication token');
+      console.log('[ProfileMedia][avatar][mutation] Calling upload API', { userId });
       return uploadUserAvatar(userId, token, imageUri);
     },
-    onSuccess: (_, variables) => {
+    onSuccess: (data, variables) => {
+      console.log('[ProfileMedia][avatar][mutation] Upload succeeded; invalidating cache', {
+        userId: variables.userId,
+        data,
+      });
       // Invalidate avatar and profile queries
       queryClient.invalidateQueries({ queryKey: profileKeys.avatar(variables.userId) });
       queryClient.invalidateQueries({ queryKey: profileKeys.me() });
       queryClient.invalidateQueries({ queryKey: profileKeys.member(variables.userId) });
+    },
+    onError: (error, variables) => {
+      console.error('[ProfileMedia][avatar][mutation] Upload failed', {
+        userId: variables.userId,
+        error,
+      });
     },
   });
 }
@@ -216,13 +227,24 @@ export function useUploadCover() {
   return useMutation({
     mutationFn: ({ userId, formData }: { userId: number; formData: FormData }) => {
       if (!token) throw new Error('No authentication token');
+      console.log('[ProfileMedia][cover][mutation] Calling upload API', { userId });
       return uploadUserCover(userId, token, formData);
     },
-    onSuccess: (_, variables) => {
+    onSuccess: (data, variables) => {
+      console.log('[ProfileMedia][cover][mutation] Upload succeeded; invalidating cache', {
+        userId: variables.userId,
+        data,
+      });
       // Invalidate cover and profile queries
       queryClient.invalidateQueries({ queryKey: profileKeys.cover(variables.userId) });
       queryClient.invalidateQueries({ queryKey: profileKeys.me() });
       queryClient.invalidateQueries({ queryKey: profileKeys.member(variables.userId) });
+    },
+    onError: (error, variables) => {
+      console.error('[ProfileMedia][cover][mutation] Upload failed', {
+        userId: variables.userId,
+        error,
+      });
     },
   });
 }
