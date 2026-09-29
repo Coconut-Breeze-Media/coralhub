@@ -24,12 +24,37 @@ export interface TokenRefreshPayload {
 }
 
 /**
- * Membership status response from WordPress
+ * Membership tier (mirrors coral_get_user_tier on the WordPress side).
+ * Hierarchy: none < monthly < annual < institutional.
+ */
+export type MembershipTier = 'none' | 'monthly' | 'annual' | 'institutional';
+
+/**
+ * Membership status response from WordPress (/coral/v1/membership)
  */
 export interface MembershipResponse {
   is_member: boolean;
   user_id?: number;
+  tier: MembershipTier;
+  level_id?: number | null;
+  level_name?: string | null;
+  /** Resource keys this user may access (server-computed). */
+  allowed_resources: string[];
+  subscription_status?: string | null;
+  expires_at?: string | null;
   roles?: string[];
+}
+
+/**
+ * A premium resource entry from /coral/v1/premium-resources
+ */
+export interface PremiumResource {
+  key: string;
+  title: string;
+  required_tiers: MembershipTier[];
+  unlocked: boolean;
+  /** Website URL to open when unlocked; empty string when locked. */
+  url: string;
 }
 
 /**
@@ -489,7 +514,12 @@ export interface AuthContextState {
   token: string | null;
   userId: number | null;
   profile: UserProfile | null;
+  /** Full membership state from the server (null until checked). */
+  membership: MembershipResponse | null;
+  /** Convenience flag derived from membership.tier !== 'none'. */
   isMember: boolean | null;
+  /** True when the user's tier grants access to the given resource key. */
+  canAccess: (resourceKey: string) => boolean;
   refreshMembership: () => Promise<void>;
   setAuth: (payload: JWTPayload) => Promise<void>;
   clearAuth: () => Promise<void>;

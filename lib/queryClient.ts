@@ -96,6 +96,11 @@ export const queryKeys = {
     levels: () => ['membership', 'levels'] as const,
     status: () => ['membership', 'status'] as const,
   },
+
+  // Premium resources catalog (per-user lock state)
+  premiumResources: {
+    all: () => ['premium-resources'] as const,
+  },
   
   // Friends
   friends: {

@@ -23,14 +23,14 @@ export const TAB_SCREENS: ReadonlyArray<TabNavItem> = [
   {
     name: 'resources',
     title: 'Resources',
-    icon: 'people',
-    iconOutline: 'people-outline',
+    icon: 'library',
+    iconOutline: 'library-outline',
   },
   {
     name: 'networking',
     title: 'Networking',
-    icon: 'book',
-    iconOutline: 'book-outline',
+    icon: 'people',
+    iconOutline: 'people-outline',
   },
   {
     name: 'messages',
@@ -132,7 +132,10 @@ export const ROUTES = {
   
   // Auth
   MEMBERSHIP_LEVELS: '/(auth)/membership-levels',
-  
+
+  // In-app resource viewer (WebView)
+  RESOURCE_VIEWER: '/resource-viewer',
+
   // Tabs
   TABS: '/(tabs)',
   COMMUNITY: '/(tabs)/index',

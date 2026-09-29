@@ -1,19 +1,38 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 import {
   Animated,
   Image,
-  Linking,
   Pressable,
   StyleSheet,
   Text,
   useWindowDimensions,
   View,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { useAuth } from '../../lib/auth';
 import { ROUTES } from '../../constants/navigation';
+import { PREMIUM_RESOURCE_CATALOG } from '../../constants/premiumResources';
 import HeroBackground from '../../components/ui/HeroBackground';
-import QuickLinksSection, { type QuickLinkData } from '../../components/ui/QuickLinksSection';
+import QuickLinksSection, { QUICK_LINKS, type QuickLinkData } from '../../components/ui/QuickLinksSection';
+
+/**
+ * Maps QuickLinksSection item ids to paywall resource keys
+ * (constants/premiumResources.ts). Items without a mapping are not gated.
+ */
+const RESOURCE_KEY_BY_LINK_ID: Record<string, string> = {
+  career: 'opportunities',
+  courses: 'courses',
+  mentorships: 'mentorships',
+  discounts: 'partnerships_discounts',
+  documents: 'document_library',
+  articles: 'essays_articles',
+  masterclasses: 'masterclasses',
+  archive: 'historical_archive',
+  internships: 'internships',
+  grants: 'corr_grants',
+  institutional: 'institutional_area',
+  contact: 'feedback',
+};
 
 const MAGAZINE_IMAGE = 'https://www.thecoralreefresearchhub.com/wp-content/uploads/2026/04/Issue-2-Cover-Image-212x300.png';
 const MAGAZINE_PDF   = 'https://www.thecoralreefresearchhub.com/wp-content/uploads/2026/01/Issue-1-Coral-Matters-Magazine.pdf';
@@ -54,17 +73,73 @@ const OTHER_QUICK_LINKS: QuickLinkData[] = [
 
 export default function ResourcesScreen() {
   const { width } = useWindowDimensions();
-  const { profile } = useAuth();
+  const { profile, canAccess, refreshMembership } = useAuth();
   const isWide  = width >= 768;
   const scrollY = useRef(new Animated.Value(0)).current;
 
-  const handleOpenMagazine = useCallback(async () => {
-    await Linking.openURL(MAGAZINE_PDF);
+  // Re-check the tier when this screen regains focus (e.g. returning from
+  // Stripe checkout) so newly purchased resources unlock immediately.
+  useFocusEffect(
+    useCallback(() => {
+      refreshMembership();
+    }, [refreshMembership])
+  );
+
+  const handleOpenMagazine = useCallback(() => {
+    router.push({
+      pathname: ROUTES.RESOURCE_VIEWER,
+      params: { url: MAGAZINE_PDF, title: 'Coral Matters Magazine' },
+    });
   }, []);
 
   const handleGoToNewsFeed = useCallback(() => {
     router.push(`${ROUTES.COMMUNITY}?tab=feed`);
   }, []);
+
+  const handleGoToUpgrade = useCallback(() => {
+    router.push(ROUTES.MEMBERSHIP_LEVELS);
+  }, []);
+
+  /**
+   * Open a premium resource. Locked → upgrade screen. Unlocked → open inside
+   * the app's WebView, which exchanges the JWT for an SSO login URL and keeps
+   * the session cookie so the page loads already authenticated.
+   */
+  const openResource = useCallback(
+    (resourceKey: string) => {
+      const resource = PREMIUM_RESOURCE_CATALOG.find((r) => r.key === resourceKey);
+      if (!resource) return;
+      if (!canAccess(resourceKey)) {
+        router.push(ROUTES.MEMBERSHIP_LEVELS);
+        return;
+      }
+      router.push({
+        pathname: ROUTES.RESOURCE_VIEWER,
+        params: { url: resource.url, title: resource.title },
+      });
+    },
+    [canAccess]
+  );
+
+  const handleQuickLink = useCallback(
+    (item: QuickLinkData) => {
+      const key = RESOURCE_KEY_BY_LINK_ID[item.id];
+      if (key) openResource(key);
+    },
+    [openResource]
+  );
+
+  // Prefix locked items with a lock so members can see at a glance what their
+  // tier includes; lock state comes from the server-derived allowed_resources.
+  const premiumQuickLinks = useMemo(
+    () =>
+      QUICK_LINKS.map((item) => {
+        const key = RESOURCE_KEY_BY_LINK_ID[item.id];
+        const locked = key ? !canAccess(key) : false;
+        return locked ? { ...item, label: `🔒 ${item.label}` } : item;
+      }),
+    [canAccess]
+  );
 
   return (
     <Animated.ScrollView
@@ -210,7 +285,11 @@ export default function ResourcesScreen() {
       </View>
 
       {/* ── Premium Quick Links with parallax + scroll reveal ── */}
-      <QuickLinksSection scrollY={scrollY} />
+      <QuickLinksSection
+        scrollY={scrollY}
+        items={premiumQuickLinks}
+        onPressItem={handleQuickLink}
+      />
 
       <View style={[styles.body, {
         paddingHorizontal: isWide ? 48 : 16,
@@ -237,13 +316,14 @@ export default function ResourcesScreen() {
           </Text>
 
           <Pressable
+            onPress={() => openResource('feedback')}
             style={[styles.feedBtn, {
               marginTop:        isWide ? 32 : 20,
               paddingVertical:  isWide ? 16 : 12,
               paddingHorizontal: isWide ? 40 : 24,
             }]}
           >
-            <Text style={[styles.feedBtnText, { fontSize: isWide ? 18 : 15 }]}> 
+            <Text style={[styles.feedBtnText, { fontSize: isWide ? 18 : 15 }]}>
               GET IN TOUCH
             </Text>
           </Pressable>
@@ -290,13 +370,14 @@ export default function ResourcesScreen() {
           </Text>
 
           <Pressable
+            onPress={() => openResource('courses')}
             style={[styles.feedBtn, {
               marginTop:        isWide ? 36 : 24,
               paddingVertical:  isWide ? 16 : 12,
               paddingHorizontal: isWide ? 40 : 24,
             }]}
           >
-            <Text style={[styles.feedBtnText, { fontSize: isWide ? 18 : 15 }]}> 
+            <Text style={[styles.feedBtnText, { fontSize: isWide ? 18 : 15 }]}>
               VIEW COURSE
             </Text>
           </Pressable>
@@ -336,13 +417,14 @@ export default function ResourcesScreen() {
           </Text>
 
           <Pressable
+            onPress={() => openResource('historical_archive')}
             style={[styles.feedBtn, {
               marginTop:        isWide ? 36 : 24,
               paddingVertical:  isWide ? 16 : 12,
               paddingHorizontal: isWide ? 40 : 24,
             }]}
           >
-            <Text style={[styles.feedBtnText, { fontSize: isWide ? 18 : 15 }]}> 
+            <Text style={[styles.feedBtnText, { fontSize: isWide ? 18 : 15 }]}>
               VIEW ARCHIVE
             </Text>
           </Pressable>
@@ -381,13 +463,14 @@ export default function ResourcesScreen() {
           </Text>
 
           <Pressable
+            onPress={handleGoToUpgrade}
             style={[styles.upgradeBtn, {
               marginTop:        isWide ? 38 : 24,
               paddingVertical:  isWide ? 16 : 12,
               paddingHorizontal: isWide ? 46 : 28,
             }]}
           >
-            <Text style={[styles.upgradeBtnText, { fontSize: isWide ? 18 : 15 }]}> 
+            <Text style={[styles.upgradeBtnText, { fontSize: isWide ? 18 : 15 }]}>
               VIEW MEMBERSHIP LEVELS
             </Text>
           </Pressable>
