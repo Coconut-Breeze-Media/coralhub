@@ -138,7 +138,7 @@ export const ROUTES = {
   // Root level
   WELCOME: '/',
   SIGN_IN: '/sign-in',
-  FORGOT_PASSWORD: '/forgot-password',
+  FORGOT_PASSWORD: '/password-reset',
   NOTIFICATIONS: '/notification',
   
   // Auth
