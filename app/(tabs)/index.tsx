@@ -13,8 +13,6 @@ import {
   Image,
   ScrollView,
   Platform,
-  Linking,
-  Modal,
   Dimensions,
   Keyboard,
   AppState,

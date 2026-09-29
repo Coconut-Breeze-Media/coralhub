@@ -4,7 +4,7 @@
  * Displays detailed information about a group and its activity feed
  */
 
-import { View, Text, ScrollView, ActivityIndicator, RefreshControl, Image, TouchableOpacity, TextInput, Alert, Modal, Linking, KeyboardAvoidingView, Platform, Keyboard } from 'react-native';
+import { View, Text, ScrollView, ActivityIndicator, RefreshControl, Image, TouchableOpacity, TextInput, Alert, Modal, KeyboardAvoidingView, Platform, Keyboard } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../lib/auth';
 import { uploadImage } from '../../lib/api';
@@ -38,15 +38,6 @@ const STATUS_COLORS: Record<string, { bg: string; text: string; icon: string }> 
   public: { bg: '#dcfce7', text: '#15803d', icon: 'earth-outline' },
   private: { bg: '#fef3c7', text: '#a16207', icon: 'lock-closed-outline' },
   hidden: { bg: '#f3f4f6', text: '#4b5563', icon: 'eye-off-outline' },
-};
-
-// Activity type icons
-const ACTIVITY_TYPE_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
-  'activity_update': 'chatbox-outline',
-  'activity_comment': 'chatbubble-outline',
-  'new_member': 'person-add-outline',
-  'joined_group': 'people-outline',
-  'created_group': 'add-circle-outline',
 };
 
 export default function GroupDetailScreen() {
@@ -175,16 +166,6 @@ export default function GroupDetailScreen() {
     if (group) {
     }
   }, [group]);
-
-  // Log activity data when loaded
-  useEffect(() => {
-    if (activityData) {
-      if (activityData.activities && activityData.activities.length > 0) {
-        const first = activityData.activities[0];
-      } else {
-      }
-    }
-  }, [activityData]);
 
 
   const onRefresh = async () => {
@@ -403,11 +384,6 @@ export default function GroupDetailScreen() {
     );
   };
 
-  const formatMemberCount = (count: number) => {
-    if (count === 1) return '1 member';
-    return `${count.toLocaleString()} members`;
-  };
-
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
     const now = new Date();
@@ -432,10 +408,6 @@ export default function GroupDetailScreen() {
 
   const getStatusConfig = (status: string) => {
     return STATUS_COLORS[status] || STATUS_COLORS.public;
-  };
-
-  const getActivityIcon = (type: string): keyof typeof Ionicons.glyphMap => {
-    return ACTIVITY_TYPE_ICONS[type] || 'ellipse-outline';
   };
 
   // Decodes both named (&amp;, &#8217;, ...) and numeric (&#123;, &#x7B;)
