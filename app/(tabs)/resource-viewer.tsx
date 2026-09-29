@@ -27,10 +27,11 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Stack, useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useNavigation } from 'expo-router';
+import { brandHeaderTitle } from '../../components/AppHeader';
 import { WebView, type WebViewNavigation } from 'react-native-webview';
-import { useAuth } from '../lib/auth';
-import { getAppLoginLink } from '../lib/api';
+import { useAuth } from '../../lib/auth';
+import { getAppLoginLink } from '../../lib/api';
 
 const PRIMARY = '#0077b6';
 const MUTED = '#6b7280';
@@ -134,12 +135,14 @@ export default function ResourceViewerScreen() {
     return false;
   }, []);
 
+  const navigation = useNavigation();
   const headerTitle = title || 'Resource';
+  useEffect(() => {
+    navigation.setOptions({ headerTitle: brandHeaderTitle(headerTitle) });
+  }, [navigation, headerTitle]);
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
-      <Stack.Screen options={{ headerTitle, headerShown: true }} />
-
       {preparing || !entryUrl ? (
         failed ? (
           <ErrorState onRetry={resolveEntry} message="This resource is unavailable." />

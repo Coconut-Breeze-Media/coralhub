@@ -1,5 +1,6 @@
 // hooks/useActivity.ts
 import { useMutation, useQuery, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
+import type { QueryClient, InfiniteData } from '@tanstack/react-query';
 import {
   getActivityFeed,
   getActivityById,
@@ -48,8 +49,14 @@ export function useActivityFeed(
       });
     },
     enabled: !!token && enabled,
-    staleTime: 2 * 60 * 1000,
+    // Keep the feed close to the website: short stale window + periodic polling
+    // while the app is foregrounded, plus a refresh whenever the screen mounts.
+    staleTime: 30 * 1000,
     gcTime: 10 * 60 * 1000,
+    refetchInterval: 30 * 1000,
+    refetchIntervalInBackground: false,
+    refetchOnMount: 'always',
+    refetchOnReconnect: true,
     refetchOnWindowFocus: false,
     initialPageParam: 1,
     getNextPageParam: (lastPage, allPages) => {
@@ -61,6 +68,45 @@ export function useActivityFeed(
       return undefined; // No more pages
     },
   });
+}
+
+
+/**
+ * Remove an activity from every cached feed after the server reports it no
+ * longer exists (404). Covers the infinite News Feed / My Posts queries and the
+ * per-group activity queries so the UI drops the post without a full refetch.
+ */
+export function removeActivityFromCache(queryClient: QueryClient, activityId: number) {
+  queryClient.setQueriesData<InfiniteData<ActivityFeedResponse>>(
+    { queryKey: ['activity', 'feed'] },
+    (old) => {
+      if (!old || !Array.isArray(old.pages)) return old;
+      let changed = false;
+      const pages = old.pages.map((page) => {
+        if (!page || !Array.isArray(page.activities)) return page;
+        const activities = page.activities.filter((a) => a.id !== activityId);
+        if (activities.length !== page.activities.length) changed = true;
+        return { ...page, activities };
+      });
+      return changed ? { ...old, pages } : old;
+    }
+  );
+
+  queryClient.setQueriesData<ActivityFeedResponse>(
+    { queryKey: ['groups', 'activity'] },
+    (old) => {
+      if (!old || !Array.isArray(old.activities)) return old;
+      const activities = old.activities.filter((a) => a.id !== activityId);
+      return activities.length === old.activities.length ? old : { ...old, activities };
+    }
+  );
+
+  queryClient.removeQueries({ queryKey: ['activity', 'detail', activityId] });
+}
+
+/** True when an API error means the post was deleted on the server. */
+function isNotFoundError(error: unknown): boolean {
+  return (error as { status?: number } | null)?.status === 404;
 }
 
 /**
@@ -122,6 +168,12 @@ export function useLikePost(token: string | null) {
       // Invalidate activity queries to update the UI
       queryClient.invalidateQueries({ queryKey: ['activity'] });
     },
+    onError: (error, { activityId }) => {
+      if (isNotFoundError(error)) {
+        removeActivityFromCache(queryClient, activityId);
+        queryClient.invalidateQueries({ queryKey: ['activity'] });
+      }
+    },
   });
 }
 
@@ -147,6 +199,12 @@ export function useSharePost(token: string | null) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['activity'] });
+    },
+    onError: (error, { activityId }) => {
+      if (isNotFoundError(error)) {
+        removeActivityFromCache(queryClient, activityId);
+        queryClient.invalidateQueries({ queryKey: ['activity'] });
+      }
     },
   });
 }
@@ -176,6 +234,14 @@ export function useDeletePost(token: string | null) {
       queryClient.invalidateQueries({ queryKey: ['activity'] });
       queryClient.removeQueries({ queryKey: ['comments', activityId] });
     },
+    onError: (error, activityId) => {
+      if (isNotFoundError(error)) {
+        // Already gone on the server — drop it locally too.
+        removeActivityFromCache(queryClient, activityId);
+        queryClient.removeQueries({ queryKey: ['comments', activityId] });
+        queryClient.invalidateQueries({ queryKey: ['activity'] });
+      }
+    },
   });
 }
 
@@ -204,6 +270,12 @@ export function useUpdatePost(token: string | null) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['activity'] });
     },
+    onError: (error, { activityId }) => {
+      if (isNotFoundError(error)) {
+        removeActivityFromCache(queryClient, activityId);
+        queryClient.invalidateQueries({ queryKey: ['activity'] });
+      }
+    },
   });
 }
 
@@ -222,6 +294,11 @@ export function usePostComments(token: string | null, postId: number | null) {
     enabled: !!token && !!postId,
     staleTime: 60 * 1000,
     gcTime: 5 * 60 * 1000,
+    // A 404 means the post was removed on the website — no point retrying.
+    retry: (count, error: any) => {
+      if (error?.status === 404) return false;
+      return count < 1;
+    },
   });
 }
 

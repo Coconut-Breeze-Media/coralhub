@@ -5,22 +5,22 @@
  */
 
 import { View, Text, ScrollView, ActivityIndicator, RefreshControl, Image, TouchableOpacity, TextInput, Alert, Modal, Linking, KeyboardAvoidingView, Platform } from 'react-native';
-import CommentsModal from '../components/CommentsModal';
+import CommentsModal from '../../components/CommentsModal';
 import { Ionicons } from '@expo/vector-icons';
-import { useAuth } from '../lib/auth';
-import { uploadImage } from '../lib/api';
+import { useAuth } from '../../lib/auth';
+import { uploadImage } from '../../lib/api';
 import {
   useGroup, useGroupActivity, useGroupMembers,
   useJoinGroup, useLeaveGroup,
   useRequestMembership, useMyMembershipRequest,
   useGroupMembershipRequests, useAcceptMembershipRequest, useRejectMembershipRequest,
-} from '../hooks/useGroups';
-import { useMember } from '../hooks/useMembers';
-import { useCreateGroupPost, useLikePost, useUpdatePost, useDeletePost } from '../hooks/useActivity';
-import ShareButton from '../components/ShareButton';
-import BackButton from '../components/BackButton';
+} from '../../hooks/useGroups';
+import { useMember } from '../../hooks/useMembers';
+import { useCreateGroupPost, useLikePost, useUpdatePost, useDeletePost } from '../../hooks/useActivity';
+import ShareButton from '../../components/ShareButton';
 import { useState, useEffect, useRef } from 'react';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useNavigation } from 'expo-router';
+import { brandHeaderTitle } from '../../components/AppHeader';
 import * as ImagePicker from 'expo-image-picker';
 
 type TabType = 'home' | 'members' | 'media' | 'documents' | 'requests';
@@ -69,6 +69,12 @@ export default function GroupDetailScreen() {
   const groupId = params.id ? parseInt(params.id as string) : null;
   
   const { data: group, isLoading: loadingGroup, refetch: refetchGroup } = useGroup(token, groupId);
+
+  const navigation = useNavigation();
+  const groupTitle = loadingGroup ? 'Loading...' : group?.name || 'Group';
+  useEffect(() => {
+    navigation.setOptions({ headerTitle: brandHeaderTitle(groupTitle) });
+  }, [navigation, groupTitle]);
   const { data: activityData, isLoading: loadingActivity, refetch: refetchActivity } = useGroupActivity(token, groupId);
   const { data: members, isLoading: loadingMembers, error: membersError, refetch: refetchMembers } = useGroupMembers(token, groupId);
   // 403 = private group, non-member — API intentionally denies access. Treat as "not a member, done loading".
@@ -323,25 +329,6 @@ export default function GroupDetailScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: '#f9fafb' }}>
-      {/* Header with Back Button */}
-      <View
-        style={{
-          backgroundColor: '#fff',
-          borderBottomWidth: 1,
-          borderBottomColor: '#e5e7eb',
-          paddingHorizontal: 16,
-          paddingTop: 60,
-          paddingBottom: 16,
-        }}
-      >
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-          <BackButton />
-          <Text style={{ fontSize: 20, fontWeight: '700', color: '#1f2937', flex: 1 }} numberOfLines={1}>
-            {loadingGroup ? 'Loading...' : group?.name || 'Group'}
-          </Text>
-        </View>
-      </View>
-
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -1439,8 +1426,8 @@ function MembershipRequestCard({
   request: { id: number; user_id: number; group_id: number; status: string; date_modified: string };
   token: string | null;
   groupId: number;
-  acceptMutation: ReturnType<typeof import('../hooks/useGroups').useAcceptMembershipRequest>;
-  rejectMutation: ReturnType<typeof import('../hooks/useGroups').useRejectMembershipRequest>;
+  acceptMutation: ReturnType<typeof import('../../hooks/useGroups').useAcceptMembershipRequest>;
+  rejectMutation: ReturnType<typeof import('../../hooks/useGroups').useRejectMembershipRequest>;
 }) {
   const { data: member } = useMember(token, request.user_id);
   const avatarUrl = member?.avatar_urls?.thumb || member?.avatar_urls?.full;

@@ -362,6 +362,7 @@ export async function getMembers(
   if (options?.search) params.set('search', options.search);
   params.set('page', String(options?.page ?? 1));
   params.set('per_page', String(options?.perPage ?? 20));
+  params.set('type', 'active');
   params.set('populate_extras', 'true');
   return authedFetch<BPMember[]>(`/buddypress/v1/members?${params}`, token);
 }
@@ -590,12 +591,33 @@ export async function getUserActivity(
  */
 export async function getFriendshipRelationships(
   userId: number,
-  token: string
+  token: string,
+  confirmed: 0 | 1 = 1
 ): Promise<import('../types').BPFriendship[]> {
-  return authedFetch<import('../types').BPFriendship[]>(
-    `/buddypress/v1/friends?user_id=${userId}&is_confirmed=1`,
-    token
-  );
+  // BuddyPress defaults to 10 per page, so fetch every page (100 per page).
+  const perPage = 100;
+  const all: import('../types').BPFriendship[] = [];
+  let totalPages = 1;
+  for (let page = 1; page <= totalPages && page <= 50; page++) {
+    const res = await fetchWithTimeout(
+      `${API}/buddypress/v1/friends?user_id=${userId}&is_confirmed=${confirmed}&per_page=${perPage}&page=${page}`,
+      {
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      }
+    );
+    await assertOk(res);
+    const batch = (await res.json()) as import('../types').BPFriendship[];
+    all.push(...batch);
+    const headerPages = parseInt(res.headers.get('X-WP-TotalPages') || '', 10);
+    if (Number.isFinite(headerPages) && headerPages > 0) {
+      totalPages = headerPages;
+    } else if (batch.length >= perPage) {
+      totalPages = page + 1;
+    } else {
+      break;
+    }
+  }
+  return all;
 }
 
 /**
@@ -628,11 +650,12 @@ export async function getFriendsList(
   // accept user_id as a friendship filter, so request the related member IDs.
   let validMembers: import('../types').BPMember[] = [];
 
-  if (friendIds.length > 0) {
+  for (let i = 0; i < friendIds.length; i += 100) {
+    const chunk = friendIds.slice(i, i + 100);
     const params = new URLSearchParams({
-      include: friendIds.join(','),
+      include: chunk.join(','),
       populate_extras: 'true',
-      per_page: String(friendIds.length),
+      per_page: String(chunk.length),
       page: '1',
     });
     const batchRes = await fetchWithTimeout(`${API}/buddypress/v1/members?${params.toString()}`, {
@@ -640,16 +663,14 @@ export async function getFriendsList(
     });
 
     if (batchRes.ok) {
-      validMembers = await batchRes.json();
+      validMembers = validMembers.concat(await batchRes.json());
     } else {
       const members = await Promise.all(
-        friendIds.map((friendId) =>
-          getMemberById(friendId, token).catch((error) => {
-            return null;
-          })
-        )
+        chunk.map((friendId) => getMemberById(friendId, token).catch(() => null))
       );
-      validMembers = members.filter((member): member is import('../types').BPMember => !!member);
+      validMembers = validMembers.concat(
+        members.filter((member): member is import('../types').BPMember => !!member)
+      );
     }
   }
 
@@ -726,11 +747,7 @@ export async function getPendingFriendRequests(
   userId: number,
   token: string
 ): Promise<import('../types').BPFriendship[]> {
-  const result = await authedFetch<import('../types').BPFriendship[]>(
-    `/buddypress/v1/friends?user_id=${userId}&is_confirmed=0`,
-    token
-  );
-  return result;
+  return getFriendshipRelationships(userId, token, 0);
 }
 
 /**
@@ -804,6 +821,22 @@ export async function sendFriendRequest(
   friendId: number,
   token: string
 ): Promise<import('../types').BPFriendship> {
+  // Prefer the Coral endpoint (also guarantees the recipient's website
+  // notification); fall back to the BuddyPress REST route if unavailable.
+  const coralRes = await fetchWithTimeout(`${API}/coral/v1/users/${friendId}/friend-request`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+  });
+  if (coralRes.ok) {
+    return coralRes.json();
+  }
+  if (coralRes.status !== 404 && coralRes.status !== 405) {
+    await assertOk(coralRes);
+  }
+
   const res = await fetchWithTimeout(`${API}/buddypress/v1/friends`, {
     method: 'POST',
     headers: {
@@ -1748,5 +1781,45 @@ export async function deleteConversation(
       deleted: true,
       raw,
     };
+  }
+}
+
+// ---------- password reset ----------
+/**
+ * Ask the site to email a password reset link.
+ * Backed by POST /coral/v1/auth/lost-password (coral-social-api plugin).
+ * Always resolves with a generic message when the endpoint exists; throws
+ * ApiError otherwise (404 = plugin endpoint not deployed, 429 = rate limited).
+ */
+export async function requestPasswordReset(
+  userLogin: string
+): Promise<{ success: boolean; message: string }> {
+  const res = await fetchWithTimeout(`${API}/coral/v1/auth/lost-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_login: userLogin }),
+  });
+  await assertOk(res);
+  return res.json();
+}
+
+// ---------- member public profile ----------
+/**
+ * Get a member with extended profile (xprofile) data populated.
+ * GET /buddypress/v1/members/{id}?populate_extras=true
+ */
+export async function getMemberProfile(userId: number, token: string): Promise<BPMember> {
+  return authedFetch<BPMember>(`/buddypress/v1/members/${userId}?populate_extras=true`, token);
+}
+
+/**
+ * Get a member's cover image URL, or null when none is set / endpoint 404s.
+ */
+export async function getMemberCoverOrNull(userId: number, token: string): Promise<string | null> {
+  try {
+    const cover = await getUserCover(userId, token);
+    return cover.image || null;
+  } catch {
+    return null;
   }
 }

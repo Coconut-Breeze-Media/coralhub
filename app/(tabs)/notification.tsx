@@ -3,19 +3,19 @@ import {
   ActivityIndicator,
   Image,
   Pressable,
-  SafeAreaView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useAuth } from '../lib/auth';
-import { useFriendsList, useMe, usePendingFriendRequests } from '../hooks/useQueries';
-import { usePrefetchMembers } from '../hooks/useMembers';
-import { useConversations } from '../hooks/useMessages';
-import { getUnreadMessageNotifications } from '../lib/messageNotifications';
-import type { BPFriendship } from '../types';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useAuth } from '../../lib/auth';
+import { useFriendsList, useMe, usePendingFriendRequests } from '../../hooks/useQueries';
+import { usePrefetchMembers } from '../../hooks/useMembers';
+import { useConversations } from '../../hooks/useMessages';
+import { getUnreadMessageNotifications } from '../../lib/messageNotifications';
+import type { BPFriendship } from '../../types';
 
 type AppNotification =
   | {
@@ -55,7 +55,7 @@ export default function NotificationsScreen() {
     error: requestsError,
   } = usePendingFriendRequests(userId);
 
-  const { data: friendsData, isLoading: isLoadingFriends } = useFriendsList(userId, 1, 200);
+  const { data: friendsData, isLoading: isLoadingFriends } = useFriendsList(userId, 1, 1000);
   const {
     data: conversationsData,
     isLoading: isLoadingMessages,
@@ -125,7 +125,7 @@ export default function NotificationsScreen() {
       (isLoadingRequests || isLoadingMembers || isLoadingFriends || isLoadingMessages));
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['bottom']}>
       {isLoading ? (
         <View style={styles.centerContainer}>
           <ActivityIndicator size="large" color="#0066cc" />
@@ -155,8 +155,8 @@ export default function NotificationsScreen() {
                       </View>
                     )}
                     <View style={styles.cardContent}>
-                      <Text style={styles.cardTitle}>Friend request</Text>
-                      <Text style={styles.cardDescription}>{notification.userName} sent you a friend request</Text>
+                      <Text style={styles.cardTitle}>Connection request</Text>
+                      <Text style={styles.cardDescription}>{notification.userName} sent you a connection request</Text>
                       <Text style={styles.cardDate}>{formatDate(notification.createdAt)}</Text>
                     </View>
                   </View>

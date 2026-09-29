@@ -191,14 +191,14 @@ if (!function_exists('coral_resource_titles')) {
   function coral_resource_titles() {
     return apply_filters('coral_resource_titles', [
       'opportunities'          => 'Opportunities',
-      'courses'                => 'Courses',
+      'courses'                => 'Training Courses',
       'mentorships'            => 'Mentorships',
       'document_library'       => 'Document Library',
       'coral_matters'          => 'Coral Matters',
       'essays_articles'        => 'Essays and Articles',
       'masterclasses'          => 'Masterclasses',
       'internships'            => 'Internships',
-      'partnerships_discounts' => 'Partnerships & Discounts',
+      'partnerships_discounts' => 'Partnerships and Discounts',
       'historical_archive'     => 'Historical Archive',
       'corr_grants'            => 'CoRR Grants',
       'institutional_area'     => 'Institutional Area',

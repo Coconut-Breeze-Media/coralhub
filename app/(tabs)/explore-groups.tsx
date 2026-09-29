@@ -13,10 +13,9 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useAuth } from '../lib/auth';
-import { useAllGroups } from '../hooks/useGroups';
-import BackButton from '../components/BackButton';
-import type { BPGroup } from '../types';
+import { useAuth } from '../../lib/auth';
+import { useAllGroups } from '../../hooks/useGroups';
+import type { BPGroup } from '../../types';
 
 const STATUS_COLORS: Record<string, { bg: string; text: string; icon: string }> = {
   public: { bg: '#dcfce7', text: '#15803d', icon: 'earth-outline' },
@@ -120,10 +119,6 @@ export default function ExploreGroupsScreen() {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <View style={styles.headerRow}>
-          <BackButton />
-          <Text style={styles.headerTitle}>Explore Groups</Text>
-        </View>
         {/* Search */}
         <View style={styles.searchBox}>
           <Ionicons name="search-outline" size={16} color="#9ca3af" style={{ marginRight: 8 }} />
@@ -182,12 +177,10 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#e5e7eb',
     paddingHorizontal: 16,
-    paddingTop: 60,
+    paddingTop: 12,
     paddingBottom: 12,
     gap: 12,
   },
-  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  headerTitle: { fontSize: 20, fontWeight: '700', color: '#1f2937', flex: 1 },
   searchBox: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -239,7 +239,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Whether the current tier grants access to a given resource key.
   const canAccess = useCallback(
-    (resourceKey: string) => !!membership?.allowed_resources?.includes(resourceKey),
+    (resourceKey: string) => {
+      if (!membership) return false;
+      // Server list may be missing, empty, or stale (older plugin version):
+      // always union it with the client catalog for the known tier.
+      const server = membership.allowed_resources ?? [];
+      if (server.includes(resourceKey)) return true;
+      return allowedResourcesForTier(membership.tier ?? 'none').includes(resourceKey);
+    },
     [membership]
   );
 

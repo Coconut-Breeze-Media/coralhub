@@ -9,6 +9,7 @@ import { Pressable, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../lib/auth';
 import BackButton from '../../components/BackButton';
+import { brandHeaderTitle } from '../../components/AppHeader';
 import { useMe, usePendingFriendRequests, useFriendsList } from '../../hooks/useQueries';
 import { useConversations } from '../../hooks/useMessages';
 import { TAB_SCREENS, DEFAULT_HEADER_OPTIONS, ROUTES } from '../../constants/navigation';
@@ -23,7 +24,7 @@ function NotificationButton() {
   const { data: currentUser } = useMe();
   const userId = currentUser?.id ?? authUserId ?? undefined;
   const { data: pendingRequests } = usePendingFriendRequests(userId);
-  const { data: friendsData } = useFriendsList(userId, 1, 200);
+  const { data: friendsData } = useFriendsList(userId, 1, 1000);
   const { data: conversationsData } = useConversations(token);
 
   const currentUserId = Number(userId);
@@ -92,6 +93,7 @@ export default function TabsLayout() {
           name={tab.name}
           options={{
             title: tab.title,
+            headerTitle: brandHeaderTitle(tab.title),
             tabBarIcon: ({ color, size, focused }) => (
               <Ionicons 
                 name={focused ? tab.icon as any : tab.iconOutline as any} 
@@ -107,6 +109,7 @@ export default function TabsLayout() {
       options={{
         href: null,
         title: 'Conversation',
+        headerTitle: brandHeaderTitle('Conversation'),
         headerLeft: () => (
           <BackButton fallbackRoute={ROUTES.MESSAGES} useHistory={false} />
         ),
@@ -117,10 +120,102 @@ export default function TabsLayout() {
       options={{
         href: null,
         title: 'New Message',
+        headerTitle: brandHeaderTitle('New Message'),
         headerLeft: () => (
           <BackButton fallbackRoute={ROUTES.MESSAGES} useHistory={false} />
         ),
       }}
     />
-      </Tabs>);
+      <Tabs.Screen
+        name="notification"
+        options={{
+          href: null,
+          title: 'Notifications',
+          headerTitle: brandHeaderTitle('Notifications'),
+          headerLeft: () => <BackButton />,
+        }}
+      />
+      <Tabs.Screen
+        name="profile/settings"
+        options={{
+          href: null,
+          title: 'Profile Settings',
+          headerTitle: brandHeaderTitle('Profile Settings'),
+          headerLeft: () => <BackButton fallbackRoute={ROUTES.PROFILE} />,
+        }}
+      />
+      <Tabs.Screen
+        name="profile/activity"
+        options={{
+          href: null,
+          title: 'Activity',
+          headerTitle: brandHeaderTitle('Activity'),
+          headerLeft: () => <BackButton fallbackRoute={ROUTES.PROFILE} />,
+        }}
+      />
+      <Tabs.Screen
+        name="profile/groups"
+        options={{
+          href: null,
+          title: 'Groups',
+          headerTitle: brandHeaderTitle('Groups'),
+          headerLeft: () => <BackButton fallbackRoute={ROUTES.PROFILE} />,
+        }}
+      />
+      <Tabs.Screen
+        name="profile/connections"
+        options={{
+          href: null,
+          title: 'Connections',
+          headerTitle: brandHeaderTitle('Connections'),
+          headerLeft: () => <BackButton fallbackRoute={ROUTES.PROFILE} />,
+        }}
+      />
+      <Tabs.Screen
+        name="profile/credits"
+        options={{
+          href: null,
+          title: 'Credits',
+          headerTitle: brandHeaderTitle('Credits'),
+          headerLeft: () => <BackButton fallbackRoute={ROUTES.PROFILE} />,
+        }}
+      />
+      <Tabs.Screen
+        name="group-detail"
+        options={{
+          href: null,
+          title: 'Group',
+          headerTitle: brandHeaderTitle('Group'),
+          headerLeft: () => <BackButton fallbackRoute={ROUTES.NETWORKING} />,
+        }}
+      />
+      <Tabs.Screen
+        name="explore-groups"
+        options={{
+          href: null,
+          title: 'Explore Groups',
+          headerTitle: brandHeaderTitle('Explore Groups'),
+          headerLeft: () => <BackButton fallbackRoute={ROUTES.NETWORKING} />,
+        }}
+      />
+      <Tabs.Screen
+        name="resource-viewer"
+        options={{
+          href: null,
+          title: 'Resource',
+          headerTitle: brandHeaderTitle('Resource'),
+          headerLeft: () => <BackButton fallbackRoute={ROUTES.RESOURCES} />,
+        }}
+      />
+      <Tabs.Screen
+        name="member/[id]"
+        options={{
+          href: null,
+          title: 'Member',
+          headerTitle: brandHeaderTitle('Member'),
+          headerLeft: () => <BackButton fallbackRoute={ROUTES.NETWORKING} />,
+        }}
+      />
+    </Tabs>
+  );
 }

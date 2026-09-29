@@ -32,7 +32,7 @@ export function useMembersList(
   options?: { search?: string; page?: number; perPage?: number }
 ) {
   return useQuery({
-    queryKey: ['members', 'list', options?.search ?? '', options?.page ?? 1] as const,
+    queryKey: ['members', 'list', options?.search ?? '', options?.page ?? 1, options?.perPage ?? 20] as const,
     queryFn: () => {
       if (!token) throw new Error('No authentication token');
       return getMembers(token, options);

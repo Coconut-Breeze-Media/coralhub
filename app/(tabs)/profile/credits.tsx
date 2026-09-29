@@ -7,7 +7,6 @@
 
 import { View, Text, ScrollView, Pressable, Linking } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import BackButton from '../../components/BackButton';
 
 const COCONUT_DIVE_MANAGE_URL = 'https://divemanage.com';
 const COCONUT_BREEZE_MEDIA_URL = 'https://coconutbreezemedia.com';
@@ -56,25 +55,6 @@ function LinkButton({
 export default function CreditsScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: '#f9fafb' }}>
-      {/* Header */}
-      <View
-        style={{
-          backgroundColor: '#fff',
-          borderBottomWidth: 1,
-          borderBottomColor: '#e5e7eb',
-          paddingHorizontal: 16,
-          paddingTop: 60,
-          paddingBottom: 16,
-        }}
-      >
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-          <BackButton />
-          <Text style={{ fontSize: 20, fontWeight: '700', color: '#1f2937', flex: 1 }}>
-            Credits
-          </Text>
-        </View>
-      </View>
-
       {/* Content */}
       <ScrollView contentContainerStyle={{ padding: 16 }}>
         <View

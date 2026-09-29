@@ -91,6 +91,7 @@ class Coral_Social_API {
         require_once CORAL_SOCIAL_API_PLUGIN_DIR . 'includes/class-posts-endpoint.php';
         require_once CORAL_SOCIAL_API_PLUGIN_DIR . 'includes/class-users-endpoint.php';
         require_once CORAL_SOCIAL_API_PLUGIN_DIR . 'includes/class-mentions-endpoint.php';
+        require_once CORAL_SOCIAL_API_PLUGIN_DIR . 'includes/class-auth-endpoint.php';
     }
     
     public function check_dependencies() {
@@ -138,6 +139,10 @@ class Coral_Social_API {
         // Register mentions routes
         $mentions_endpoint = new Coral_Mentions_Endpoint();
         $mentions_endpoint->register_routes();
+        
+        // Register auth routes (public: lost password)
+        $auth_endpoint = new Coral_Auth_Endpoint();
+        $auth_endpoint->register_routes();
     }
 }
 

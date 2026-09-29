@@ -6,8 +6,7 @@
 
 import { View, Text, ScrollView, ActivityIndicator, RefreshControl } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useCurrentMember, useUserActivity } from '../../hooks';
-import BackButton from '../../components/BackButton';
+import { useCurrentMember, useUserActivity } from '../../../hooks';
 import { useState } from 'react';
 
 // Activity type labels for better display
@@ -82,25 +81,6 @@ export default function ActivityScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: '#f9fafb' }}>
-      {/* Header */}
-      <View
-        style={{
-          backgroundColor: '#fff',
-          borderBottomWidth: 1,
-          borderBottomColor: '#e5e7eb',
-          paddingHorizontal: 16,
-          paddingTop: 60,
-          paddingBottom: 16,
-        }}
-      >
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-          <BackButton />
-          <Text style={{ fontSize: 20, fontWeight: '700', color: '#1f2937', flex: 1 }}>
-            Activity
-          </Text>
-        </View>
-      </View>
-
       {/* Content */}
       <ScrollView
         contentContainerStyle={{ padding: 16 }}

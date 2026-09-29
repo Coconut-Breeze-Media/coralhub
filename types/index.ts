@@ -686,3 +686,14 @@ export type ActivityQueryKey =
   | ['activity', 'detail', number];
 
 export type QueryKey = AuthQueryKey | PostsQueryKey | MembershipQueryKey | ProfileQueryKey | FriendsQueryKey | ActivityQueryKey;
+
+// ============================================
+// Member public profile (normalized xprofile)
+// ============================================
+
+export interface NormalizedXProfileField {
+  id: number;
+  name: string;
+  value: string;
+  group?: string;
+}

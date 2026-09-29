@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
   NativeSyntheticEvent,
@@ -14,9 +14,9 @@ import {
 } from 'react-native';
 
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router, Stack } from 'expo-router';
+import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '../../../lib/auth';
-import { useMembersList } from '../../../hooks/useMembers';
+import { useMember, useMembersList } from '../../../hooks/useMembers';
 import {
   useConversations,
   useReplyToThread,
@@ -143,6 +143,10 @@ function shouldSendOnEnterPress(event: ComposerKeyPressEvent): boolean {
 export default function NewMessageScreen() {
   const { token, userId, profile } = useAuth();
   const { height: viewportHeight } = useWindowDimensions();
+  // Optional recipient handed over from a member profile ("Message" button).
+  const params = useLocalSearchParams<{ userId?: string }>();
+  const preselectedId = toNumberOrNull(params.userId);
+  const { data: preselectedMember } = useMember(token, preselectedId);
 
   const [search, setSearch] = useState('');
   const [selectedMember, setSelectedMember] = useState<BPMember | null>(null);
@@ -152,6 +156,10 @@ export default function NewMessageScreen() {
     end: 0,
   });
   const [requestedSelection, setRequestedSelection] = useState<ComposerSelection | undefined>();
+  useEffect(() => {
+    if (preselectedMember && !selectedMember) setSelectedMember(preselectedMember);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preselectedMember]);
   const composerInputRef = useRef<TextInput | null>(null);
   const sendMessageMutation = useSendMessage(token);
   const replyToThreadMutation = useReplyToThread(token);

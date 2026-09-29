@@ -34,7 +34,7 @@ export default function WelcomeScreen() {
         {/* Logo */}
         <Image
           source={require('../assets/icon.png')}
-          style={{ width: 120, height: 120, resizeMode: 'contain' }}
+          style={{ width: 120, height: 120, borderRadius: 28, resizeMode: 'cover' }}
         />
 
         {/* Site title */}

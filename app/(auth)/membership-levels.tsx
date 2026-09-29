@@ -72,6 +72,69 @@ const defaultBenefitsFor = (levelName: string): string[] => {
   return [];
 };
 
+
+const decodeEntities = (t: string) =>
+  t
+    .replace(/&nbsp;|&#160;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&#8217;|&rsquo;/gi, "'")
+    .replace(/&quot;/gi, '"');
+
+const BULLET_RE = /^\s*(?:[•·▪◦●✓✔☑*\-–—]|\d+[.)])\s*/;
+
+/**
+ * Split a level description into { intro, items }.
+ * Server shape: intro paragraph(s), blank lines, then feature lines that are
+ * indented with tab/space (PMPro list markup stripped) or bulleted.
+ * Rule: a line is a feature item if it is indented (leading tab/space, when
+ * the description has a non-indented first paragraph) or starts with a bullet
+ * marker; "a; b; c" lines become several items. A first short un-indented,
+ * un-punctuated line block with no indented lines falls back to items too.
+ * Everything else (sentences) stays as intro.
+ */
+export function parseDescription(raw?: string): { intro: string; items: string[] } {
+  if (!raw) return { intro: '', items: [] };
+  const text = decodeEntities(raw.replace(/<\/?(?:p|li|ul|ol|br)[^>]*>/gi, '\n').replace(/<[^>]+>/g, ''));
+  const lines = text.split(/\r\n|\r|\n/).filter((l) => l.trim() !== '');
+  const intro: string[] = [];
+  const items: string[] = [];
+  const pushItem = (t: string) => {
+    t.split(/\s*;\s*/).map((x) => x.trim()).filter(Boolean).forEach((x) => items.push(x));
+  };
+  let seenIntro = false;
+  const isSentence = (t: string) => /[.:!?]$/.test(t.trim()) && t.trim().length > 40;
+  for (const line of lines) {
+    const indented = /^[\t ]/.test(line);
+    const bullet = BULLET_RE.test(line);
+    const t = line.replace(BULLET_RE, '').trim();
+    if (!t) continue;
+    if (bullet || (indented && seenIntro) || (indented && intro.length === 0 && items.length > 0)) {
+      pushItem(t);
+    } else if (!isSentence(t) && (seenIntro || lines.length > 1) && t.length <= 60 && intro.length > 0 && !/[.:!?]$/.test(t)) {
+      pushItem(t);
+    } else {
+      intro.push(t);
+      seenIntro = true;
+    }
+  }
+  return { intro: intro.join('\n\n'), items };
+}
+
+const mergeUnique = (...lists: string[][]) => {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const list of lists) {
+    for (const item of list) {
+      const k = item.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+      if (k && !seen.has(k)) {
+        seen.add(k);
+        out.push(item);
+      }
+    }
+  }
+  return out;
+};
+
 // Optional: mark a plan as “featured” (adds a small badge & subtle border)
 const isFeatured = (lvl: MembershipLevel) =>
   /^annual/i.test(lvl.name) || /^institutional/i.test(lvl.name);
@@ -83,10 +146,12 @@ function LevelCard({
   level: MembershipLevel;
   onSelect: (url: string) => void;
 }) {
-  const benefits =
-    (level.benefits && level.benefits.length > 0
-      ? level.benefits
-      : defaultBenefitsFor(level.name));
+  const parsed = parseDescription(level.description);
+  const benefits = mergeUnique(
+    level.benefits ?? [],
+    parsed.items,
+    (level.benefits?.length ?? 0) + parsed.items.length === 0 ? defaultBenefitsFor(level.name) : []
+  );
 
   const featured = isFeatured(level);
 
@@ -139,9 +204,9 @@ function LevelCard({
       </View>
 
       {/* Description */}
-      {!!level.description && (
+      {!!parsed.intro && (
         <Text style={{ color: '#374151', lineHeight: 20, marginBottom: benefits.length ? 12 : 16 }}>
-          {level.description}
+          {parsed.intro}
         </Text>
       )}
 

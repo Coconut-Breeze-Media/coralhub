@@ -237,10 +237,12 @@ export default function CommentsModal({
   const [editingComment, setEditingComment] = useState<FlatComment | null>(null);
   const [editText, setEditText] = useState('');
 
-  const { data: comments, isLoading, refetch } = usePostComments(
+  const { data: comments, isLoading, error: commentsError, refetch } = usePostComments(
     token,
     visible ? postId : null
   );
+  // The post was deleted on the website — show a friendly notice instead of the list.
+  const isPostGone = (commentsError as { status?: number } | null)?.status === 404;
   const createCommentMutation = useCreateComment(token);
   const updateCommentMutation = useUpdateComment(token);
 
@@ -319,6 +321,10 @@ export default function CommentsModal({
           {/* Comments list */}
           {isLoading ? (
             <ActivityIndicator style={styles.loader} color="#0e7490" />
+          ) : isPostGone ? (
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>This post is no longer available.</Text>
+            </View>
           ) : (
             <FlatList
               data={flatComments}
@@ -376,7 +382,7 @@ export default function CommentsModal({
             </View>
           ) : null}
 
-          {editingComment ? (
+          {isPostGone ? null : editingComment ? (
             <View style={styles.inputRow}>
               <TextInput
                 autoFocus

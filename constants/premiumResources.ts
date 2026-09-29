@@ -59,14 +59,14 @@ interface CatalogItem {
 /** Client-provided live URLs. Dashboard is intentionally excluded from the app. */
 export const PREMIUM_RESOURCE_CATALOG: ReadonlyArray<CatalogItem> = [
   { key: 'opportunities',          title: 'Opportunities',            url: `${WP}/career-opportunities/`,   minTier: 'monthly' },
-  { key: 'courses',                title: 'Courses',                  url: `${WP}/courses/`,                minTier: 'monthly' },
+  { key: 'courses',                title: 'Training Courses',         url: `${WP}/courses/`,                minTier: 'monthly' },
   { key: 'mentorships',            title: 'Mentorships',              url: `${WP}/mentorships/`,            minTier: 'annual' },
   { key: 'document_library',       title: 'Document Library',         url: `${WP}/document-library/`,       minTier: 'monthly' },
   { key: 'coral_matters',          title: 'Coral Matters',            url: `${WP}/coralmatters/`,           minTier: 'monthly' },
   { key: 'essays_articles',        title: 'Essays and Articles',      url: `${WP}/articles/`,               minTier: 'monthly' },
   { key: 'masterclasses',          title: 'Masterclasses',            url: `${WP}/masterclasses/`,          minTier: 'monthly' },
   { key: 'internships',            title: 'Internships',              url: `${WP}/internships/`,            minTier: 'monthly' },
-  { key: 'partnerships_discounts', title: 'Partnerships & Discounts', url: `${WP}/partners-and-discounts/`, minTier: 'monthly' },
+  { key: 'partnerships_discounts', title: 'Partnerships and Discounts', url: `${WP}/partners-and-discounts/`, minTier: 'monthly' },
   { key: 'historical_archive',     title: 'Historical Archive',       url: `${WP}/historical-archive/`,     minTier: 'monthly' },
   { key: 'corr_grants',            title: 'CoRR Grants',              url: `${WP}/research-grants/`,        minTier: 'annual' },
   { key: 'institutional_area',     title: 'Institutional Area',       url: `${WP}/institution-area/`,       minTier: 'institutional' },

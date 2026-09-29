@@ -1,5 +1,5 @@
 // app/(tabs)/index.tsx
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -16,16 +16,23 @@ import {
   Linking,
   Modal,
   Dimensions,
+  AppState,
+  type AppStateStatus,
+  type NativeSyntheticEvent,
+  type NativeScrollEvent,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { useAuth } from '../../lib/auth';
 import { uploadImage } from '../../lib/api';
 import RequireAuth from '../../components/RequireAuth';
 import CommentsModal from '../../components/CommentsModal';
 import MentionInput from '../../components/MentionInput';
 import ShareButton from '../../components/ShareButton';
+import ExpandableText from '../../components/ExpandableText';
+import ScrollToTopButton from '../../components/ScrollToTopButton';
+import FilterDropdown, { type FilterOption } from '../../components/FilterDropdown';
 import { 
   useActivityFeed, 
   useActivityById,
@@ -37,12 +44,28 @@ import {
 import { useMember } from '../../hooks/useMembers';
 import { useQueryClient } from '@tanstack/react-query';
 import { getMemberById } from '../../lib/api';
-import { useMe, useFriendsList } from '../../hooks/useQueries';
+import { useMe } from '../../hooks/useQueries';
 import { useMyGroups, useGroupActivity } from '../../hooks/useGroups';
 import { useEffect, useRef } from 'react';
 import type { BPActivity } from '../../types';
 
 type TabType = 'feed' | 'my-posts' | 'groups-feed';
+type FeedFilter = 'all' | 'friends';
+
+const FEED_FILTER_OPTIONS: FilterOption[] = [
+  { key: 'all', label: 'All posts' },
+  { key: 'friends', label: 'Posts by connections' },
+];
+
+/** Offset (px) past which the back-to-top button appears. */
+const SCROLL_TOP_THRESHOLD = 600;
+
+function isNotFound(error: unknown): boolean {
+  return (error as { status?: number } | null)?.status === 404;
+}
+
+const POST_UNAVAILABLE_TITLE = 'Post unavailable';
+const POST_UNAVAILABLE_MESSAGE = 'This post was removed on the website and is no longer available.';
 
 // Helper function to extract content text from BuddyPress API response
 function decodeHtmlEntities(text: string): string {
@@ -373,7 +396,7 @@ function PostItem({
       </View>
       
       {/* Post Content */}
-      {displayText ? <Text style={styles.postContent}>{displayText}</Text> : null}
+      {displayText ? <ExpandableText text={displayText} style={styles.postContent} /> : null}
       
       {/* Post Images */}
       {imageUrls.length > 0 && (
@@ -443,7 +466,9 @@ function PostItem({
                 </View>
               </View>
 
-              {sharedText ? <Text style={styles.sharedPostContent}>{sharedText}</Text> : null}
+              {sharedText ? (
+                <ExpandableText text={sharedText} style={styles.sharedPostContent} numberOfLines={3} />
+              ) : null}
 
               {sharedImageUrls.length > 0 ? (
                 <Image
@@ -601,11 +626,11 @@ function CommunityScreen() {
   const [activeTab, setActiveTab] = useState<TabType>('feed');
   const [postContent, setPostContent] = useState('');
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const [selectedFriendId, setSelectedFriendId] = useState<number | undefined>(undefined);
-  const [showFriendDropdown, setShowFriendDropdown] = useState(false);
+  const [feedFilter, setFeedFilter] = useState<FeedFilter>('all');
   const [selectedGroupId, setSelectedGroupId] = useState<number | undefined>(undefined);
-  const [showGroupDropdown, setShowGroupDropdown] = useState(false);
   const [selectedImages, setSelectedImages] = useState<string[]>([]);
+  const listRef = useRef<FlatList<BPActivity>>(null);
+  const [showScrollTop, setShowScrollTop] = useState(false);
   const [postLink, setPostLink] = useState('');
   const [isEditModalVisible, setIsEditModalVisible] = useState(false);
   const [editingPost, setEditingPost] = useState<BPActivity | null>(null);
@@ -616,14 +641,28 @@ function CommunityScreen() {
   // Get current user data
   const { data: currentUser } = useMe();
   const userId = currentUser?.id;
-  
-  // Fetch friends list
-  const { data: friendsData } = useFriendsList(userId, 1, 100);
-  const friends = friendsData?.friends || [];
-  
+
   // Fetch user's groups
   const { data: userGroups } = useMyGroups(token);
   const groups = useMemo(() => userGroups || [], [userGroups]);
+
+  const groupFilterOptions = useMemo<FilterOption[]>(
+    () => [
+      { key: 'all', label: 'All groups' },
+      ...groups.map((g) => ({
+        key: String(g.id),
+        label: g.name,
+        avatarUrl: g.avatar_urls?.thumb || undefined,
+        initial: g.name?.charAt(0) || undefined,
+      })),
+    ],
+    [groups]
+  );
+
+  // Hide the back-to-top button whenever the list content changes tab
+  useEffect(() => {
+    setShowScrollTop(false);
+  }, [activeTab]);
   
   // State to store posts from all groups
   const [allGroupsActivities, setAllGroupsActivities] = useState<BPActivity[]>([]);
@@ -682,9 +721,15 @@ function CommunityScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, selectedGroupId, groups, token]);
   
-  // Fetch feed based on active tab with infinite scroll
-  const scope = activeTab === 'groups-feed' ? 'groups' : undefined;
-  const filterUserId = activeTab === 'feed' ? selectedFriendId : (activeTab === 'my-posts' ? userId : undefined);
+  // Fetch feed based on active tab with infinite scroll.
+  // 'friends' scope is resolved server-side by BuddyPress, so no client friends list is needed.
+  const scope: 'friends' | 'groups' | undefined =
+    activeTab === 'groups-feed'
+      ? 'groups'
+      : activeTab === 'feed' && feedFilter === 'friends'
+      ? 'friends'
+      : undefined;
+  const filterUserId = activeTab === 'my-posts' ? userId : undefined;
   const { 
     data: feedData, 
     isLoading, 
@@ -751,7 +796,43 @@ function CommunityScreen() {
   const likePostMutation = useLikePost(token);
   const deletePostMutation = useDeletePost(token);
   const updatePostMutation = useUpdatePost(token);
-  
+
+  // Keep the feed in sync with the website: refresh whenever this screen gains
+  // focus and whenever the app returns to the foreground.
+  const isGroupFeedSelected = activeTab === 'groups-feed' && !!selectedGroupId;
+  useFocusEffect(
+    useCallback(() => {
+      if (!token) return;
+      if (isGroupFeedSelected) {
+        refetchGroupActivity();
+      } else {
+        refetch();
+      }
+    }, [token, isGroupFeedSelected, refetch, refetchGroupActivity])
+  );
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state: AppStateStatus) => {
+      if (state === 'active') {
+        queryClient.invalidateQueries({ queryKey: ['activity'] });
+        queryClient.invalidateQueries({ queryKey: ['groups', 'activity'] });
+      }
+    });
+    return () => subscription.remove();
+  }, [queryClient]);
+
+  const handleScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const y = e.nativeEvent.contentOffset.y;
+    setShowScrollTop((prev) => {
+      const next = y > SCROLL_TOP_THRESHOLD;
+      return next === prev ? prev : next;
+    });
+  }, []);
+
+  const handleScrollToTop = useCallback(() => {
+    listRef.current?.scrollToOffset({ offset: 0, animated: true });
+  }, []);
+
   const handleCreatePost = async () => {
     if (!postContent.trim() && selectedImages.length === 0 && !postLink.trim()) {
       Alert.alert('Error', 'Please add some content, images, or a link to your post');
@@ -847,7 +928,7 @@ function CommunityScreen() {
   };
   
   const handleTagFriend = () => {
-    Alert.alert('Tag Friend', 'Tag friend feature coming soon!');
+    Alert.alert('Tag Connection', 'Tag connection feature coming soon!');
   };
   
   const commonEmojis = ['😊', '😂', '❤️', '👍', '🎉', '🔥', '💯', '🙌'];
@@ -856,6 +937,10 @@ function CommunityScreen() {
     try {
       await likePostMutation.mutateAsync({ activityId, isLiked });
     } catch (error) {
+      if (isNotFound(error)) {
+        Alert.alert(POST_UNAVAILABLE_TITLE, POST_UNAVAILABLE_MESSAGE);
+        return;
+      }
       Alert.alert('Error', 'Failed to like post');
     }
   };
@@ -879,8 +964,12 @@ function CommunityScreen() {
       closeDeleteModal();
       Alert.alert('Success', 'Post deleted successfully!');
     } catch (error) {
-      Alert.alert('Error', 'Failed to delete post');
       closeDeleteModal();
+      if (isNotFound(error)) {
+        Alert.alert(POST_UNAVAILABLE_TITLE, POST_UNAVAILABLE_MESSAGE);
+        return;
+      }
+      Alert.alert('Error', 'Failed to delete post');
     }
   };
 
@@ -919,6 +1008,11 @@ function CommunityScreen() {
       closeEditModal();
       Alert.alert('Success', 'Post updated successfully!');
     } catch (error: any) {
+      if (isNotFound(error)) {
+        closeEditModal();
+        Alert.alert(POST_UNAVAILABLE_TITLE, POST_UNAVAILABLE_MESSAGE);
+        return;
+      }
       Alert.alert('Error', error?.message || 'Failed to update post');
     }
   };
@@ -1010,130 +1104,29 @@ function CommunityScreen() {
         </View>
       )}
 
-      {/* Friend Filter Dropdown - Only show in News Feed tab */}
+      {/* Feed Filter Dropdown - Only show in News Feed tab */}
       {activeTab === 'feed' && (
-        <View style={styles.filterContainer}>
-          <TouchableOpacity
-            style={styles.filterButton}
-            onPress={() => setShowFriendDropdown(!showFriendDropdown)}
-          >
-            <Text style={styles.filterButtonText}>
-              {selectedFriendId 
-                ? friends.find(f => f.id === selectedFriendId)?.name || 'Select Friend'
-                : 'Show posts by friend'}
-            </Text>
-            <Text style={styles.filterButtonIcon}>{showFriendDropdown ? '▲' : '▼'}</Text>
-          </TouchableOpacity>
-          
-          {showFriendDropdown && (
-            <View style={styles.dropdownMenu}>
-              <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
-                <TouchableOpacity
-                  style={[styles.dropdownItem, !selectedFriendId && styles.dropdownItemActive]}
-                  onPress={() => {
-                    setSelectedFriendId(undefined);
-                    setShowFriendDropdown(false);
-                  }}
-                >
-                  <Text style={[styles.dropdownItemText, !selectedFriendId && styles.dropdownItemTextActive]}>
-                    All Posts
-                  </Text>
-                </TouchableOpacity>
-                {friends.map((friend) => (
-                  <TouchableOpacity
-                    key={friend.id}
-                    style={[styles.dropdownItem, selectedFriendId === friend.id && styles.dropdownItemActive]}
-                    onPress={() => {
-                      setSelectedFriendId(friend.id);
-                      setShowFriendDropdown(false);
-                    }}
-                  >
-                    <View style={styles.dropdownItemContent}>
-                      {friend.avatar_urls?.thumb ? (
-                        <Image
-                          source={{ uri: friend.avatar_urls.thumb }}
-                          style={styles.dropdownAvatar}
-                        />
-                      ) : (
-                        <View style={[styles.dropdownAvatar, styles.dropdownAvatarPlaceholder]}>
-                          <Text style={styles.dropdownAvatarText}>
-                            {friend.name.charAt(0).toUpperCase()}
-                          </Text>
-                        </View>
-                      )}
-                      <Text style={[styles.dropdownItemText, selectedFriendId === friend.id && styles.dropdownItemTextActive]}>
-                        {friend.name}
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
-          )}
-        </View>
+        <FilterDropdown
+          testID="feed-filter"
+          options={FEED_FILTER_OPTIONS}
+          selectedKey={feedFilter}
+          onSelect={(key) => setFeedFilter(key === 'friends' ? 'friends' : 'all')}
+          placeholder="All posts"
+        />
       )}
-      
+
       {/* Group Filter Dropdown - Only show in Groups Feed tab */}
       {activeTab === 'groups-feed' && (
-        <View style={styles.filterContainer}>
-          <TouchableOpacity
-            style={styles.filterButton}
-            onPress={() => setShowGroupDropdown(!showGroupDropdown)}
-          >
-            <Text style={styles.filterButtonText}>
-              {selectedGroupId 
-                ? groups.find(g => g.id === selectedGroupId)?.name || 'Select Group'
-                : 'Show posts by group'}
-            </Text>
-            <Text style={styles.filterButtonIcon}>{showGroupDropdown ? '▲' : '▼'}</Text>
-          </TouchableOpacity>
-          
-          {showGroupDropdown && (
-            <View style={styles.dropdownMenu}>
-              <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
-                <TouchableOpacity
-                  style={[styles.dropdownItem, !selectedGroupId && styles.dropdownItemActive]}
-                  onPress={() => {
-                    setSelectedGroupId(undefined);
-                    setShowGroupDropdown(false);
-                  }}
-                >
-                  <Text style={[styles.dropdownItemText, !selectedGroupId && styles.dropdownItemTextActive]}>
-                    All Groups
-                  </Text>
-                </TouchableOpacity>
-                {groups.map((group) => (
-                  <TouchableOpacity
-                    key={group.id}
-                    style={[styles.dropdownItem, selectedGroupId === group.id && styles.dropdownItemActive]}
-                    onPress={() => {
-                      setSelectedGroupId(group.id);
-                      setShowGroupDropdown(false);
-                    }}
-                  >
-                    <View style={styles.dropdownItemContent}>
-                      {group.avatar_urls?.thumb ? (
-                        <Image
-                          source={{ uri: group.avatar_urls.thumb }}
-                          style={styles.dropdownAvatar}
-                        />
-                      ) : (
-                        <View style={[styles.dropdownAvatar, styles.dropdownAvatarPlaceholder]}>
-                          <Text style={styles.dropdownAvatarText}>
-                            {group.name.charAt(0).toUpperCase()}
-                          </Text>
-                        </View>
-                      )}
-                      <Text style={[styles.dropdownItemText, selectedGroupId === group.id && styles.dropdownItemTextActive]}>
-                        {group.name}
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
-          )}
-        </View>
+        <FilterDropdown
+          testID="group-filter"
+          options={groupFilterOptions}
+          selectedKey={selectedGroupId ? String(selectedGroupId) : 'all'}
+          onSelect={(key) => {
+            const id = Number(key);
+            setSelectedGroupId(key === 'all' || !Number.isFinite(id) ? undefined : id);
+          }}
+          placeholder="All groups"
+        />
       )}
       
       {/* Create Post Form - Only show in My Posts tab */}
@@ -1278,12 +1271,15 @@ function CommunityScreen() {
           <Text style={styles.loadingText}>Loading posts...</Text>
         </View>
       ) : (
-        <>
+        <View style={styles.feedWrapper}>
           <FlatList
+            ref={listRef}
             data={allActivities}
             keyExtractor={(item) => String(item.id)}
             renderItem={renderPost}
             contentContainerStyle={styles.feedContainer}
+            onScroll={handleScroll}
+            scrollEventThrottle={16}
             refreshControl={
               <RefreshControl 
                 refreshing={isRefetching || (activeTab === 'groups-feed' && selectedGroupId ? false : false)} 
@@ -1313,14 +1309,18 @@ function CommunityScreen() {
                   {activeTab === 'my-posts'
                     ? 'No posts yet.\nStart sharing your thoughts with the community!'
                     : activeTab === 'groups-feed'
-                    ? selectedGroupId 
+                    ? selectedGroupId
                       ? 'No posts in this group yet.'
                       : 'No posts from your groups.\nJoin groups to see their posts!'
+                    : feedFilter === 'friends'
+                    ? 'No posts from your connections yet.\nConnect with members to see their posts here!'
                     : 'No posts to show.\nCheck back later for updates!'}
                 </Text>
               </View>
             }
           />
+
+          <ScrollToTopButton visible={showScrollTop} onPress={handleScrollToTop} />
 
           <Modal
             visible={isEditModalVisible}
@@ -1415,7 +1415,7 @@ function CommunityScreen() {
               </View>
             </View>
           </Modal>
-        </>
+        </View>
       )}
     </SafeAreaView>
   );
@@ -1452,92 +1452,12 @@ const styles = StyleSheet.create({
     color: '#262626',
   },
   
-  // Friend Filter Dropdown Styles
-  filterContainer: {
-    backgroundColor: '#fff',
-    marginHorizontal: 12,
-    marginBottom: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#dbdbdb',
-    alignSelf: 'flex-start',
-    minWidth: 200,
-    maxWidth: '50%',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.1,
-        shadowRadius: 3,
-      },
-      android: {
-        elevation: 2,
-      },
-    }),
+  // Feed list wrapper — relative so the floating back-to-top button can anchor to it
+  feedWrapper: {
+    flex: 1,
+    position: 'relative',
   },
-  filterButton: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  filterButtonText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#262626',
-  },
-  filterButtonIcon: {
-    fontSize: 12,
-    color: '#8e8e8e',
-  },
-  dropdownMenu: {
-    borderTopWidth: 1,
-    borderTopColor: '#efefef',
-    maxHeight: 200,
-  },
-  dropdownScroll: {
-    maxHeight: 200,
-  },
-  dropdownItem: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#efefef',
-  },
-  dropdownItemActive: {
-    backgroundColor: '#f0f8ff',
-  },
-  dropdownItemContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  dropdownAvatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    overflow: 'hidden',
-  },
-  dropdownAvatarPlaceholder: {
-    backgroundColor: '#0095f6',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  dropdownAvatarText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  dropdownItemText: {
-    fontSize: 14,
-    color: '#262626',
-  },
-  dropdownItemTextActive: {
-    fontWeight: '600',
-    color: '#0095f6',
-  },
-  
+
   // Create Post Styles (Instagram-like)
   createPostContainer: {
     backgroundColor: '#fff',

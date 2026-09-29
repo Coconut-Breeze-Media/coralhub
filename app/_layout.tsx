@@ -9,6 +9,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from '../lib/auth';
 import { queryClient } from '../lib/queryClient';
 import BackButton from '../components/BackButton';
+import { brandHeaderTitle } from '../components/AppHeader';
 import { DEFAULT_HEADER_OPTIONS, SCREEN_TITLES } from '../constants/navigation';
 
 export default function RootLayout() {
@@ -35,87 +36,18 @@ export default function RootLayout() {
               headerShown: false,
             }}
           />
+          {/* Forgot password screen (renders its own back button) */}
+          <Stack.Screen
+            name="forgot-password"
+            options={{ headerShown: false }}
+          />
+
           {/* Membership levels screen with back button */}
           <Stack.Screen
             name="(auth)/membership-levels"
             options={{
               headerShown: true,
-              headerTitle: SCREEN_TITLES.MEMBERSHIP_LEVELS,
-              headerLeft: () => <BackButton />,
-            }}
-          />
-
-          {/* Notifications screen */}
-          <Stack.Screen
-            name="notification"
-            options={{
-              headerShown: true,
-              headerTitle: SCREEN_TITLES.NOTIFICATIONS,
-              headerLeft: () => <BackButton />,
-            }}
-          />
-
-          {/* Profile settings screen */}
-          <Stack.Screen
-            name="profile/settings"
-            options={{
-              headerShown: false,
-            }}
-          />
-
-          {/* Credits screen (renders its own header) */}
-          <Stack.Screen
-            name="profile/credits"
-            options={{
-              headerShown: false,
-            }}
-          />
-
-          {/* Profile activity screen */}
-          <Stack.Screen
-            name="profile/activity"
-            options={{
-              headerShown: false,
-            }}
-          />
-
-          {/* Profile groups screen */}
-          <Stack.Screen
-            name="profile/groups"
-            options={{
-              headerShown: false,
-            }}
-          />
-
-          {/* Profile connections screen */}
-          <Stack.Screen
-            name="profile/connections"
-            options={{
-              headerShown: false,
-            }}
-          />
-
-          {/* Group detail screen */}
-          <Stack.Screen
-            name="group-detail"
-            options={{
-              headerShown: false,
-            }}
-          />
-
-          {/* Explore groups screen */}
-          <Stack.Screen
-            name="explore-groups"
-            options={{
-              headerShown: false,
-            }}
-          />
-
-          {/* In-app resource viewer (WebView) with back button */}
-          <Stack.Screen
-            name="resource-viewer"
-            options={{
-              headerShown: true,
+              headerTitle: brandHeaderTitle(SCREEN_TITLES.MEMBERSHIP_LEVELS),
               headerLeft: () => <BackButton />,
             }}
           />

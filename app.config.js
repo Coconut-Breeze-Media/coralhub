@@ -26,7 +26,7 @@ export default {
       android: {
         adaptiveIcon: {
           foregroundImage: "./assets/adaptive-icon.png",
-          backgroundColor: "#ffffff",
+          backgroundColor: "#002F6C",
         },
         edgeToEdgeEnabled: true,
         package: "app.corrhub",

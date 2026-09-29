@@ -128,6 +128,7 @@ export const ROUTES = {
   // Root level
   WELCOME: '/',
   SIGN_IN: '/sign-in',
+  FORGOT_PASSWORD: '/forgot-password',
   NOTIFICATIONS: '/notification',
   
   // Auth
@@ -153,6 +154,9 @@ export const ROUTES = {
   PROFILE_ACCOUNT_SETTINGS: '/profile/account-settings',
   PROFILE_ACCOUNT: '/profile/account',
   PROFILE_CREDITS: '/profile/credits',
+
+  // Member public profile (Networking)
+  MEMBER_PROFILE: '/member/[id]',
 } as const;
 
 // ============================================
@@ -165,6 +169,7 @@ export const ROUTES = {
 export const SCREEN_TITLES = {
   WELCOME: 'Welcome',
   SIGN_IN: '',
+  FORGOT_PASSWORD: 'Reset Password',
   NOTIFICATIONS: 'Notifications',
   MEMBERSHIP_LEVELS: 'Choose a Plan',
   COMMUNITY: 'Community',

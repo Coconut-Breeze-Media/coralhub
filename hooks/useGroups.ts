@@ -123,8 +123,13 @@ export function useGroupActivity(
       return getGroupActivity(groupId, token, { per_page: perPage });
     },
     enabled: !!token && !!groupId,
-    staleTime: 2 * 60 * 1000,
+    // Poll so posts deleted on the website disappear from the group feed quickly.
+    staleTime: 30 * 1000,
     gcTime: 5 * 60 * 1000, // 5 minutes
+    refetchInterval: 30 * 1000,
+    refetchIntervalInBackground: false,
+    refetchOnMount: 'always',
+    refetchOnReconnect: true,
     refetchOnWindowFocus: false,
   });
 }

@@ -30,8 +30,7 @@ import {
   useUploadCover,
   useDeleteCover,
   useUserActivity,
-} from '../../hooks';
-import BackButton from '../../components/BackButton';
+} from '../../../hooks';
 
 export default function ProfileSettingsScreen() {
   const router = useRouter();
@@ -243,25 +242,6 @@ export default function ProfileSettingsScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: '#f9fafb' }}>
       <ScrollView>
-        {/* Header with Back Button */}
-        <View
-          style={{
-            backgroundColor: '#fff',
-            paddingTop: Platform.OS === 'ios' ? 60 : 20,
-            paddingBottom: 16,
-            paddingHorizontal: 16,
-            borderBottomWidth: 1,
-            borderBottomColor: '#e5e7eb',
-          }}
-        >
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <BackButton />
-            <Text style={{ fontSize: 20, fontWeight: '600', color: '#1f2937', marginLeft: 16 }}>
-              Profile Settings
-            </Text>
-          </View>
-        </View>
-
         {/* Cover Image Section */}
         <View style={{ backgroundColor: '#fff', marginBottom: 2 }}>
           <View
