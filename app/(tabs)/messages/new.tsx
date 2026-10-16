@@ -149,6 +149,11 @@ export default function NewMessageScreen() {
   const { data: preselectedMember } = useMember(token, preselectedId);
 
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(search.trim()), 350);
+    return () => clearTimeout(id);
+  }, [search]);
   const [selectedMember, setSelectedMember] = useState<BPMember | null>(null);
   const [message, setMessage] = useState('');
   const [selection, setSelection] = useState<ComposerSelection>({
@@ -167,7 +172,7 @@ export default function NewMessageScreen() {
     sendMessageMutation.isPending || replyToThreadMutation.isPending;
   const { data: conversationsData } = useConversations(token);
   const { data, isLoading, error } = useMembersList(token, {
-    search,
+    search: debouncedSearch,
     page: 1,
     perPage: 20,
   });

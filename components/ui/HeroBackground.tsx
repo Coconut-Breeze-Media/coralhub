@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Animated, Image, LayoutChangeEvent, View, type ImageSourcePropType } from 'react-native';
 import type { ReactNode } from 'react';
+import { useIsFocused } from '@react-navigation/native';
 
 // ─── Bubble particles ──────────────────────────────────────────────────────────
 
@@ -58,6 +59,10 @@ const BUBBLES: BubbleConfig[] = [
   { id: 35, xRatio: 0.96, size: 2,  duration: 6400, delay: 3100, maxOpacity: 0.49, sway:  -7, color: '#64f0b8' },
 ];
 
+// A third of the original set. Two of these heroes used to stay mounted on
+// the Resources tab and kept 72 loops running while the tab was unfocused.
+const VISIBLE_BUBBLES = BUBBLES.filter((_, index) => index % 3 === 0);
+
 function Bubble({ config, w, h }: { config: BubbleConfig; w: number; h: number }) {
   const anim = useRef(new Animated.Value(0)).current;
 
@@ -112,6 +117,7 @@ export default function HeroBackground({
   paddingHorizontal = 20,
   backgroundImage,
 }: HeroBackgroundProps) {
+  const isFocused = useIsFocused();
   const [size, setSize] = useState({ w: 0, h: 0 });
 
   const onLayout = (e: LayoutChangeEvent) => {
@@ -136,7 +142,7 @@ export default function HeroBackground({
 
       <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: backgroundImage ? 'rgba(0, 18, 28, 0.58)' : 'transparent' }} />
 
-      {w > 0 && BUBBLES.map(b => <Bubble key={b.id} config={b} w={w} h={h} />)}
+      {isFocused && w > 0 && VISIBLE_BUBBLES.map(b => <Bubble key={b.id} config={b} w={w} h={h} />)}
 
       <View style={{ position: 'relative', zIndex: 10 }}>
         {children}

@@ -1,5 +1,5 @@
 // app/explore-groups.tsx
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -28,7 +28,13 @@ export default function ExploreGroupsScreen() {
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [refreshing, setRefreshing] = useState(false);
-  const debounceRef = useState<ReturnType<typeof setTimeout> | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
 
   const { data: groups, isLoading, refetch } = useAllGroups(token, {
     per_page: 50,
@@ -37,10 +43,8 @@ export default function ExploreGroupsScreen() {
 
   const handleSearchChange = (text: string) => {
     setSearch(text);
-    if (debounceRef[0]) clearTimeout(debounceRef[0]);
-    debounceRef[1](
-      setTimeout(() => setDebouncedSearch(text), 400)
-    );
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => setDebouncedSearch(text), 400);
   };
 
   const onRefresh = async () => {

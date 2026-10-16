@@ -39,6 +39,8 @@ export function useMembersList(
     },
     enabled: !!token,
     staleTime: 2 * 60 * 1000,
+    // Keep the previous result on screen while a new search is in flight.
+    placeholderData: (previous) => previous,
   });
 }
 

@@ -1,5 +1,5 @@
 // app/(tabs)/networking.tsx
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -176,7 +176,13 @@ function ExploreGroupsTab() {
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [refreshing, setRefreshing] = useState(false);
-  const debounceRef = useState<ReturnType<typeof setTimeout> | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
 
   const { data: groups, isLoading, refetch } = useAllGroups(token, {
     per_page: 50,
@@ -185,8 +191,8 @@ function ExploreGroupsTab() {
 
   const handleSearchChange = (text: string) => {
     setSearch(text);
-    if (debounceRef[0]) clearTimeout(debounceRef[0]);
-    debounceRef[1](setTimeout(() => setDebouncedSearch(text), 400));
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => setDebouncedSearch(text), 400);
   };
 
   const onRefresh = async () => {

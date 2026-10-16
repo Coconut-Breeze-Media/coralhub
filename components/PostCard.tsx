@@ -7,7 +7,7 @@
 // and a differently-styled "ActivityCard" in app/group-detail.tsx), which is
 // why Like/Comment/Share looked and behaved differently between the two —
 // this is now the one place that look/behavior is defined.
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -350,7 +350,7 @@ function ExpandablePostText({
 // ─────────────────────────────────────────────
 // PostCard
 // ─────────────────────────────────────────────
-export default function PostCard({
+function PostCard({
   item,
   token,
   profile,
@@ -403,15 +403,30 @@ export default function PostCard({
     (typeof item.user_avatar === 'object' ? item.user_avatar.thumb : item.user_avatar) ||
     undefined;
 
-  const displayText = isSharedPost ? getShareIntroText(item.content) : getContentText(item.content);
+  // HTML parsing is several regex passes. Memoize it so parent state
+  // (composer text, scroll position) does not re-parse every card.
+  const parsedContent = useMemo(() => {
+    return {
+      displayText: isSharedPost ? getShareIntroText(item.content) : getContentText(item.content),
+      imageUrls: isSharedPost ? [] : extractImageUrls(item.content),
+      links: isSharedPost ? [] : extractAllLinks(item.content),
+    };
+  }, [isSharedPost, item.content]);
+  const { displayText, imageUrls, links } = parsedContent;
 
-  // Shared activities include BuddyPress embed markup in content.rendered.
-  // Render the original activity from the API instead of showing embed fallback text.
-  const imageUrls = isSharedPost ? [] : extractImageUrls(item.content);
-  const links = isSharedPost ? [] : extractAllLinks(item.content);
-  const sharedImageUrls = sharedActivity ? extractImageUrls(sharedActivity.content) : [];
-  const sharedLinks = sharedActivity ? extractAllLinks(sharedActivity.content) : [];
-  const sharedText = sharedActivity ? getContentText(sharedActivity.content) : '';
+  const parsedShared = useMemo(() => {
+    if (!sharedActivity) {
+      return { imageUrls: [] as string[], links: [] as ReturnType<typeof extractAllLinks>, text: '' };
+    }
+    return {
+      imageUrls: extractImageUrls(sharedActivity.content),
+      links: extractAllLinks(sharedActivity.content),
+      text: getContentText(sharedActivity.content),
+    };
+  }, [sharedActivity]);
+  const sharedImageUrls = parsedShared.imageUrls;
+  const sharedLinks = parsedShared.links;
+  const sharedText = parsedShared.text;
   const sharedUserName =
     sharedActivity
       ? sharedMemberData?.name?.trim() ||
@@ -723,6 +738,8 @@ export default function PostCard({
     </View>
   );
 }
+
+export default React.memo(PostCard);
 
 const styles = StyleSheet.create({
   postCard: {

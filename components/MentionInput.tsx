@@ -1,5 +1,5 @@
 // components/MentionInput.tsx
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -63,6 +63,39 @@ interface MentionInputProps {
 // Suggestion row
 // ─────────────────────────────────────────────
 
+function SuggestionList({
+  suggestions,
+  isFetching,
+  onSelect,
+}: {
+  suggestions: UserSearchResult[];
+  isFetching: boolean;
+  onSelect: (user: UserSearchResult) => void;
+}) {
+  return (
+    <View style={styles.suggestionsContainer}>
+      {isFetching && suggestions.length === 0 ? (
+        <ActivityIndicator
+          size="small"
+          color="#0e7490"
+          style={styles.suggestionsLoader}
+        />
+      ) : (
+        <FlatList
+          data={suggestions}
+          keyExtractor={(item) => item.id.toString()}
+          renderItem={({ item }) => (
+            <SuggestionRow user={item} onSelect={onSelect} />
+          )}
+          keyboardShouldPersistTaps="always"
+          scrollEnabled={suggestions.length > 4}
+          style={{ maxHeight: 180 }}
+        />
+      )}
+    </View>
+  );
+}
+
 function SuggestionRow({
   user,
   onSelect,
@@ -116,6 +149,12 @@ export default function MentionInput({
 
   const { data: suggestions = [], isFetching } = useSearchUsers(token, mentionQuery);
 
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
+
   const handleChangeText = (text: string) => {
     onChangeText(text);
 
@@ -145,32 +184,15 @@ export default function MentionInput({
 
   const showSuggestions = !!mentionQuery && (suggestions.length > 0 || isFetching);
 
-  const SuggestionList = () => (
-    <View style={styles.suggestionsContainer}>
-      {isFetching && suggestions.length === 0 ? (
-        <ActivityIndicator
-          size="small"
-          color="#0e7490"
-          style={styles.suggestionsLoader}
-        />
-      ) : (
-        <FlatList
-          data={suggestions}
-          keyExtractor={(item) => item.id.toString()}
-          renderItem={({ item }) => (
-            <SuggestionRow user={item} onSelect={handleSelectUser} />
-          )}
-          keyboardShouldPersistTaps="always"
-          scrollEnabled={suggestions.length > 4}
-          style={{ maxHeight: 180 }}
-        />
-      )}
-    </View>
-  );
-
   return (
     <View style={[styles.wrapper, containerStyle]}>
-      {suggestionPosition === 'above' && showSuggestions && <SuggestionList />}
+      {suggestionPosition === 'above' && showSuggestions && (
+        <SuggestionList
+          suggestions={suggestions}
+          isFetching={isFetching}
+          onSelect={handleSelectUser}
+        />
+      )}
 
       <TextInput
         style={[styles.input, style]}
@@ -183,7 +205,13 @@ export default function MentionInput({
         {...(maxHeight ? { maxHeight } : {})}
       />
 
-      {suggestionPosition === 'below' && showSuggestions && <SuggestionList />}
+      {suggestionPosition === 'below' && showSuggestions && (
+        <SuggestionList
+          suggestions={suggestions}
+          isFetching={isFetching}
+          onSelect={handleSelectUser}
+        />
+      )}
     </View>
   );
 }

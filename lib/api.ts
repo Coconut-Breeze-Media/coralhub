@@ -24,6 +24,7 @@ import type {
 } from '../types';
 import { encodeMessageForTransport } from './messagePresentation';
 import { API_BASE_URL, SITE_URL } from './config';
+import { createTokenRefreshCoordinator, isRefreshExemptPath, replacementBearer } from './tokenRefresh';
 
 // Re-export so callers can `import { MembershipLevel } from '../lib/api'`.
 export type { MembershipLevel, MembershipResponse, PremiumResource } from '../types';
@@ -68,14 +69,95 @@ async function assertOk(res: Response) {
   throw new ApiError(msg, res.status);
 }
 
+type SessionTokens = { token: string; refreshToken: string };
+
+let readRefreshToken: () => string | null = () => null;
+let publishSession: (next: SessionTokens | null) => void = () => {};
+let accessRefreshInFlight: Promise<string | null> | null = null;
+
+/**
+ * AuthProvider registers the live refresh token and a callback that persists
+ * a rotated pair (or clears the session when the refresh token itself is rejected).
+ * authedFetch and every other bearer request share this so a mid-session 401
+ * refreshes once and retries, instead of failing every screen until relaunch.
+ */
+export function registerAuthSession(handlers: {
+  getRefreshToken: () => string | null;
+  onSessionChange: (next: SessionTokens | null) => void;
+}) {
+  readRefreshToken = handlers.getRefreshToken;
+  publishSession = handlers.onSessionChange;
+}
+
+function requestUrl(input: RequestInfo | URL): string {
+  if (typeof input === 'string') return input;
+  if (input instanceof URL) return input.toString();
+  return input.url;
+}
+
+function isAuthExemptUrl(input: RequestInfo | URL): boolean {
+  return isRefreshExemptPath(requestUrl(input));
+}
+
+function bearerFrom(init?: RequestInit): string | null {
+  if (!init?.headers) return null;
+  const value = new Headers(init.headers).get('Authorization');
+  if (!value?.toLowerCase().startsWith('bearer ')) return null;
+  return value.slice(7).trim();
+}
+
+function withBearer(init: RequestInit | undefined, token: string): RequestInit {
+  const headers = new Headers(init?.headers);
+  headers.set('Authorization', `Bearer ${token}`);
+  return { ...init, headers };
+}
+
+async function refreshAccessToken(): Promise<string | null> {
+  if (accessRefreshInFlight) return accessRefreshInFlight;
+
+  const current = readRefreshToken();
+  if (!current) return null;
+
+  accessRefreshInFlight = (async () => {
+    try {
+      const refreshed = await refreshCoralToken(current);
+      const refreshToken = refreshed.refresh_token ?? current;
+      publishSession({ token: refreshed.token, refreshToken });
+      return refreshed.token;
+    } catch (error) {
+      if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+        publishSession(null);
+      }
+      return null;
+    } finally {
+      accessRefreshInFlight = null;
+    }
+  })();
+
+  return accessRefreshInFlight;
+}
+
 function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit, ms = 15000) {
-  const ctrl = new AbortController();
-  const id = setTimeout(() => ctrl.abort(), ms);
-  // The WP host sends long-lived Cache-Control headers on some REST responses
-  // (e.g. `public, max-age=604800`). Without this, the device's own HTTP cache
-  // can silently serve a stale response for up to a week, so force every
-  // request to hit the network and ignore any cached copy.
-  return fetch(input, { cache: 'no-store', ...init, signal: ctrl.signal }).finally(() => clearTimeout(id));
+  const exec = (nextInit?: RequestInit) => {
+    const ctrl = new AbortController();
+    const id = setTimeout(() => ctrl.abort(), ms);
+    // The WP host sends long-lived Cache-Control headers on some REST responses
+    // (e.g. `public, max-age=604800`). Without this, the device's own HTTP cache
+    // can silently serve a stale response for up to a week, so force every
+    // request to hit the network and ignore any cached copy.
+    return fetch(input, { cache: 'no-store', ...nextInit, signal: ctrl.signal }).finally(() =>
+      clearTimeout(id)
+    );
+  };
+
+  const bearer = bearerFrom(init);
+  return exec(init).then(async (res) => {
+    // Login, validate, and refresh must not recurse into another refresh.
+    if (isAuthExemptUrl(input) || res.status !== 401 || !bearer) return res;
+    const next = await refreshAccessToken();
+    if (!replacementBearer(res.status, bearer, requestUrl(input), next)) return res;
+    return exec(withBearer(init, next!));
+  });
 }
 
 const sharePostRequestsInFlight = new Map<string, Promise<import('../types').BPActivity>>();
@@ -119,14 +201,18 @@ export async function validateJwtToken(token: string): Promise<boolean> {
   return true;
 }
 
-export async function refreshCoralToken(refreshToken: string): Promise<TokenRefreshPayload> {
+const refreshCoordinator = createTokenRefreshCoordinator(async (refreshToken: string) => {
   const res = await fetchWithTimeout(`${API}/coral-auth/v1/token/refresh`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ refresh_token: refreshToken }),
   });
   await assertOk(res);
-  return res.json();
+  return res.json() as Promise<TokenRefreshPayload>;
+});
+
+export function refreshCoralToken(refreshToken: string): Promise<TokenRefreshPayload> {
+  return refreshCoordinator.refresh(refreshToken);
 }
 
 // ---------- taxonomies ----------
@@ -442,6 +528,29 @@ export async function getMembers(
   params.set('type', 'active');
   params.set('populate_extras', 'true');
   return authedFetch<BPMember[]>(`/buddypress/v1/members?${params}`, token);
+}
+
+/**
+ * Load many members in one request per 100 ids (`members?include=`).
+ * Used to seed the per-member cache without an N+1 fan-out on the feed.
+ */
+export async function getMembersByIds(token: string, ids: number[]): Promise<BPMember[]> {
+  const unique = Array.from(new Set(ids.filter((id) => Number.isFinite(id) && id > 0)));
+  const members: BPMember[] = [];
+
+  for (let i = 0; i < unique.length; i += 100) {
+    const chunk = unique.slice(i, i + 100);
+    const params = new URLSearchParams({
+      include: chunk.join(','),
+      populate_extras: 'true',
+      per_page: String(chunk.length),
+      page: '1',
+    });
+    const batch = await authedFetch<BPMember[]>(`/buddypress/v1/members?${params}`, token);
+    members.push(...(Array.isArray(batch) ? batch : []));
+  }
+
+  return members;
 }
 
 /**
@@ -1268,7 +1377,6 @@ export async function sharePost(
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
-        'X-WP-Nonce': token,
       },
       body: JSON.stringify(data),
     });
@@ -2001,7 +2109,6 @@ async function getConversationBox(
   const params = new URLSearchParams({
     box,
     type: 'all',
-    page: '1',
     per_page: String(CONVERSATIONS_PER_PAGE),
     recipients_per_page: String(CONVERSATION_RECIPIENTS_PER_PAGE),
   });
@@ -2013,18 +2120,34 @@ async function getConversationBox(
     params.set('user_id', String(userId));
   }
 
-  const res = await fetchWithTimeout(`${API}/buddypress/v1/messages?${params}`, {
-    method: 'GET',
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  });
+  const all: BPConversationSummary[] = [];
+  let totalPages = 1;
+  for (let page = 1; page <= totalPages && page <= 20; page++) {
+    params.set('page', String(page));
+    const res = await fetchWithTimeout(`${API}/buddypress/v1/messages?${params}`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
 
-  await assertOk(res);
+    await assertOk(res);
+    const batch = getConversationItemsFromResponse(
+      (await res.json()) as BPConversationsResponse
+    );
+    all.push(...batch);
 
-  return getConversationItemsFromResponse(
-    (await res.json()) as BPConversationsResponse
-  );
+    const headerPages = parseInt(res.headers.get('X-WP-TotalPages') || '', 10);
+    if (Number.isFinite(headerPages) && headerPages > 0) {
+      totalPages = headerPages;
+    } else if (batch.length >= CONVERSATIONS_PER_PAGE) {
+      totalPages = page + 1;
+    } else {
+      break;
+    }
+  }
+
+  return all;
 }
 
 /**
