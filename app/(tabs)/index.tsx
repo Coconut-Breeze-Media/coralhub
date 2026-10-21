@@ -46,7 +46,7 @@ import {
   useUpdatePost
 } from '../../hooks/useActivity';
 import { useQueryClient } from '@tanstack/react-query';
-import { getMemberById } from '../../lib/api';
+import { getMembersByIds } from '../../lib/api';
 import { useMe } from '../../hooks/useQueries';
 import { useMyGroups, useGroupActivity, useAllGroupsActivity } from '../../hooks/useGroups';
 import { useEffect, useRef } from 'react';
@@ -187,38 +187,39 @@ function CommunityScreen() {
     return !unwantedTypes.includes(activity.type);
   });
 
-  // Pre-populate individual member cache keys so PostItems render without loading state
+  // Avatars fill in as this returns. The list itself is not gated on it.
   const queryClient = useQueryClient();
-  const [membersReady, setMembersReady] = useState(false);
-  const prefetchKeyRef = useRef('');
+  const authorIdsKey = useMemo(() => {
+    const ids = new Set<number>();
+    for (const activity of allActivities) {
+      if (activity.user_id) ids.add(activity.user_id);
+    }
+    return Array.from(ids).sort((a, b) => a - b).join(',');
+  }, [allActivities]);
 
   useEffect(() => {
-    if (isLoading) {
-      setMembersReady(false);
-      return;
-    }
-    if (allActivities.length === 0) {
-      setMembersReady(true);
-      return;
-    }
-    const uniqueIds = Array.from(new Set(allActivities.map(a => a.user_id).filter(Boolean))) as number[];
-    const key = uniqueIds.slice().sort().join(',');
-    if (key === prefetchKeyRef.current) {
-      setMembersReady(true);
-      return;
-    }
-    // Prefetch new members in background — never block the list after initial load
-    prefetchKeyRef.current = key;
-    Promise.all(
-      uniqueIds.map(uid =>
-        queryClient.prefetchQuery({
-          queryKey: ['member', uid],
-          queryFn: () => getMemberById(uid, token!),
-          staleTime: 5 * 60 * 1000,
-        })
-      )
-    ).then(() => setMembersReady(true));
-  }, [isLoading, allActivities.length, token]);
+    if (!token || !authorIdsKey) return;
+    const ids = authorIdsKey
+      .split(',')
+      .map((id) => Number(id))
+      .filter((id) => Number.isFinite(id));
+    const missing = ids.filter((id) => queryClient.getQueryData(['member', id]) == null);
+    if (missing.length === 0) return;
+
+    let cancelled = false;
+    getMembersByIds(token, missing)
+      .then((members) => {
+        if (cancelled) return;
+        for (const member of members) {
+          queryClient.setQueryData(['member', member.id], member);
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authorIdsKey, token, queryClient]);
 
   // Mutations
   const createPostMutation = useCreatePost(token);
@@ -372,9 +373,10 @@ function CommunityScreen() {
     handlePickImage();
   };
   
-  const handleLikePost = async (activityId: number, isLiked: boolean) => {
+  const likePost = likePostMutation.mutateAsync;
+  const handleLikePost = useCallback(async (activityId: number, isLiked: boolean) => {
     try {
-      await likePostMutation.mutateAsync({ activityId, isLiked });
+      await likePost({ activityId, isLiked });
     } catch (error) {
       if (isNotFound(error)) {
         Alert.alert(POST_UNAVAILABLE_TITLE, POST_UNAVAILABLE_MESSAGE);
@@ -382,12 +384,12 @@ function CommunityScreen() {
       }
       Alert.alert('Error', 'Failed to like post');
     }
-  };
+  }, [likePost]);
   
-  const handleDeletePost = (item: BPActivity) => {
+  const handleDeletePost = useCallback((item: BPActivity) => {
     setDeletingPost(item);
     setIsDeleteModalVisible(true);
-  };
+  }, []);
 
   const closeDeleteModal = () => {
     if (deletePostMutation.isPending) return;
@@ -413,7 +415,7 @@ function CommunityScreen() {
     }
   };
 
-  const handleOpenEditPost = (item: BPActivity) => {
+  const handleOpenEditPost = useCallback((item: BPActivity) => {
     let content = '';
     if (typeof item.content === 'string') {
       content = item.content;
@@ -423,7 +425,7 @@ function CommunityScreen() {
     setEditingPost(item);
     setEditContent(content.replace(/<[^>]+>/g, '').trim());
     setIsEditModalVisible(true);
-  };
+  }, []);
 
   const closeEditModal = () => {
     setIsEditModalVisible(false);
@@ -469,7 +471,7 @@ function CommunityScreen() {
     }
   };
   
-  const renderPost = ({ item }: { item: BPActivity }) => {
+  const renderPost = useCallback(({ item }: { item: BPActivity }) => {
     return (
       <PostCard
         item={item}
@@ -481,7 +483,7 @@ function CommunityScreen() {
         groups={groups}
       />
     );
-  };
+  }, [token, profile, handleLikePost, handleDeletePost, handleOpenEditPost, groups]);
   
   return (
     <SafeAreaView style={styles.container} edges={[]}>
@@ -712,7 +714,7 @@ function CommunityScreen() {
       )}
       
       {/* Posts Feed */}
-      {(isLoading || !membersReady
+      {(isLoading
         || (activeTab === 'groups-feed' && selectedGroupId && isLoadingGroupActivity)
         || (isAllGroupsView && (isLoadingMyGroups || isLoadingAllGroups || (groups.length > 0 && isFetchingAllGroups && allGroupsActivities.length === 0)))
       ) ? (

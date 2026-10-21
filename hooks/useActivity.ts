@@ -364,8 +364,15 @@ export function useSharePost(token: string | null) {
       if (!token) throw new Error('No authentication token');
       return sharePost(activityId, postUrl, token, content);
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['activity'] });
+    onSuccess: (activity) => {
+      if (activity?.id) {
+        queryClient.setQueriesData<ActivityInfiniteData | undefined>(
+          { queryKey: ['activity', 'feed'] },
+          (previous) => prependActivityToInfiniteData(previous, activity)
+        );
+      }
+      // Reconcile the open feed only. The prepend above is what the user sees.
+      queryClient.invalidateQueries({ queryKey: ['activity'], refetchType: 'active' });
     },
     onError: (error, { activityId }) => {
       if (isNotFoundError(error)) {
@@ -488,19 +495,79 @@ export function useUpdatePost(token: string | null) {
       if (!token) throw new Error('No authentication token');
       return updatePost(activityId, content, token, { component, primary_item_id });
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['activity'] });
-      // Group post lists live under a separate query key prefix
-      // (['groups','activity',...]) — invalidate those too so an edit made
-      // from group-detail.tsx or the "All Groups" view is reflected there,
-      // not just in the News Feed.
-      queryClient.invalidateQueries({ queryKey: ['groups', 'activity'] });
+    onMutate: async ({ activityId, content }) => {
+      await queryClient.cancelQueries({ queryKey: ['activity'] });
+      await queryClient.cancelQueries({ queryKey: ['groups', 'activity'] });
+
+      const previousQueries = [
+        ...queryClient.getQueriesData<unknown>({ queryKey: ['activity'] }),
+        ...queryClient.getQueriesData<unknown>({ queryKey: ['groups', 'activity'] }),
+      ];
+
+      const patch = (activity: BPActivity): BPActivity => {
+        if (activity.id !== activityId) return activity;
+        if (typeof activity.content === 'string') return { ...activity, content };
+        return {
+          ...activity,
+          content: { ...activity.content, rendered: content, raw: content },
+        };
+      };
+
+      queryClient.setQueriesData<{ pages: ActivityFeedResponse[] } | undefined>(
+        { queryKey: ['activity', 'feed'] },
+        (old) => {
+          if (!old?.pages) return old;
+          return {
+            ...old,
+            pages: old.pages.map((page) => ({
+              ...page,
+              activities: page.activities.map(patch),
+            })),
+          };
+        }
+      );
+
+      queryClient.setQueriesData<BPActivity | undefined>(
+        { queryKey: ['activity', 'detail', activityId] },
+        (old) => (old ? patch(old) : old)
+      );
+
+      queryClient.setQueriesData<any>({ queryKey: ['groups', 'activity'] }, (old: any) => {
+        if (old?.pages) {
+          return {
+            ...old,
+            pages: old.pages.map((page: ActivityFeedResponse) => ({
+              ...page,
+              activities: page.activities.map(patch),
+            })),
+          };
+        }
+        if (old?.activities) {
+          return { ...old, activities: old.activities.map(patch) };
+        }
+        return old;
+      });
+
+      return { previousQueries };
     },
-    onError: (error, { activityId }) => {
+    onError: (error, { activityId }, context) => {
       if (isNotFoundError(error)) {
         removeActivityFromCache(queryClient, activityId);
         queryClient.invalidateQueries({ queryKey: ['activity'] });
+        return;
       }
+      context?.previousQueries?.forEach(([key, data]) => {
+        queryClient.setQueryData(key, data);
+      });
+    },
+    onSuccess: () => {
+      // Group post lists live under a separate query key prefix
+      // (['groups','activity',...]) — invalidate those too so an edit made
+      // from group-detail.tsx or the "All Groups" view is reflected there,
+      // not just in the News Feed. Active views reconcile; the optimistic
+      // patch above is what the user sees immediately.
+      queryClient.invalidateQueries({ queryKey: ['activity'], refetchType: 'active' });
+      queryClient.invalidateQueries({ queryKey: ['groups', 'activity'], refetchType: 'active' });
     },
   });
 }

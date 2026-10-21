@@ -387,7 +387,6 @@ export function useSendFriendRequest() {
       // Invalidate pending requests to show the new request
       queryClient.invalidateQueries({
         queryKey: ['friends', 'pending'],
-        refetchType: 'inactive',
       });
     },
   });

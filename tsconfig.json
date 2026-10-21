@@ -4,5 +4,6 @@
     "strict": true,
     "jsx": "react-jsx",
     "types": ["expo-router"]
-  }
+  },
+  "exclude": ["scripts"]
 }

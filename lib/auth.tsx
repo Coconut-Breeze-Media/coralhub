@@ -9,8 +9,10 @@ import {
   refreshCoralToken,
   getPmproMe,
   extractPmproLevel,
+  registerAuthSession,
   ApiError,
 } from './api';
+import { isTransientError } from './authErrors';
 import { queryClient } from './queryClient';
 import {
   LEVEL_ID_TIER_MAP,
@@ -28,6 +30,13 @@ import type {
 // Helper functions to handle storage on web vs native
 async function getStorageItem(key: string): Promise<string | null> {
   if (Platform.OS === 'web') {
+    if (typeof localStorage === 'undefined') return null;
+    // The refresh token is memory-only on web. Drop any copy a previous build
+    // left in localStorage so it is not readable by page scripts.
+    if (key === 'refresh_token') {
+      localStorage.removeItem(key);
+      return null;
+    }
     return localStorage.getItem(key);
   }
   return await SecureStore.getItemAsync(key);
@@ -35,10 +44,12 @@ async function getStorageItem(key: string): Promise<string | null> {
 
 async function setStorageItem(key: string, value: string): Promise<void> {
   if (Platform.OS === 'web') {
+    if (typeof localStorage === 'undefined') return;
+    if (key === 'refresh_token') return;
     localStorage.setItem(key, value);
-  } else {
-    await SecureStore.setItemAsync(key, value);
+    return;
   }
+  await SecureStore.setItemAsync(key, value);
 }
 
 async function deleteStorageItem(key: string): Promise<void> {
@@ -134,52 +145,137 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [ready, setReady] = useState(false);
   const [checkingMembership, setCheckingMembership] = useState(false);
   const [lastMembershipCheckAt, setLastMembershipCheckAt] = useState<number | undefined>(undefined);
+  // Refs stay in sync with state so the 401 interceptor can read and rotate
+  // tokens without waiting for a React render.
+  const tokenRef = React.useRef<string | null>(null);
+  const refreshRef = React.useRef<string | null>(null);
+
+  const applySession = useCallback((next: { token: string; refreshToken: string } | null) => {
+    if (!next) {
+      tokenRef.current = null;
+      refreshRef.current = null;
+      setToken(null);
+      setRefreshToken(null);
+      setUserId(null);
+      setProfile(null);
+      setMembership(null);
+      setIsMember(null);
+      setLastMembershipCheckAt(undefined);
+      void clearStoredAuth();
+      queryClient.clear();
+      return;
+    }
+
+    tokenRef.current = next.token;
+    refreshRef.current = next.refreshToken;
+    setToken(next.token);
+    setRefreshToken(next.refreshToken);
+    void setStorageItem(STORAGE_KEYS.jwt, next.token);
+    void setStorageItem(STORAGE_KEYS.refreshToken, next.refreshToken);
+  }, []);
 
   useEffect(() => {
+    registerAuthSession({
+      getRefreshToken: () => refreshRef.current,
+      onSessionChange: applySession,
+    });
+  }, [applySession]);
+
+  useEffect(() => {
+    let cancelled = false;
+
     (async () => {
+      let t: string | null = null;
+      let rt: string | null = null;
+      let email: string | null = null;
+      let name: string | null = null;
+      let uid: string | null = null;
+
+      const restore = (access: string, refresh: string | null) => {
+        if (cancelled) return;
+        tokenRef.current = access;
+        refreshRef.current = refresh;
+        setToken(access);
+        setRefreshToken(refresh);
+        if (uid) setUserId(parseInt(uid, 10));
+        setProfile(
+          email && name
+            ? {
+                user_email: email,
+                user_display_name: name,
+                user_id: uid ? parseInt(uid, 10) : undefined,
+              }
+            : null
+        );
+      };
+
       try {
-        let t = await getStorageItem(STORAGE_KEYS.jwt);
-        let rt = await getStorageItem(STORAGE_KEYS.refreshToken);
-        const email = await getStorageItem(STORAGE_KEYS.userEmail);
-        const name = await getStorageItem(STORAGE_KEYS.userDisplayName);
-        const uid = await getStorageItem(STORAGE_KEYS.userId);
+        t = await getStorageItem(STORAGE_KEYS.jwt);
+        rt = await getStorageItem(STORAGE_KEYS.refreshToken);
+        email = await getStorageItem(STORAGE_KEYS.userEmail);
+        name = await getStorageItem(STORAGE_KEYS.userDisplayName);
+        uid = await getStorageItem(STORAGE_KEYS.userId);
 
         if (t) {
-          const isTokenValid = await validateJwtToken(t);
+          let isTokenValid = false;
+          let keepStoredSession = false;
 
-          if (!isTokenValid && rt) {
-            const refreshed = await refreshCoralToken(rt);
-            t = refreshed.token;
-            rt = refreshed.refresh_token ?? rt;
-
-            await setStorageItem(STORAGE_KEYS.jwt, t);
-            await setStorageItem(STORAGE_KEYS.refreshToken, rt);
+          try {
+            isTokenValid = await validateJwtToken(t);
+          } catch (error) {
+            // Airplane mode and 5xx must not delete the saved login.
+            if (isTransientError(error)) keepStoredSession = true;
+            else throw error;
           }
 
-          if (!isTokenValid && !rt) {
+          if (!isTokenValid && !keepStoredSession && rt) {
+            try {
+              const refreshed = await refreshCoralToken(rt);
+              t = refreshed.token;
+              rt = refreshed.refresh_token ?? rt;
+              await setStorageItem(STORAGE_KEYS.jwt, t);
+              await setStorageItem(STORAGE_KEYS.refreshToken, rt);
+              isTokenValid = true;
+            } catch (error) {
+              if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+                await clearStoredAuth();
+                return;
+              }
+              keepStoredSession = true;
+            }
+          }
+
+          if (!isTokenValid && !keepStoredSession) {
             await clearStoredAuth();
             return;
           }
 
-          setToken(t);
-          setRefreshToken(rt);
-          if (uid) {
-            setUserId(parseInt(uid, 10));
-          }
-          setProfile(email && name ? { user_email: email, user_display_name: name, user_id: uid ? parseInt(uid, 10) : undefined } : null);
+          restore(t, rt);
         }
-      } catch (e) {
-        await clearStoredAuth();
-        setToken(null);
-        setRefreshToken(null);
-        setUserId(null);
-        setProfile(null);
-        setMembership(null);
-        setIsMember(null);
+      } catch (error) {
+        if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+          await clearStoredAuth();
+          if (!cancelled) {
+            tokenRef.current = null;
+            refreshRef.current = null;
+            setToken(null);
+            setRefreshToken(null);
+            setUserId(null);
+            setProfile(null);
+            setMembership(null);
+            setIsMember(null);
+          }
+        } else if (t) {
+          restore(t, rt);
+        }
       } finally {
-        setReady(true); // <-- ensure this always runs
+        if (!cancelled) setReady(true);
       }
     })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // membership checker (callable + used internally)
@@ -265,6 +361,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Login setter
   const setAuth = async (payload: JWTPayload) => {
+    tokenRef.current = payload.token;
+    refreshRef.current = payload.refresh_token ?? null;
     setToken(payload.token);
     setRefreshToken(payload.refresh_token ?? null);
     setProfile({ user_email: payload.user_email, user_display_name: payload.user_display_name });
@@ -309,6 +407,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Logout
   const clearAuth = async () => {
+    tokenRef.current = null;
+    refreshRef.current = null;
     setToken(null);
     setRefreshToken(null);
     setUserId(null);
