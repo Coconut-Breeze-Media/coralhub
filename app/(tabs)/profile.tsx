@@ -6,7 +6,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Link, useRouter } from 'expo-router';
 import { Pressable, Text, View } from 'react-native';
-import { PROFILE_MENU_ITEMS } from '../../constants/navigation';
+import { PROFILE_MENU_ITEMS, ROUTES } from '../../constants/navigation';
 import { useAuth } from '../../lib/auth';
 
 export default function ProfilePage() {
@@ -21,7 +21,15 @@ export default function ProfilePage() {
   return (
     <View style={{ flex: 1, backgroundColor: '#fff' }}>
       {PROFILE_MENU_ITEMS.map((item, idx) => (
-        <Link key={item.href} href={{ pathname: item.href as any }} asChild>
+        <Link
+          key={item.href}
+          href={
+            item.href === ROUTES.PROFILE_MESSAGES
+              ? { pathname: item.href as any, params: { returnTo: 'profile' } }
+              : { pathname: item.href as any }
+          }
+          asChild
+        >
           <Pressable
             style={{
               paddingHorizontal: 16,

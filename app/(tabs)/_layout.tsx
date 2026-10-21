@@ -123,16 +123,25 @@ export default function TabsLayout() {
         <Tabs.Screen
           key={tab.name}
           name={tab.name}
-          options={{
-            title: tab.title,
-            headerTitle: brandHeaderTitle(tab.title),
-            tabBarIcon: ({ color, size, focused }) => (
-              <Ionicons 
-                name={focused ? tab.icon as any : tab.iconOutline as any} 
-                color={color} 
-                size={size} 
-              />
-            ),
+          options={({ route }) => {
+            const cameFromProfile =
+              tab.name === 'messages' &&
+              (route.params as { returnTo?: string } | undefined)?.returnTo === 'profile';
+
+            return {
+              title: tab.title,
+              headerTitle: brandHeaderTitle(tab.title),
+              headerLeft: cameFromProfile
+                ? () => <BackButton fallbackRoute={ROUTES.PROFILE} useHistory={false} />
+                : undefined,
+              tabBarIcon: ({ color, size, focused }) => (
+                <Ionicons
+                  name={focused ? tab.icon as any : tab.iconOutline as any}
+                  color={color}
+                  size={size}
+                />
+              ),
+            };
           }}
         />
       ))}
@@ -173,7 +182,7 @@ export default function TabsLayout() {
           href: null,
           title: 'Profile Settings',
           headerTitle: brandHeaderTitle('Profile Settings'),
-          headerLeft: () => <BackButton fallbackRoute={ROUTES.PROFILE} />,
+          headerLeft: () => <BackButton fallbackRoute={ROUTES.PROFILE} useHistory={false} />,
         }}
       />
       <Tabs.Screen
@@ -182,7 +191,7 @@ export default function TabsLayout() {
           href: null,
           title: 'Activity',
           headerTitle: brandHeaderTitle('Activity'),
-          headerLeft: () => <BackButton fallbackRoute={ROUTES.PROFILE} />,
+          headerLeft: () => <BackButton fallbackRoute={ROUTES.PROFILE} useHistory={false} />,
         }}
       />
       <Tabs.Screen
@@ -191,7 +200,7 @@ export default function TabsLayout() {
           href: null,
           title: 'Groups',
           headerTitle: brandHeaderTitle('Groups'),
-          headerLeft: () => <BackButton fallbackRoute={ROUTES.PROFILE} />,
+          headerLeft: () => <BackButton fallbackRoute={ROUTES.PROFILE} useHistory={false} />,
         }}
       />
       <Tabs.Screen
@@ -200,7 +209,7 @@ export default function TabsLayout() {
           href: null,
           title: 'Connections',
           headerTitle: brandHeaderTitle('Connections'),
-          headerLeft: () => <BackButton fallbackRoute={ROUTES.PROFILE} />,
+          headerLeft: () => <BackButton fallbackRoute={ROUTES.PROFILE} useHistory={false} />,
         }}
       />
       <Tabs.Screen
@@ -209,7 +218,7 @@ export default function TabsLayout() {
           href: null,
           title: 'Credits',
           headerTitle: brandHeaderTitle('Credits'),
-          headerLeft: () => <BackButton fallbackRoute={ROUTES.PROFILE} />,
+          headerLeft: () => <BackButton fallbackRoute={ROUTES.PROFILE} useHistory={false} />,
         }}
       />
       <Tabs.Screen
@@ -254,7 +263,7 @@ export default function TabsLayout() {
           href: null,
           title: 'Contact Us',
           headerTitle: brandHeaderTitle('Contact Us'),
-          headerLeft: () => <BackButton fallbackRoute={ROUTES.PROFILE} />,
+          headerLeft: () => <BackButton fallbackRoute={ROUTES.PROFILE} useHistory={false} />,
         }}
       />
       <Tabs.Screen
@@ -263,7 +272,7 @@ export default function TabsLayout() {
           href: null,
           title: 'Terms & Privacy',
           headerTitle: brandHeaderTitle('Terms & Privacy'),
-          headerLeft: () => <BackButton fallbackRoute={ROUTES.PROFILE} />,
+          headerLeft: () => <BackButton fallbackRoute={ROUTES.PROFILE} useHistory={false} />,
         }}
       />
       <Tabs.Screen
