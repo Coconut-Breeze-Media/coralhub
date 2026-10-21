@@ -137,7 +137,7 @@ function ErrorState({ onRetry, message }: { onRetry?: () => void; message: strin
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
   centered: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#fff',

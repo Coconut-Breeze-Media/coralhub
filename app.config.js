@@ -9,17 +9,14 @@ export default {
       icon: "./assets/icon.png",
       userInterfaceStyle: "light",
       newArchEnabled: true,
-      splash: {
-        image: "./assets/splash-icon.png",
-        resizeMode: "contain",
-        backgroundColor: "#ffffff",
-      },
       ios: {
         supportsTablet: true,
         bundleIdentifier: "com.corrhub.app",
-        buildNumber: "1",
+        buildNumber: "3",
         infoPlist: {
           ITSAppUsesNonExemptEncryption: false,
+          NSCameraUsageDescription: "Allow $(PRODUCT_NAME) to access your camera",
+          NSMicrophoneUsageDescription: "Allow $(PRODUCT_NAME) to access your microphone",
           NSPhotoLibraryUsageDescription: "CoRR Hub needs access to your photo library so you can upload images to posts and update your profile photos.",
         },
       },
@@ -47,6 +44,25 @@ export default {
       },
       plugins: [
         "expo-router",
+        [
+          "expo-build-properties",
+          {
+            ios: {
+              enableSceneSupport: true,
+            },
+          },
+        ],
+        "expo-secure-store",
+        "expo-status-bar",
+        [
+          "expo-splash-screen",
+          {
+            image: "./assets/splash-icon.png",
+            resizeMode: "contain",
+            backgroundColor: "#ffffff",
+            enableFullScreenImage_legacy: true,
+          },
+        ],
         [
           "expo-image-picker",
           {
