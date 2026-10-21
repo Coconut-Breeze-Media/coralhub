@@ -227,7 +227,7 @@ export default function TabsLayout() {
           href: null,
           title: 'Group',
           headerTitle: brandHeaderTitle('Group'),
-          headerLeft: () => <BackButton fallbackRoute={ROUTES.NETWORKING} />,
+          headerLeft: () => <BackButton fallbackRoute={ROUTES.NETWORKING} useHistory={false} />,
         }}
       />
       <Tabs.Screen
@@ -236,7 +236,7 @@ export default function TabsLayout() {
           href: null,
           title: 'Explore Groups',
           headerTitle: brandHeaderTitle('Explore Groups'),
-          headerLeft: () => <BackButton fallbackRoute={ROUTES.NETWORKING} />,
+          headerLeft: () => <BackButton fallbackRoute={ROUTES.NETWORKING} useHistory={false} />,
         }}
       />
       <Tabs.Screen
@@ -254,7 +254,7 @@ export default function TabsLayout() {
           href: null,
           title: 'Member',
           headerTitle: brandHeaderTitle('Member'),
-          headerLeft: () => <BackButton fallbackRoute={ROUTES.NETWORKING} />,
+          headerLeft: () => <BackButton fallbackRoute={ROUTES.NETWORKING} useHistory={false} />,
         }}
       />
       <Tabs.Screen
@@ -290,7 +290,7 @@ export default function TabsLayout() {
           href: null,
           title: 'Create Group',
           headerTitle: brandHeaderTitle('Create Group'),
-          headerLeft: () => <BackButton fallbackRoute={ROUTES.NETWORKING} />,
+          headerLeft: () => <BackButton fallbackRoute={ROUTES.NETWORKING} useHistory={false} />,
         }}
       />
     </Tabs>

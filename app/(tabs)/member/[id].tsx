@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import RequireAuth from '../../../components/RequireAuth';
 import { useAuth } from '../../../lib/auth';
+import { ROUTES } from '../../../constants/navigation';
 import { useMemberProfile } from '../../../hooks/useMemberProfile';
 import { useSendFriendRequest } from '../../../hooks/useQueries';
 import type { NormalizedXProfileField } from '../../../types';
@@ -96,7 +97,7 @@ function MemberProfileScreen() {
         <Text style={styles.errorText}>This member profile is not available.</Text>
         <TouchableOpacity
           style={styles.primaryButton}
-          onPress={() => (router.canGoBack() ? router.back() : router.replace('/networking'))}
+          onPress={() => router.replace(ROUTES.NETWORKING)}
           activeOpacity={0.8}
         >
           <Text style={styles.primaryButtonText}>Back</Text>
