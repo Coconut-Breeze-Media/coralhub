@@ -245,7 +245,7 @@ export default function TabsLayout() {
           href: null,
           title: 'Resource',
           headerTitle: brandHeaderTitle('Resource'),
-          headerLeft: () => <BackButton fallbackRoute={ROUTES.RESOURCES} />,
+          headerLeft: () => <BackButton fallbackRoute={ROUTES.RESOURCES} useHistory={false} />,
         }}
       />
       <Tabs.Screen
