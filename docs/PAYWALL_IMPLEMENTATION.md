@@ -129,7 +129,7 @@ The app authenticates with a **JWT**; the website enforces access with a **WordP
 - The app calls this endpoint when opening any unlocked resource and loads the returned URL in the WebView, so the user lands authenticated.
 - Security: bind token to user ID, store hashed in a transient, enforce single use + short TTL, and only allow same-origin `redirect` targets.
 
-> If the client prefers to avoid the SSO bridge, the fallback is: the WebView shows the website's normal login once and the cookie persists. Recommend the SSO bridge for a seamless UX. Flag this for client sign-off.
+> Decision: do not deploy this route. The client will not add PHP for it. The app opens the website's existing `/login/?redirect_to=<resource>` page inside the WebView. The member signs in with their website account, Paid Memberships Pro returns them to that resource, and the WebView keeps the cookie for later resources.
 
 ---
 
@@ -171,7 +171,7 @@ Update `AuthContextState` (~lines 258-268) to carry `membership: MembershipRespo
 ### B2. API client — `lib/api.ts`
 - `getMembershipStatus` already targets `/coral/v1/membership` (line ~117) — its return type now picks up the richer shape automatically.
 - Add `getPremiumResources(token): Promise<PremiumResource[]>` → `GET /coral/v1/premium-resources` via the existing `authedFetch` helper.
-- Add `getAppLoginLink(token, redirectUrl): Promise<{ url: string }>` → `POST /coral/v1/app-login-link`.
+- Do not call `POST /coral/v1/app-login-link`. That route is not on the live site. `resourceViewerEntry()` in `lib/resourceNavigation.ts` builds `/login/?redirect_to=<resource>` instead.
 - (Optional cleanup) re-export `MembershipLevel` from `lib/api.ts` to satisfy existing imports.
 
 ### B3. Auth context — `lib/auth.tsx`
@@ -182,7 +182,7 @@ Update `AuthContextState` (~lines 258-268) to carry `membership: MembershipRespo
 ### B4. Premium Resources screen — replace placeholder `app/(tabs)/resources.tsx`
 - Fetch via `getPremiumResources(token)` (React Query hook in `hooks/useQueries.ts`, following existing patterns).
 - Render the 13 items (NO Dashboard). Each row shows title + lock state:
-  - **Unlocked:** tap → call `getAppLoginLink(token, resource.url)` → open returned URL in WebView (`expo-web-browser` `openBrowserAsync`, or `react-native-webview` screen). The existing app already uses `Linking.openURL` for external URLs (`membership-levels.tsx` line 202).
+  - **Unlocked:** tap → open `resourceViewerEntry(resource.url)` in the in-app WebView. That URL is the website login page with `redirect_to` set to the resource.
   - **Locked:** show a lock icon + tap → navigate to `app/(auth)/membership-levels` (upgrade CTA), optionally pre-highlighting the lowest tier that unlocks it (from `required_tiers`).
 - **Institutional Area** appears in the list but is only `unlocked` for institutional users (server already returns this); locked for everyone else.
 - Drive lock purely from `resource.unlocked` / `allowed_resources` returned by the server — do not hardcode the access table in the app.
@@ -209,12 +209,12 @@ In `constants/navigation.ts` the Resources/Networking tab icons appear swapped (
 3. Same for Annual → includes `mentorships`+`corr_grants`, excludes `institutional_area`. Institutional → includes all.
 4. `GET /wp-json/coral/v1/premium-resources` per tier → `unlocked` flags match the access table.
 5. Hit a restricted website page URL directly **without** the right level → PMPro "members only" (proves server-side enforcement, A6).
-6. `POST /coral/v1/app-login-link` → returns URL; loading it lands the user authenticated on the resource; reusing the token fails (single-use).
+6. Open `/login/?redirect_to=<resource>` while logged out → the login form’s `redirect_to` field is that resource. After signing in, the browser lands on the resource. Opening the same URL while already signed in redirects straight there.
 
 **App (run via Expo on a tier test account):**
 1. `npm install` then `node node_modules/typescript/bin/tsc --noEmit` passes.
 2. Premium Resources tab shows 13 items, no Dashboard; lock badges match the account's tier.
-3. Locked item → upgrade screen; unlocked item → opens the page authenticated.
+3. Locked item → upgrade screen. Unlocked item → website login inside the app, then the resource. A second resource, while the website cookie is still valid, opens without asking again.
 4. Complete a Stripe checkout (test mode), return to app → `refreshMembership()` flips the newly-purchased resources to unlocked.
 
 **Acceptance criteria:**
@@ -255,9 +255,9 @@ The WordPress site cannot currently be updated, so the app runs entirely on endp
 - `GET /coral/v1/membership` (old v1.3 shape, `{ is_member }`) — basic membership check.
 - `GET /pmpro/v1/me` (PMPro's built-in REST API) — returns the current user's own membership level; the app maps level ID → tier locally (`constants/premiumResources.ts`, same `1/2/3/6` map).
 - The resource catalog (titles, URLs, tier rules) lives client-side in `constants/premiumResources.ts` and mirrors the plugin's table — **keep the two in sync**.
-- Tapping a resource opens the website page directly; the user logs into the website once in their browser (cookie persists). Real enforcement is the site's existing PMPro page restrictions.
+- Tapping a resource opens the website's `/login/` page inside the app, with `redirect_to` set to that resource. The member signs in once with their website account. The WebView keeps the cookie, and a later resource skips the form when that cookie is still valid. Real enforcement is the site's existing PMPro page restrictions.
 
-The app **prefers the server** wherever possible: if `coral/v1/membership` ever returns `tier` (v1.4 deployed), the client-side derivation is skipped; if `/coral/v1/premium-resources` stops 404ing, the server catalog wins; if `/coral/v1/app-login-link` exists, resource opens become seamless SSO. So deploying the v1.4 plugin later upgrades behavior with no app release.
+The app **prefers the server** wherever possible: if `coral/v1/membership` ever returns `tier` (v1.4 deployed), the client-side derivation is skipped; if `/coral/v1/premium-resources` stops 404ing, the server catalog wins. Resource sign-in stays on the website login page either way.
 
 Fallback chain for tier: server `tier` → `/pmpro/v1/me` level ID → level name prefix → `is_member ? monthly : none`.
 
@@ -266,4 +266,4 @@ Fallback chain for tier: server `tier` → `/pmpro/v1/me` level ID → level nam
 2. **PMPro per-page restrictions (A6):** set "Require Membership" on each of the 13 resource pages to match the access table — this is the real server-side enforcement behind the WebView.
 3. **Deploy + verify:** push `coral-membership.php` to WordPress, `npm install` + build the app, then run the per-tier verification in this doc.
 
-Decided/done: Stripe gateway connected (A1), tier mapping (IDs known), all 13 resource URLs, and the SSO/auto-login bridge (built — A7).
+Decided/done: Stripe gateway connected (A1), tier mapping (IDs known), all 13 resource URLs. The SSO bridge (A7) is not being deployed; resources use the website login page.

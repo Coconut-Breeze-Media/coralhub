@@ -4,27 +4,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Stack } from 'expo-router';
 import { WebView, type WebViewNavigation } from 'react-native-webview';
 import { PASSWORD_RESET_URL, SITE_URL } from '../lib/config';
+import { hostOf, shouldKeepResourceNavigation } from '../lib/resourceNavigation';
 
 const PRIMARY = '#0077b6';
 
-function hostOf(url: string): string {
-  try {
-    return new URL(url).host.toLowerCase();
-  } catch {
-    return '';
-  }
-}
-
 const SITE_HOST = hostOf(SITE_URL);
-// WordPress' recovery form is protected by Google reCAPTCHA. Its challenge
-// navigates to these hosts before returning to the Coral Hub form, so they
-// must stay in the embedded browser too.
-const RECAPTCHA_HOSTS = new Set([
-  'google.com',
-  'www.google.com',
-  'recaptcha.net',
-  'www.recaptcha.net',
-]);
 
 /**
  * Keeps the WordPress password-reset flow in the application. The reset email
@@ -38,15 +22,9 @@ export default function PasswordResetScreen() {
   const onShouldStartLoadWithRequest = useCallback((request: WebViewNavigation) => {
     const target = request.url;
 
-    if (target.startsWith('about:') || target.startsWith('data:') || target.startsWith('blob:')) {
+    const isTopFrame = (request as WebViewNavigation & { isTopFrame?: boolean }).isTopFrame;
+    if (shouldKeepResourceNavigation(target, SITE_HOST, isTopFrame)) {
       return true;
-    }
-
-    if (/^https?:\/\//i.test(target)) {
-      const host = hostOf(target);
-      if (host === SITE_HOST || RECAPTCHA_HOSTS.has(host)) {
-        return true;
-      }
     }
 
     // Email, telephone, and third-party links must use the operating system.

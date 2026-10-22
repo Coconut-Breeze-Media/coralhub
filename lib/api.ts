@@ -346,21 +346,6 @@ export function extractPmproLevel(me: any): { id: number | null; name: string | 
   };
 }
 
-/**
- * Exchange the app's JWT session for a short-lived, single-use website
- * login link that redirects to `redirectUrl` after setting the WP cookie.
- * Used to open gated website pages already authenticated.
- */
-export async function getAppLoginLink(
-  token: string,
-  redirectUrl: string
-): Promise<{ url: string }> {
-  return authedFetch<{ url: string }>('/coral/v1/app-login-link', token, {
-    method: 'POST',
-    body: JSON.stringify({ redirect: redirectUrl }),
-  });
-}
-
 // ---------- authedFetch + /users/me ----------
 export async function authedFetch<T = any>(path: string, token: string, init: RequestInit = {}) {
   const res = await fetchWithTimeout(`${API}${path}`, {
