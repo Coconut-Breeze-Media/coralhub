@@ -32,23 +32,13 @@ import { brandHeaderTitle } from '../../components/AppHeader';
 import { WebView, type WebViewNavigation } from 'react-native-webview';
 import { useAuth } from '../../lib/auth';
 import { getAppLoginLink } from '../../lib/api';
+import { SITE_URL } from '../../lib/config';
+import { hostOf, shouldKeepResourceNavigation } from '../../lib/resourceNavigation';
 
 const PRIMARY = '#0077b6';
 const MUTED = '#6b7280';
 
-// Same-origin host the embedded session is allowed to roam. Anything off this
-// host (other than the Google PDF viewer) is opened in the system browser
-// instead of trapping the user in-app.
-const WP_HOST = hostOf(process.env.EXPO_PUBLIC_WP_URL ?? '');
-const GVIEW_HOST = 'docs.google.com';
-
-function hostOf(url: string): string {
-  try {
-    return new URL(url).host.toLowerCase();
-  } catch {
-    return '';
-  }
-}
+const WP_HOST = hostOf(SITE_URL);
 
 function isPdfUrl(url: string): boolean {
   try {
@@ -111,27 +101,14 @@ export default function ResourceViewerScreen() {
     if (url && resolvedFor.current !== url) resolveEntry();
   }, [url, resolveEntry]);
 
-  // Keep same-host (and the Google PDF viewer) navigation inside the WebView;
-  // punt external links (other domains, mailto:, tel:) to the OS so we don't
-  // trap the user.
+  // Keep the Coral Hub page, its reCAPTCHA iframe, and the PDF viewer inside
+  // this WebView. Only a real top-level hop to some other site goes to the OS.
   const onShouldStartLoadWithRequest = useCallback((req: WebViewNavigation) => {
-    const target = req.url;
-    if (
-      target.startsWith('about:') ||
-      target.startsWith('data:') ||
-      target.startsWith('blob:')
-    ) {
+    const isTopFrame = (req as WebViewNavigation & { isTopFrame?: boolean }).isTopFrame;
+    if (shouldKeepResourceNavigation(req.url, WP_HOST, isTopFrame)) {
       return true;
     }
-    if (/^https?:\/\//i.test(target)) {
-      const host = hostOf(target);
-      const allowed = !WP_HOST || host === WP_HOST || host === GVIEW_HOST;
-      if (allowed) return true;
-      Linking.openURL(target).catch(() => {});
-      return false;
-    }
-    // mailto:, tel:, custom schemes → hand off to the OS.
-    Linking.openURL(target).catch(() => {});
+    Linking.openURL(req.url).catch(() => {});
     return false;
   }, []);
 

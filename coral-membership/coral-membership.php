@@ -538,7 +538,9 @@ if (!function_exists('coral_app_login_link_handler')) {
       'redirect' => $redirect,
     ], 60); // 60-second TTL
 
-    $url = add_query_arg(['coral_sso' => rawurlencode($token)], $home);
+    // add_query_arg encodes the value. Encoding it first makes the token
+    // fail the single-use check, so the visitor is never logged in.
+    $url = add_query_arg(['coral_sso' => $token], $home);
 
     return new WP_REST_Response(['url' => $url], 200);
   }
