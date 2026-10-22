@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
-import { shouldKeepResourceNavigation } from '../lib/resourceNavigation.ts';
+import {
+  resourceViewerEntry,
+  shouldKeepResourceNavigation,
+  websiteLoginUrl,
+} from '../lib/resourceNavigation.ts';
 
 const site = 'www.thecoralreefresearchhub.com';
 
@@ -39,4 +43,40 @@ check('about and blob urls stay internal', () => {
   assert.equal(shouldKeepResourceNavigation('blob:https://www.thecoralreefresearchhub.com/uuid', site), true);
 });
 
-console.log('\n4 checks passed');
+const origin = 'https://www.thecoralreefresearchhub.com';
+
+check('html resources open the website login with redirect_to', () => {
+  const courses = `${origin}/courses/`;
+  const entry = websiteLoginUrl(courses, origin);
+  assert.ok(entry);
+  const parsed = new URL(entry);
+  assert.equal(parsed.origin, origin);
+  assert.equal(parsed.pathname, '/login/');
+  assert.equal(parsed.searchParams.get('redirect_to'), courses);
+
+  const opportunities = `${origin}/career-opportunities/`;
+  assert.equal(
+    new URL(resourceViewerEntry(opportunities, origin, 'ios')).searchParams.get('redirect_to'),
+    opportunities
+  );
+});
+
+check('login redirect stays on this site and ignores other websites', () => {
+  assert.equal(websiteLoginUrl('https://example.com/courses/', origin), null);
+  assert.equal(resourceViewerEntry('https://example.com/courses/', origin, 'ios'), 'https://example.com/courses/');
+  assert.equal(
+    new URL(websiteLoginUrl('https://thecoralreefresearchhub.com/courses/', origin)!).searchParams.get('redirect_to'),
+    'https://thecoralreefresearchhub.com/courses/'
+  );
+});
+
+check('pdfs skip the login page', () => {
+  const pdf = `${origin}/wp-content/uploads/guide.pdf`;
+  assert.equal(resourceViewerEntry(pdf, origin, 'ios'), pdf);
+  assert.equal(
+    resourceViewerEntry(pdf, origin, 'android'),
+    `https://docs.google.com/gview?embedded=1&url=${encodeURIComponent(pdf)}`
+  );
+});
+
+console.log('\n7 checks passed');

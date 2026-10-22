@@ -32,6 +32,60 @@ function sameSite(host: string, siteHost: string): boolean {
   return bare(host) === bare(siteHost);
 }
 
+function isPdfUrl(url: string): boolean {
+  try {
+    return new URL(url).pathname.toLowerCase().endsWith('.pdf');
+  } catch {
+    return /\.pdf($|\?)/i.test(url);
+  }
+}
+
+/**
+ * Login URL for a same-site resource.
+ *
+ * The website's /login/ page reads redirect_to. Paid Memberships Pro sends
+ * someone who is already signed in straight to that page, and after a new
+ * sign-in it returns them there. Returns null for off-site or unparseable
+ * targets so we never turn the login page into an open redirect.
+ */
+export function websiteLoginUrl(resourceUrl: string, siteUrl: string): string | null {
+  let resourceHost = '';
+  let site: URL;
+  try {
+    resourceHost = new URL(resourceUrl).host;
+    site = new URL(siteUrl);
+  } catch {
+    return null;
+  }
+
+  if (!/^https?:\/\//i.test(resourceUrl)) return null;
+  if (!resourceHost || !sameSite(resourceHost, site.host)) return null;
+
+  const login = new URL('/login/', site.origin);
+  login.searchParams.set('redirect_to', resourceUrl);
+  return login.toString();
+}
+
+/**
+ * First URL the resource viewer should load.
+ * HTML pages start at the website login so the member signs in and lands on
+ * the resource. PDFs are public; Android's WebView renders them via gview.
+ */
+export function resourceViewerEntry(
+  resourceUrl: string,
+  siteUrl: string,
+  platform?: string
+): string {
+  if (isPdfUrl(resourceUrl)) {
+    if (platform === 'android') {
+      return `https://docs.google.com/gview?embedded=1&url=${encodeURIComponent(resourceUrl)}`;
+    }
+    return resourceUrl;
+  }
+
+  return websiteLoginUrl(resourceUrl, siteUrl) ?? resourceUrl;
+}
+
 export function shouldKeepResourceNavigation(
   target: string,
   siteHost: string,
