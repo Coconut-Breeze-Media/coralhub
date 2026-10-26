@@ -19,7 +19,8 @@
       "autoIncrement": true,
       "ios": {},
       "android": {
-        "buildType": "app-bundle"
+        "buildType": "app-bundle",
+        "image": "sdk-57"
       }
     }
   },
