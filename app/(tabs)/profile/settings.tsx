@@ -1,10 +1,12 @@
 // app/(tabs)/profile/settings.tsx
 /**
- * Profile Settings Screen
+ * My Profile Settings Screen
  * Allows users to view and edit their profile information including:
  * - Display name
  * - Profile picture (avatar)
  * - Cover image
+ * - Extended profile fields (via "Edit My Profile")
+ * - Membership level (via "Change membership level")
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -32,13 +34,29 @@ import {
   useDeleteCover,
   useUserAvatar,
   useUserCover,
-  useUserActivity,
 } from '../../../hooks';
 import { optimizeCoverImage } from '../../../lib/imageHelpers';
 import { useAuth } from '../../../lib/auth';
+import { ROUTES } from '../../../constants/navigation';
+import type { MembershipResponse } from '../../../types';
 
 const COVER_ASPECT: [number, number] = [27, 7];
 const COVER_UPLOAD_WIDTH = 1400;
+
+/** "1 Year" → "year", "3 Month" → "3 months" for the billing line. */
+function billingLabel(billing: NonNullable<MembershipResponse['billing']>) {
+  const period = billing.cycle_period.toLowerCase();
+  const every = billing.cycle_number > 1 ? `${billing.cycle_number} ${period}s` : period;
+  return `$${billing.amount.toFixed(2)} per ${every}`;
+}
+
+/** Display name of the member's plan without inventing one we don't know. */
+function planLabel(membership: MembershipResponse) {
+  if (membership.level_name) return membership.level_name;
+  if (membership.tier_inferred) return 'Premium member';
+  if (membership.tier === 'none') return 'Basic';
+  return `${membership.tier.charAt(0).toUpperCase()}${membership.tier.slice(1)}`;
+}
 
 export default function ProfileSettingsScreen() {
   const router = useRouter();
@@ -53,7 +71,6 @@ export default function ProfileSettingsScreen() {
   // dedicated media endpoints so the settings page shows the actual uploads.
   const { data: avatar, refetch: refetchAvatar } = useUserAvatar(member?.id || 0);
   const { data: cover, refetch: refetchCover } = useUserCover(member?.id || 0);
-  const { data: activities } = useUserActivity(member?.id || 0);
 
   const [displayName, setDisplayName] = useState('');
   const [isEditing, setIsEditing] = useState(false);
@@ -667,6 +684,34 @@ export default function ProfileSettingsScreen() {
           )}
         </View>
 
+        {/* Extended profile (BuddyPress xprofile fields) */}
+        <View style={{ backgroundColor: '#fff', padding: 16, marginBottom: 2 }}>
+          <Text style={{ fontSize: 16, fontWeight: '600', color: '#1f2937', marginBottom: 4 }}>
+            Profile Information
+          </Text>
+          <Text style={{ fontSize: 13, color: '#6b7280', marginBottom: 12 }}>
+            Your name, description, qualifications and research interests shown on your member profile.
+          </Text>
+          <Pressable
+            onPress={() => router.push(ROUTES.PROFILE_EDIT)}
+            accessibilityRole="button"
+            accessibilityLabel="Edit My Profile"
+            style={({ pressed }) => ({
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+              paddingVertical: 12,
+              backgroundColor: '#2563eb',
+              borderRadius: 8,
+              opacity: pressed ? 0.85 : 1,
+            })}
+          >
+            <Ionicons name="create-outline" size={18} color="#fff" />
+            <Text style={{ color: '#fff', fontSize: 15, fontWeight: '600' }}>Edit My Profile</Text>
+          </Pressable>
+        </View>
+
         {/* User Info (Read-only) */}
         <View style={{ backgroundColor: '#fff', padding: 16, marginBottom: 2 }}>
           <Text style={{ fontSize: 16, fontWeight: '600', color: '#1f2937', marginBottom: 12 }}>
@@ -685,25 +730,6 @@ export default function ProfileSettingsScreen() {
                 <Text style={{ fontSize: 16, color: '#1f2937' }}>{profile.user_email}</Text>
               </View>
             )}
-            <View>
-              <Text style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Last Activity</Text>
-              {activities && activities.length > 0 ? (
-                <>
-                  <Text style={{ fontSize: 16, color: '#1f2937', fontWeight: '600' }}>
-                    {activities[0].type?.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())}
-                  </Text>
-                  <Text style={{ fontSize: 14, color: '#6b7280', marginTop: 2 }}>
-                    {new Date(activities[0].date_recorded || activities[0].date).toLocaleDateString('en-US', {
-                      year: 'numeric',
-                      month: 'long',
-                      day: 'numeric',
-                    })}
-                  </Text>
-                </>
-              ) : (
-                <Text style={{ fontSize: 16, color: '#1f2937' }}>No activity recorded</Text>
-              )}
-            </View>
             {member?.registered_date && (
               <View>
                 <Text style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Member Since</Text>
@@ -721,19 +747,7 @@ export default function ProfileSettingsScreen() {
             <Text style={{ fontSize: 16, fontWeight: '600', color: '#1f2937' }}>
               Membership
             </Text>
-            <Pressable
-              onPress={refreshMembership}
-              disabled={checkingMembership}
-              accessibilityRole="button"
-              accessibilityLabel="Refresh membership status"
-              style={{ padding: 6 }}
-            >
-              {checkingMembership ? (
-                <ActivityIndicator size="small" color="#2563eb" />
-              ) : (
-                <Ionicons name="refresh-outline" size={20} color="#2563eb" />
-              )}
-            </Pressable>
+            {checkingMembership && <ActivityIndicator size="small" color="#2563eb" />}
           </View>
 
           {membership ? (
@@ -746,9 +760,12 @@ export default function ProfileSettingsScreen() {
               </View>
               <View>
                 <Text style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Plan</Text>
-                <Text style={{ fontSize: 16, color: '#1f2937' }}>
-                  {membership.level_name || `${membership.tier.charAt(0).toUpperCase()}${membership.tier.slice(1)}`}
-                </Text>
+                <Text style={{ fontSize: 16, color: '#1f2937' }}>{planLabel(membership)}</Text>
+                {membership.billing && membership.billing.amount > 0 && (
+                  <Text style={{ fontSize: 14, color: '#6b7280', marginTop: 2 }}>
+                    {billingLabel(membership.billing)}
+                  </Text>
+                )}
               </View>
               {membership.subscription_status && (
                 <View>
@@ -784,6 +801,40 @@ export default function ProfileSettingsScreen() {
               {checkingMembership ? 'Loading membership…' : 'Membership information is unavailable'}
             </Text>
           )}
+
+          <Pressable
+            onPress={() => router.push(ROUTES.MEMBERSHIP_LEVELS)}
+            accessibilityRole="button"
+            accessibilityLabel={membership?.tier === 'none' ? 'Upgrade membership' : 'Change membership level'}
+            style={({ pressed }) => ({
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+              marginTop: 16,
+              paddingVertical: 12,
+              borderRadius: 8,
+              borderWidth: 1,
+              borderColor: '#2563eb',
+              backgroundColor: membership?.tier === 'none' ? '#2563eb' : '#fff',
+              opacity: pressed ? 0.85 : 1,
+            })}
+          >
+            <Ionicons
+              name="swap-vertical-outline"
+              size={18}
+              color={membership?.tier === 'none' ? '#fff' : '#2563eb'}
+            />
+            <Text
+              style={{
+                color: membership?.tier === 'none' ? '#fff' : '#2563eb',
+                fontSize: 15,
+                fontWeight: '600',
+              }}
+            >
+              {membership?.tier === 'none' ? 'Upgrade membership' : 'Change membership level'}
+            </Text>
+          </Pressable>
         </View>
 
         <View style={{ height: 40 }} />

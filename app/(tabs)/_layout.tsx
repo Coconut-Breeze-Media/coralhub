@@ -180,9 +180,18 @@ export default function TabsLayout() {
         name="profile/settings"
         options={{
           href: null,
-          title: 'Profile Settings',
-          headerTitle: brandHeaderTitle('Profile Settings'),
+          title: 'My Profile Settings',
+          headerTitle: brandHeaderTitle('My Profile Settings'),
           headerLeft: () => <BackButton fallbackRoute={ROUTES.PROFILE} useHistory={false} />,
+        }}
+      />
+      <Tabs.Screen
+        name="profile/edit-profile"
+        options={{
+          href: null,
+          title: 'Edit My Profile',
+          headerTitle: brandHeaderTitle('Edit My Profile'),
+          headerLeft: () => <BackButton fallbackRoute={ROUTES.PROFILE_SETTINGS} useHistory={false} />,
         }}
       />
       <Tabs.Screen
