@@ -259,6 +259,18 @@ function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit, ms = 150
 
 const sharePostRequestsInFlight = new Map<string, Promise<import('../types').BPActivity>>();
 
+/**
+ * BuddyPress REST v1 returns create/update results as a one-item array
+ * (`[activity]`), not the activity object. Callers prepend the result to the
+ * cached feeds, so always hand back the activity itself — an array in the
+ * feed cache rendered a post with no id/content and crashed the screen.
+ */
+function firstActivity(
+  result: import('../types').BPActivity | import('../types').BPActivity[]
+): import('../types').BPActivity {
+  return Array.isArray(result) ? result[0] : result;
+}
+
 // ---------- auth ----------
 export async function wpLogin(username: string, password: string): Promise<JWTPayload> {
   const body = JSON.stringify({ username, password });
@@ -1465,11 +1477,16 @@ export async function createPost(
     type: payload.type || 'activity_update',
     ...(payload.primary_item_id && { primary_item_id: payload.primary_item_id }),
   };
-  
-  return authedFetch<import('../types').BPActivity>('/buddypress/v1/activity', token, {
-    method: 'POST',
-    body: JSON.stringify(data),
-  });
+
+  const result = await authedFetch<import('../types').BPActivity | import('../types').BPActivity[]>(
+    '/buddypress/v1/activity',
+    token,
+    {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }
+  );
+  return firstActivity(result);
 }
 
 /**
@@ -1534,16 +1551,21 @@ export async function sharePost(
     return existingRequest;
   }
 
+  // The website's share feature stores the original activity in
+  // `secondary_item_id`; earlier app builds only set `primary_item_id`, so
+  // the website could not resolve app shares. Send both.
   const data: {
     component: 'activity';
     type: 'activity_share';
     primary_item_id: number;
+    secondary_item_id: number;
     link: string;
     content?: string;
   } = {
     component: 'activity',
     type: 'activity_share',
     primary_item_id: originalActivityId,
+    secondary_item_id: originalActivityId,
     link: postUrl,
   };
 
@@ -1562,7 +1584,7 @@ export async function sharePost(
     });
 
     await assertOk(res);
-    return res.json();
+    return firstActivity(await res.json());
   })();
 
   sharePostRequestsInFlight.set(requestKey, request);
@@ -1622,7 +1644,7 @@ export async function updatePost(
     data.primary_item_id = options.primary_item_id;
   }
   
-  return authedFetch<import('../types').BPActivity>(
+  const result = await authedFetch<import('../types').BPActivity | import('../types').BPActivity[]>(
     `/buddypress/v1/activity/${activityId}`,
     token,
     {
@@ -1630,6 +1652,7 @@ export async function updatePost(
       body: JSON.stringify(data),
     }
   );
+  return firstActivity(result);
 }
 
 /**
@@ -1650,11 +1673,16 @@ export async function createGroupPost(
     type: 'activity_update',
     primary_item_id: groupId,
   };
-  
-  return authedFetch<import('../types').BPActivity>('/buddypress/v1/activity', token, {
-    method: 'POST',
-    body: JSON.stringify(data),
-  });
+
+  const result = await authedFetch<import('../types').BPActivity | import('../types').BPActivity[]>(
+    '/buddypress/v1/activity',
+    token,
+    {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }
+  );
+  return firstActivity(result);
 }
 
 // ---------- BuddyPress Groups API ----------
@@ -2211,16 +2239,21 @@ export async function createComment(
   token: string,
   parentCommentId?: number
 ): Promise<import('../types').BPActivity> {
-  return authedFetch<import('../types').BPActivity>('/buddypress/v1/activity', token, {
-    method: 'POST',
-    body: JSON.stringify({
-      component: 'activity',
-      type: 'activity_comment',
-      primary_item_id: activityId,
-      secondary_item_id: parentCommentId ?? activityId,
-      content,
-    }),
-  });
+  const result = await authedFetch<import('../types').BPActivity | import('../types').BPActivity[]>(
+    '/buddypress/v1/activity',
+    token,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        component: 'activity',
+        type: 'activity_comment',
+        primary_item_id: activityId,
+        secondary_item_id: parentCommentId ?? activityId,
+        content,
+      }),
+    }
+  );
+  return firstActivity(result);
 }
 
 /**

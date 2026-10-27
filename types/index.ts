@@ -279,6 +279,18 @@ export interface BPActivity {
   favorited?: boolean;
   favorite_count?: number;
   comment_count?: number;
+  /** Open Graph preview of the first link in the post (coral-social-api REST field). */
+  link_preview?: ActivityLinkPreview | null;
+  /** Original activity of a share, whichever field the share was stored in (coral-social-api REST field). */
+  shared_activity_id?: number | null;
+}
+
+export interface ActivityLinkPreview {
+  url: string;
+  title?: string;
+  description?: string;
+  image?: string;
+  site_name?: string;
 }
 
 /**

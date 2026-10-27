@@ -31,9 +31,15 @@ import {
   formatFileSize,
   type SelectedImageAttachment,
 } from '../../lib/imageAttachment';
-import { normalizeBareUrlsInText, normalizeExternalUrl, postLinkMarkup } from '../../lib/postContent';
+import {
+  htmlToPlainText,
+  normalizeBareUrlsInText,
+  normalizeExternalUrl,
+  postLinkMarkup,
+} from '../../lib/postContent';
 import RequireAuth from '../../components/RequireAuth';
 import MentionInput from '../../components/MentionInput';
+import ComposerAvatar from '../../components/ComposerAvatar';
 import PostCard from '../../components/PostCard';
 import PostActionModals from '../../components/PostActionModals';
 import ScrollToTopButton from '../../components/ScrollToTopButton';
@@ -317,12 +323,18 @@ function CommunityScreen() {
       await createPostMutation.mutateAsync({
         content: fullContent,
       });
-      
-      // Reset form
+
+      // Reset the composer and take the user to the News Feed, where
+      // useCreatePost has already put the new post at the top.
       setPostContent('');
       setSelectedImages([]);
       setPostLink('');
-      Alert.alert('Success', 'Post created successfully!');
+      Keyboard.dismiss();
+      setFeedFilter('all');
+      setActiveTab('feed');
+      requestAnimationFrame(() => {
+        listRef.current?.scrollToOffset({ offset: 0, animated: false });
+      });
     } catch (error) {
       Alert.alert('Error', error instanceof Error ? error.message : 'Failed to create post');
     }
@@ -423,7 +435,7 @@ function CommunityScreen() {
       content = item.content.raw || item.content.rendered || '';
     }
     setEditingPost(item);
-    setEditContent(content.replace(/<[^>]+>/g, '').trim());
+    setEditContent(htmlToPlainText(content));
     setIsEditModalVisible(true);
   }, []);
 
@@ -592,11 +604,7 @@ function CommunityScreen() {
       {activeTab === 'my-posts' && (
         <View style={styles.createPostContainer}>
           <View style={styles.createPostHeader}>
-            <View style={styles.createPostAvatar}>
-              <Text style={styles.createPostAvatarText}>
-                {profile?.user_display_name?.charAt(0).toUpperCase() || 'U'}
-              </Text>
-            </View>
+            <ComposerAvatar size={40} />
             <View style={styles.createPostInputWrapper}>
               <MentionInput
                 value={postContent}
@@ -608,6 +616,7 @@ function CommunityScreen() {
                 maxLength={500}
                 maxHeight={120}
                 style={styles.createPostInput}
+                containerStyle={styles.createPostMentionContainer}
                 suggestionPosition="below"
               />
             </View>
@@ -748,6 +757,11 @@ function CommunityScreen() {
             }
             onScroll={handleScroll}
             scrollEventThrottle={16}
+            // Each PostCard renders its Comments/Share modals inside this
+            // list. With the default ("never") the list captured the first
+            // tap on those modals' buttons just to dismiss the keyboard, so
+            // "Send" needed two taps.
+            keyboardShouldPersistTaps="handled"
             onEndReached={handleLoadMore}
             onEndReachedThreshold={0.5}
             ListFooterComponent={
@@ -893,6 +907,13 @@ const styles = StyleSheet.create({
   createPostInputWrapper: {
     flex: 1,
   },
+  // The input sits in a vertical stack, so it must not flex on that axis —
+  // it grows with its content (like the group composer) up to maxHeight.
+  createPostMentionContainer: {
+    flexGrow: 0,
+    flexShrink: 0,
+    flexBasis: 'auto',
+  },
   createPostInput: {
     fontSize: 15,
     color: '#262626',
@@ -900,6 +921,7 @@ const styles = StyleSheet.create({
     maxHeight: 120,
     padding: 0,
     lineHeight: 20,
+    textAlignVertical: 'top',
   },
   createPostActions: {
     flexDirection: 'row',

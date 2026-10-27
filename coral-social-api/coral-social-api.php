@@ -213,6 +213,11 @@ class Coral_Social_API {
         require_once CORAL_SOCIAL_API_PLUGIN_DIR . 'includes/class-users-endpoint.php';
         require_once CORAL_SOCIAL_API_PLUGIN_DIR . 'includes/class-mentions-endpoint.php';
         require_once CORAL_SOCIAL_API_PLUGIN_DIR . 'includes/class-auth-endpoint.php';
+        require_once CORAL_SOCIAL_API_PLUGIN_DIR . 'includes/class-activity-enhancements.php';
+
+        // Emoji storage, link previews and share normalization for the
+        // BuddyPress activity REST API the app uses.
+        new Coral_Activity_Enhancements();
     }
     
     public function check_dependencies() {
