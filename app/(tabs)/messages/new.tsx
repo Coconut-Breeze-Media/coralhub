@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router, Stack, useLocalSearchParams, useNavigation } from 'expo-router';
+import { Stack, useLocalSearchParams, useNavigation } from 'expo-router';
 import { replaceTabRoute, type BackNavigation } from '../../../lib/tabNavigation';
 import { useAuth } from '../../../lib/auth';
 import { useMember, useMembersList } from '../../../hooks/useMembers';
