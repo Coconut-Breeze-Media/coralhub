@@ -43,6 +43,15 @@ export interface MembershipResponse {
   subscription_status?: string | null;
   expires_at?: string | null;
   roles?: string[];
+  /** Recurring billing of the resolved level (coral-membership v1.5+). */
+  billing?: { amount: number; cycle_number: number; cycle_period: string } | null;
+  /** Every active PMPro level the user holds (coral-membership v1.5+). */
+  levels?: { id: number; name: string }[];
+  /**
+   * True when the tier was guessed (legacy server, level lookup failed), so the
+   * UI must not present it as the user's actual plan name.
+   */
+  tier_inferred?: boolean;
 }
 
 /**
@@ -215,6 +224,39 @@ export interface XProfileFieldData {
  */
 export interface UpdateXProfilePayload {
   value: string;
+}
+
+/** Option of a selectbox/radio/checkbox/multiselectbox xprofile field. */
+export interface BPXProfileFieldOption {
+  id: number;
+  name: string;
+  is_default_option?: boolean;
+  option_order?: number;
+}
+
+/** An xprofile field as returned by /buddypress/v1/xprofile/groups?fetch_fields=true. */
+export interface BPXProfileField {
+  id: number;
+  group_id?: number;
+  name: string;
+  type: string;
+  description?: { raw?: string; rendered?: string } | string;
+  is_required?: boolean;
+  field_order?: number;
+  visibility_level?: string;
+  options?: BPXProfileFieldOption[];
+  data?: {
+    value?: { raw?: string; unserialized?: unknown; rendered?: string } | string;
+  };
+}
+
+/** An xprofile field group with its fields. */
+export interface BPXProfileGroup {
+  id: number;
+  name: string;
+  description?: { raw?: string; rendered?: string } | string;
+  group_order?: number;
+  fields?: BPXProfileField[];
 }
 
 /**

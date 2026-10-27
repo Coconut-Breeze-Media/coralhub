@@ -77,6 +77,7 @@ async function deriveMembership(activeToken: string): Promise<MembershipResponse
   let tier: MembershipTier = res.is_member ? 'monthly' : 'none';
   let levelId: number | null = null;
   let levelName: string | null = null;
+  let tierInferred = true;
   try {
     const me = await getPmproMe(activeToken);
     const lvl = extractPmproLevel(me);
@@ -84,9 +85,13 @@ async function deriveMembership(activeToken: string): Promise<MembershipResponse
     levelName = lvl.name;
     if (lvl.id != null && LEVEL_ID_TIER_MAP[lvl.id] != null) {
       tier = LEVEL_ID_TIER_MAP[lvl.id];
+      tierInferred = false;
     } else {
       const byName = tierFromLevelName(lvl.name);
-      if (byName) tier = byName;
+      if (byName) {
+        tier = byName;
+        tierInferred = false;
+      }
     }
   } catch {
     // /pmpro/v1/me unavailable or denied — keep the is_member-based tier so
@@ -98,6 +103,7 @@ async function deriveMembership(activeToken: string): Promise<MembershipResponse
     tier,
     level_id: levelId,
     level_name: levelName,
+    tier_inferred: tierInferred && Boolean(res.is_member),
     allowed_resources: allowedResourcesForTier(tier),
   };
 }

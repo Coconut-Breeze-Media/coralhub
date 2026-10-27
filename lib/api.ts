@@ -23,6 +23,7 @@ import type {
   BPMessageDeleteResponse,
 } from '../types';
 import { encodeMessageForTransport } from './messagePresentation';
+import { convertToJPEG } from './imageHelpers';
 import { API_BASE_URL, SITE_URL } from './config';
 import { createTokenRefreshCoordinator, isRefreshExemptPath, replacementBearer } from './tokenRefresh';
 
@@ -137,10 +138,106 @@ async function refreshAccessToken(): Promise<string | null> {
   return accessRefreshInFlight;
 }
 
+/**
+ * True when a native FormData body carries React Native's `{ uri, name, type }`
+ * file parts. Expo's WinterCG `fetch` (the global `fetch` since Expo SDK 52+)
+ * cannot serialise those parts and throws "Unsupported FormDataPart
+ * implementation", so such uploads must go through XMLHttpRequest instead,
+ * which streams `uri` parts natively on iOS and Android.
+ */
+function hasNativeFileParts(body: unknown): boolean {
+  if (Platform.OS === 'web' || !body || typeof body !== 'object') return false;
+  const parts = (body as { _parts?: unknown })._parts;
+  if (!Array.isArray(parts)) return false;
+  return parts.some((part) => {
+    const value = Array.isArray(part) ? part[1] : null;
+    return Boolean(value && typeof value === 'object' && typeof (value as { uri?: unknown }).uri === 'string');
+  });
+}
+
+function abortError(): Error {
+  const error = new Error('Aborted');
+  error.name = 'AbortError';
+  return error;
+}
+
+/** Minimal fetch-compatible multipart upload over React Native's XMLHttpRequest. */
+function xhrFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open(init.method || 'POST', requestUrl(input));
+
+    // Never set Content-Type: XHR adds multipart/form-data with the boundary.
+    new Headers(init.headers).forEach((value, key) => {
+      if (key.toLowerCase() !== 'content-type') xhr.setRequestHeader(key, value);
+    });
+
+    const signal = init.signal;
+    const onAbort = () => xhr.abort();
+    if (signal) {
+      if (signal.aborted) {
+        reject(abortError());
+        return;
+      }
+      signal.addEventListener('abort', onAbort);
+    }
+    const cleanup = () => signal?.removeEventListener('abort', onAbort);
+
+    xhr.onload = () => {
+      cleanup();
+      const headers = new Headers();
+      (xhr.getAllResponseHeaders() || '')
+        .trim()
+        .split(/[\r\n]+/)
+        .forEach((line) => {
+          const index = line.indexOf(':');
+          if (index > 0) headers.append(line.slice(0, index).trim(), line.slice(index + 1).trim());
+        });
+      const status = xhr.status >= 200 && xhr.status <= 599 ? xhr.status : 500;
+      const bodyText = status === 204 || status === 205 ? null : xhr.responseText;
+      resolve(new Response(bodyText, { status, headers }));
+    };
+    xhr.onerror = () => {
+      cleanup();
+      reject(new TypeError('Network request failed'));
+    };
+    xhr.ontimeout = () => {
+      cleanup();
+      reject(new TypeError('Network request timed out'));
+    };
+    xhr.onabort = () => {
+      cleanup();
+      reject(abortError());
+    };
+
+    xhr.send(init.body as XMLHttpRequestBodyInit);
+  });
+}
+
+const UPLOADABLE_IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'gif']);
+
+/**
+ * On native, convert images whose extension is not JPEG/PNG/GIF (e.g. HEIC
+ * from iOS, or extension-less content:// URIs on Android) to a local JPEG so
+ * the BuddyPress / WordPress upload handlers accept the file type.
+ */
+async function ensureUploadableImageUri(imageUri: string): Promise<string> {
+  if (Platform.OS === 'web' || imageUri.startsWith('blob:') || imageUri.startsWith('data:')) {
+    return imageUri;
+  }
+  const lastSegment = imageUri.split(/[?#]/)[0].split('/').pop() || '';
+  const extension = lastSegment.includes('.') ? lastSegment.split('.').pop()!.toLowerCase() : '';
+  if (UPLOADABLE_IMAGE_EXTENSIONS.has(extension)) return imageUri;
+  return convertToJPEG(imageUri, 0.85);
+}
+
 function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit, ms = 15000) {
   const exec = (nextInit?: RequestInit) => {
     const ctrl = new AbortController();
     const id = setTimeout(() => ctrl.abort(), ms);
+    if (hasNativeFileParts(nextInit?.body)) {
+      return xhrFetch(input, { ...nextInit, signal: ctrl.signal }).finally(() => clearTimeout(id));
+    }
     // The WP host sends long-lived Cache-Control headers on some REST responses
     // (e.g. `public, max-age=604800`). Without this, the device's own HTTP cache
     // can silently serve a stale response for up to a week, so force every
@@ -283,6 +380,21 @@ export async function getMembershipLevels(): Promise<MembershipLevel[]> {
           `${WP}/membership-account/membership-checkout/?level=${Number(l?.id ?? 0)}`
       ),
   }));
+}
+
+/**
+ * Get a single-use checkout link that signs the browser into the logged-in
+ * app user's WordPress account before showing PMPro checkout (coral-app-checkout
+ * v1.1+). Without it, PMPro treats an upgrading member as a new registrant.
+ * POST /coral-checkout/v1/link { level }
+ */
+export async function getAppCheckoutLink(token: string, levelId: number): Promise<string> {
+  const data = await authedFetch<{ url?: string }>('/coral-checkout/v1/link', token, {
+    method: 'POST',
+    body: JSON.stringify({ level: levelId }),
+  });
+  if (!data?.url) throw new ApiError('Checkout link unavailable', 500);
+  return data.url;
 }
 
 // =========================
@@ -613,7 +725,8 @@ export async function uploadUserAvatar(
       size: file.size,
     });
   } else {
-    const uriParts = imageUri.split('.');
+    imageUri = await ensureUploadableImageUri(imageUri);
+    const uriParts = imageUri.split(/[?#]/)[0].split('.');
     const fileType = uriParts[uriParts.length - 1] || 'jpg';
     
     // Map common extensions to proper MIME types
@@ -815,6 +928,30 @@ export async function updateXProfileField(
       body: JSON.stringify(payload),
     }
   );
+}
+
+/**
+ * Get every xprofile field group with its fields, options and the given
+ * user's saved values (used by the "Edit My Profile" screen).
+ * GET /buddypress/v1/xprofile/groups?fetch_fields=true&fetch_field_data=true&user_id=
+ */
+export async function getXProfileGroupsForUser(
+  userId: number,
+  token: string
+): Promise<import('../types').BPXProfileGroup[]> {
+  const params = new URLSearchParams({
+    fetch_fields: 'true',
+    fetch_field_data: 'true',
+    fetch_visibility_level: 'true',
+    hide_empty_fields: 'false',
+    user_id: String(userId),
+    per_page: '100',
+  });
+  const result = await authedFetch<import('../types').BPXProfileGroup[]>(
+    `/buddypress/v1/xprofile/groups?${params.toString()}`,
+    token
+  );
+  return Array.isArray(result) ? result : [];
 }
 
 /**
@@ -1207,9 +1344,13 @@ export async function uploadImage(
 
     // Create FormData for multipart upload
     const formData = new FormData();
-    
+
+    // WordPress rejects HEIC/HEIF and other formats outside its allowed mime
+    // list, so normalise anything that is not JPEG/PNG/GIF to JPEG first.
+    imageUri = await ensureUploadableImageUri(imageUri);
+
     // Detect file extension and MIME type
-    const fileExtension = imageUri.split('.').pop()?.toLowerCase() || 'jpg';
+    const fileExtension = imageUri.split(/[?#]/)[0].split('.').pop()?.toLowerCase() || 'jpg';
     const mimeType = fileExtension === 'png' ? 'image/png' : 
                      fileExtension === 'gif' ? 'image/gif' : 
                      'image/jpeg';
@@ -1224,12 +1365,15 @@ export async function uploadImage(
       // Append blob to FormData
       formData.append('file', blob, fileName);
     } else {
-      // For React Native native (file:// URIs)
+      // For React Native native (file:// URIs). Keep the file name's
+      // extension consistent with the MIME type so WordPress accepts it.
+      const extension = mimeType === 'image/png' ? 'png' : mimeType === 'image/gif' ? 'gif' : 'jpg';
+      const nativeFileName = fileName.replace(/\.[a-z0-9]+$/i, '') + `.${extension}`;
       // @ts-ignore - React Native FormData accepts this format
       formData.append('file', {
         uri: imageUri,
         type: mimeType,
-        name: fileName,
+        name: nativeFileName,
       });
     }
 

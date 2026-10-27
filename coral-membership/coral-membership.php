@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Coral Membership API
  * Description: Exposes REST API endpoints used by the mobile app (membership check + membership levels + tiered premium-resource access + app SSO).
- * Version: 1.4
+ * Version: 1.5
  * Author: Coral Reef Research Hub
  */
 
@@ -274,38 +274,109 @@ if (!function_exists('coral_allowed_resources_for_tier')) {
   }
 }
 
+/** Level ID from a PMPro level object (PMPro uses both ->id and ->ID). */
+if (!function_exists('coral_pmpro_level_id')) {
+  function coral_pmpro_level_id($level) {
+    if (!is_object($level)) return 0;
+    return (int) (!empty($level->id) ? $level->id : (!empty($level->ID) ? $level->ID : 0));
+  }
+}
+
+/**
+ * Tier for a single PMPro level: ID map first, then name keywords, then the
+ * level's billing period. Returns null when nothing identifies it.
+ */
+if (!function_exists('coral_tier_for_level')) {
+  function coral_tier_for_level($level) {
+    $lid = coral_pmpro_level_id($level);
+    $map = coral_level_tier_map();
+    if ($lid && isset($map[$lid])) {
+      return $map[$lid];
+    }
+
+    $name = strtolower((string) (isset($level->name) ? $level->name : ''));
+    // Match keywords anywhere in the name ("Premium Annual", "Annual Membership"...).
+    $keywords = [
+      'institutional' => 'institutional',
+      'group'         => 'institutional',
+      'annual'        => 'annual',
+      'yearly'        => 'annual',
+      'monthly'       => 'monthly',
+      'basic'         => 'none',
+    ];
+    foreach ($keywords as $needle => $tier) {
+      if ($name !== '' && strpos($name, $needle) !== false) {
+        return $tier;
+      }
+    }
+
+    // Unknown paid level: use its billing period rather than assuming monthly.
+    $period = strtolower((string) (isset($level->cycle_period) ? $level->cycle_period : ''));
+    if ($period === 'year') return 'annual';
+    $billing = (float) (isset($level->billing_amount) ? $level->billing_amount : 0);
+    $initial = (float) (isset($level->initial_payment) ? $level->initial_payment : 0);
+    if ($billing > 0 || $initial > 0) return 'monthly';
+
+    return null;
+  }
+}
+
+/**
+ * All of the user's active PMPro levels. Uses pmpro_getMembershipLevelsForUser
+ * so a member holding more than one level (e.g. the free Basic level plus a
+ * paid Annual level) is not resolved from whichever level happens to be first.
+ */
+if (!function_exists('coral_get_user_pmpro_levels')) {
+  function coral_get_user_pmpro_levels($user_id) {
+    $levels = [];
+    if (function_exists('pmpro_getMembershipLevelsForUser')) {
+      $all = pmpro_getMembershipLevelsForUser($user_id);
+      if (is_array($all)) {
+        $levels = array_values(array_filter($all, 'is_object'));
+      }
+    }
+    if (empty($levels) && function_exists('pmpro_getMembershipLevelForUser')) {
+      $one = pmpro_getMembershipLevelForUser($user_id);
+      if (is_object($one)) {
+        $levels = [$one];
+      }
+    }
+    return $levels;
+  }
+}
+
+/**
+ * The user's highest-ranked PMPro level and its tier, or null when the user
+ * holds no PMPro level. Returns ['level' => object, 'tier' => string].
+ */
+if (!function_exists('coral_get_user_primary_level')) {
+  function coral_get_user_primary_level($user_id) {
+    $best = null;
+    foreach (coral_get_user_pmpro_levels($user_id) as $level) {
+      $tier = coral_tier_for_level($level);
+      if ($tier === null) $tier = 'none';
+      if ($best === null || coral_tier_rank($tier) > coral_tier_rank($best['tier'])) {
+        $best = ['level' => $level, 'tier' => $tier];
+      }
+    }
+    return $best;
+  }
+}
+
 /**
  * Resolve the app tier for a user.
- *  1. PMPro active level → coral_level_tier_map (by ID).
- *  2. Fallback: first word of the level name (group → institutional).
- *  3. MemberPress / capability fallbacks → lowest paid tier.
- *  4. Otherwise 'none'.
+ *  1. Highest-ranked active PMPro level (ID map, then name keywords, then
+ *     billing period).
+ *  2. No PMPro level: MemberPress / capability fallbacks -> lowest paid tier.
+ *  3. Otherwise 'none'.
  */
 if (!function_exists('coral_get_user_tier')) {
   function coral_get_user_tier($user_id) {
     if (!$user_id) return 'none';
 
-    if (function_exists('pmpro_getMembershipLevelForUser')) {
-      $level = pmpro_getMembershipLevelForUser($user_id);
-      if ($level) {
-        $lid = (int) (!empty($level->id) ? $level->id : (!empty($level->ID) ? $level->ID : 0));
-        $map = coral_level_tier_map();
-        if ($lid && isset($map[$lid])) {
-          return $map[$lid];
-        }
-        // Name-prefix safety net.
-        $first = strtolower(trim(strtok((string) (isset($level->name) ? $level->name : ''), ' ')));
-        $name_map = [
-          'annual'        => 'annual',
-          'monthly'       => 'monthly',
-          'group'         => 'institutional',
-          'institutional' => 'institutional',
-          'basic'         => 'none',
-        ];
-        if ($first !== '' && isset($name_map[$first])) {
-          return $name_map[$first];
-        }
-      }
+    $primary = coral_get_user_primary_level($user_id);
+    if ($primary) {
+      return $primary['tier'];
     }
 
     if (class_exists('\MeprUser')) {
@@ -339,22 +410,37 @@ add_action('rest_api_init', function () {
       $tier    = coral_get_user_tier($user_id);
       $allowed = coral_allowed_resources_for_tier($tier);
 
-      // Best-effort level details for display / debugging.
+      // Level details for display: the same level the tier was resolved from.
       $level_id   = null;
       $level_name = null;
       $status     = ($tier !== 'none') ? 'active' : 'inactive';
       $expires_at = null;
+      $billing    = null;
+      $levels_out = [];
 
-      if (function_exists('pmpro_getMembershipLevelForUser')) {
-        $level = pmpro_getMembershipLevelForUser($user_id);
-        if ($level) {
-          $level_id   = (int) (!empty($level->id) ? $level->id : (!empty($level->ID) ? $level->ID : 0));
-          $level_name = isset($level->name) ? $level->name : null;
-          if (!empty($level->enddate)) {
-            $expires_at = is_numeric($level->enddate)
-              ? gmdate('c', (int) $level->enddate)
-              : (string) $level->enddate;
-          }
+      foreach (coral_get_user_pmpro_levels($user_id) as $lvl) {
+        $levels_out[] = [
+          'id'   => coral_pmpro_level_id($lvl),
+          'name' => isset($lvl->name) ? (string) $lvl->name : '',
+        ];
+      }
+
+      $primary = coral_get_user_primary_level($user_id);
+      if ($primary) {
+        $level      = $primary['level'];
+        $level_id   = coral_pmpro_level_id($level);
+        $level_name = isset($level->name) ? (string) $level->name : null;
+        if (!empty($level->enddate)) {
+          $expires_at = is_numeric($level->enddate)
+            ? gmdate('c', (int) $level->enddate)
+            : (string) $level->enddate;
+        }
+        if (!empty($level->cycle_number) && !empty($level->cycle_period)) {
+          $billing = [
+            'amount'       => (float) (isset($level->billing_amount) ? $level->billing_amount : 0),
+            'cycle_number' => (int) $level->cycle_number,
+            'cycle_period' => (string) $level->cycle_period,
+          ];
         }
       }
 
@@ -367,6 +453,8 @@ add_action('rest_api_init', function () {
         'allowed_resources'   => $allowed,
         'subscription_status' => $status,
         'expires_at'          => $expires_at,
+        'billing'             => $billing,
+        'levels'              => $levels_out,
       ], 200);
     },
     'permission_callback' => '__return_true',
