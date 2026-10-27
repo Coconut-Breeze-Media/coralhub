@@ -729,3 +729,33 @@ export interface NormalizedXProfileField {
   value: string;
   group?: string;
 }
+
+// ============================================
+// Site-wide search ("Search CoRR Hub")
+// ============================================
+
+/** One result from GET /coral/v1/search (or the WP core fallback). */
+export interface SiteSearchResult {
+  id: number;
+  /** WP post type slug, or 'document' for an uploaded file. */
+  type: string;
+  /** Human label for the badge, e.g. "Page", "Post", "PDF". */
+  type_label: string;
+  title: string;
+  excerpt: string;
+  /** Permalink of the page/post (attachment page for files). */
+  url: string;
+  /** Direct file URL for documents, '' otherwise. */
+  file_url?: string;
+  mime_type?: string;
+  date?: string;
+  /** True when the member's level cannot open it (excerpt withheld). */
+  locked?: boolean;
+}
+
+export interface SiteSearchPage {
+  results: SiteSearchResult[];
+  page: number;
+  total_pages: number;
+  total?: number;
+}

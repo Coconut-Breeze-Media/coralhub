@@ -213,6 +213,7 @@ class Coral_Social_API {
         require_once CORAL_SOCIAL_API_PLUGIN_DIR . 'includes/class-users-endpoint.php';
         require_once CORAL_SOCIAL_API_PLUGIN_DIR . 'includes/class-mentions-endpoint.php';
         require_once CORAL_SOCIAL_API_PLUGIN_DIR . 'includes/class-auth-endpoint.php';
+        require_once CORAL_SOCIAL_API_PLUGIN_DIR . 'includes/class-search-endpoint.php';
     }
     
     public function check_dependencies() {
@@ -264,6 +265,10 @@ class Coral_Social_API {
         // Register auth routes (public: lost password)
         $auth_endpoint = new Coral_Auth_Endpoint();
         $auth_endpoint->register_routes();
+
+        // Register site-wide search (app "Search CoRR Hub")
+        $search_endpoint = new Coral_Search_Endpoint();
+        $search_endpoint->register_routes();
     }
 }
 

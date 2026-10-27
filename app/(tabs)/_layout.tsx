@@ -241,11 +241,30 @@ export default function TabsLayout() {
       />
       <Tabs.Screen
         name="resource-viewer"
+        options={({ route }) => {
+          // Opened from search results → back returns to the search screen.
+          const fromSearch =
+            (route.params as { returnTo?: string } | undefined)?.returnTo === 'search';
+          return {
+            href: null,
+            title: 'Resource',
+            headerTitle: brandHeaderTitle('Resource'),
+            headerLeft: () => (
+              <BackButton
+                fallbackRoute={fromSearch ? ROUTES.SEARCH : ROUTES.RESOURCES}
+                useHistory={false}
+              />
+            ),
+          };
+        }}
+      />
+      <Tabs.Screen
+        name="search"
         options={{
           href: null,
-          title: 'Resource',
-          headerTitle: brandHeaderTitle('Resource'),
-          headerLeft: () => <BackButton fallbackRoute={ROUTES.RESOURCES} useHistory={false} />,
+          title: 'Search',
+          headerTitle: brandHeaderTitle('Search CoRR Hub'),
+          headerLeft: () => <BackButton fallbackRoute={ROUTES.PROFILE} useHistory={false} />,
         }}
       />
       <Tabs.Screen
