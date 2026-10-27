@@ -8,7 +8,8 @@ import { View, Text, ScrollView, ActivityIndicator, RefreshControl, Image, Touch
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useAuth } from '../../../lib/auth';
-import { useMyGroups } from '../../../hooks/useGroups';
+import { groupLastActivityTime, useMyGroupsByActivity } from '../../../hooks/useGroups';
+import type { BPGroup } from '../../../types';
 import { useState } from 'react';
 
 // Group status badge colors
@@ -18,9 +19,35 @@ const STATUS_COLORS: Record<string, { bg: string; text: string; icon: string }> 
   hidden: { bg: '#f3f4f6', text: '#4b5563', icon: 'eye-off-outline' },
 };
 
+/** "3 hours ago" style label, matching the website's group list. */
+function formatTimeAgo(timestamp: number): string {
+  const seconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+  if (seconds < 60) return 'just now';
+  const units: Array<[number, string]> = [
+    [365 * 24 * 3600, 'year'],
+    [30 * 24 * 3600, 'month'],
+    [7 * 24 * 3600, 'week'],
+    [24 * 3600, 'day'],
+    [3600, 'hour'],
+    [60, 'minute'],
+  ];
+  for (const [size, label] of units) {
+    const value = Math.floor(seconds / size);
+    if (value >= 1) return `${value} ${label}${value === 1 ? '' : 's'} ago`;
+  }
+  return 'just now';
+}
+
+function lastActiveLabel(group: BPGroup): string | null {
+  const time = groupLastActivityTime(group);
+  if (time > 0) return `Active ${formatTimeAgo(time)}`;
+  if (group.last_activity_diff) return `Active ${group.last_activity_diff}`;
+  return null;
+}
+
 export default function GroupsScreen() {
-  const { token } = useAuth();
-  const { data: groups, isLoading, refetch } = useMyGroups(token);
+  const { token, userId } = useAuth();
+  const { data: groups, isLoading, refetch } = useMyGroupsByActivity(token, userId);
   const [refreshing, setRefreshing] = useState(false);
 
   const onRefresh = async () => {
@@ -29,9 +56,10 @@ export default function GroupsScreen() {
     setRefreshing(false);
   };
 
-  const formatMemberCount = (count: number) => {
-    if (count === 1) return '1 member';
-    return `${count} members`;
+  const formatMemberCount = (count: number | undefined) => {
+    const total = Number(count) || 0;
+    if (total === 1) return '1 member';
+    return `${total} members`;
   };
 
   const formatDate = (dateString: string) => {
@@ -176,11 +204,11 @@ export default function GroupsScreen() {
                     </View>
 
                     {/* Last Activity */}
-                    {group.last_activity && (
+                    {lastActiveLabel(group) && (
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                         <Ionicons name="time-outline" size={16} color="#6b7280" />
                         <Text style={{ fontSize: 14, color: '#6b7280' }}>
-                          Active {group.last_activity_diff || formatDate(group.last_activity)}
+                          {lastActiveLabel(group)}
                         </Text>
                       </View>
                     )}
@@ -195,7 +223,7 @@ export default function GroupsScreen() {
                   </View>
 
                   {/* Admin Badge */}
-                  {group.admins && group.admins.length > 0 && group.admins.some(admin => admin.is_admin) && (
+                  {group.admins?.some(admin => admin.is_admin && Number(admin.user_id) === Number(userId)) && (
                     <View
                       style={{
                         marginTop: 12,
