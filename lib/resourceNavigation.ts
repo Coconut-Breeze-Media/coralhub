@@ -32,11 +32,49 @@ function sameSite(host: string, siteHost: string): boolean {
   return bare(host) === bare(siteHost);
 }
 
-function isPdfUrl(url: string): boolean {
+export function isPdfUrl(url: string): boolean {
   try {
     return new URL(url).pathname.toLowerCase().endsWith('.pdf');
   } catch {
     return /\.pdf($|\?)/i.test(url);
+  }
+}
+
+/**
+ * True when `url` is an absolute http(s) URL on the WordPress site (www and
+ * bare host count as the same site). Unlike `sameSite`, an unknown site host
+ * never matches.
+ */
+export function isSameSiteUrl(url: string, siteUrl: string): boolean {
+  if (!/^https?:\/\//i.test(url)) return false;
+  const host = hostOf(url);
+  const siteHost = hostOf(siteUrl);
+  if (!host || !siteHost) return false;
+  return sameSite(host, siteHost);
+}
+
+/**
+ * HTML resources on the website need the member's WordPress session, so the
+ * viewer exchanges the app JWT for a one-time sign-in URL first. PDFs are
+ * public files and off-site URLs never get a session.
+ */
+export function needsWebSession(resourceUrl: string, siteUrl: string): boolean {
+  return isSameSiteUrl(resourceUrl, siteUrl) && !isPdfUrl(resourceUrl);
+}
+
+/**
+ * Sanity-check the URL returned by POST /coral/v1/auth/web-session before
+ * loading it: it must be on our own site (https when the site is https) and
+ * carry the coral_sso token.
+ */
+export function isWebSessionHandoffUrl(url: string, siteUrl: string): boolean {
+  if (!isSameSiteUrl(url, siteUrl)) return false;
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'https:' && new URL(siteUrl).protocol === 'https:') return false;
+    return !!parsed.searchParams.get('coral_sso');
+  } catch {
+    return false;
   }
 }
 
@@ -67,7 +105,8 @@ export function websiteLoginUrl(resourceUrl: string, siteUrl: string): string | 
 }
 
 /**
- * First URL the resource viewer should load.
+ * URL the resource viewer loads when no one-time sign-in URL is available
+ * (PDFs, or the web-session endpoint failed / is not deployed).
  * HTML pages start at the website login so the member signs in and lands on
  * the resource. PDFs are public; Android's WebView renders them via gview.
  */

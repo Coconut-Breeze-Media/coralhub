@@ -346,6 +346,24 @@ export function extractPmproLevel(me: any): { id: number | null; name: string | 
   };
 }
 
+/**
+ * Exchange the app's JWT for a one-time website sign-in URL.
+ * POST /coral/v1/auth/web-session (coral-membership plugin >= 1.5).
+ * Loading the returned URL in a WebView sets the WordPress login cookie and
+ * lands on `redirectTo`. The URL is single use and expires after ~60s, so
+ * request a fresh one for every load. Throws ApiError (404 = plugin route
+ * not deployed yet).
+ */
+export async function getWebSessionUrl(
+  token: string,
+  redirectTo: string
+): Promise<{ url: string; expires_in?: number }> {
+  return authedFetch<{ url: string; expires_in?: number }>('/coral/v1/auth/web-session', token, {
+    method: 'POST',
+    body: JSON.stringify({ redirect_to: redirectTo }),
+  });
+}
+
 // ---------- authedFetch + /users/me ----------
 export async function authedFetch<T = any>(path: string, token: string, init: RequestInit = {}) {
   const res = await fetchWithTimeout(`${API}${path}`, {

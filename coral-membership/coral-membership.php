@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: Coral Membership API
- * Description: Exposes REST API endpoints used by the mobile app (membership check + membership levels + tiered premium-resource access + app SSO).
- * Version: 1.4
+ * Description: Exposes REST API endpoints used by the mobile app (membership check + membership levels + tiered premium-resource access + app-to-website session handoff).
+ * Version: 1.5
  * Author: Coral Reef Research Hub
  */
 
@@ -482,97 +482,300 @@ add_action('rest_api_init', function () {
 
 
 // ---------------------------------------------------------
-// App SSO bridge
-// The app authenticates with a JWT, but the website enforces
-// access with a WP cookie session. These two pieces let the
-// app hand a paid user a short-lived, single-use link that
-// logs them into the website and redirects to a resource.
+// App → website session handoff (SSO bridge)
+//
+// The app authenticates REST calls with a JWT, but the website
+// enforces page access (PMPro restrictions, members-only pages)
+// with the normal WordPress login cookie. The in-app WebView has
+// no such cookie, so without this bridge every resource opens on
+// the website login form.
+//
+// Flow:
+//   1. App → POST /wp-json/coral/v1/auth/web-session  (Bearer JWT)
+//      body: { redirect_to: "<same-site resource URL>" }
+//      ← { url: "https://site/?coral_sso=<uid>.<secret>&redirect_to=…",
+//          expires_in: 60 }
+//   2. WebView loads that URL. On `init` the token is verified and
+//      consumed, the WordPress auth cookie is set for that user, and
+//      the browser is sent on to the resource. PMPro's own page
+//      restrictions then apply normally (premium vs basic).
+//
+// Security properties:
+//   - 256-bit random secret; only an HMAC of it is stored.
+//   - Stored in a transient keyed to the user id → one active token
+//     per user (minting a new one revokes the previous one).
+//   - 60-second TTL, single use (deleted on first successful use;
+//     delete_transient() must succeed, so two racing requests cannot
+//     both log in).
+//   - Constant-time compare (hash_equals).
+//   - Redirect target must be on this site's host (www/non-www) —
+//     never an open redirect.
+//   - Minting is rate limited per user.
+//   - The token is never written to logs, and the handoff response
+//     sends no-store + no-referrer so it cannot leak via cache or
+//     Referer headers.
 // ---------------------------------------------------------
 
-/**
- * POST /coral/v1/app-login-link  (protected)
- * Body/param: redirect = same-origin URL to land on after login.
- * Returns: { url } — open in the device browser / WebView.
- */
-add_action('rest_api_init', function () {
-  register_rest_route('coral/v1', '/app-login-link', [
-    'methods'  => 'POST',
-    'callback' => 'coral_app_login_link_handler',
-    'permission_callback' => function () {
-      return is_user_logged_in();
-    },
-    'args' => [
-      'redirect' => [
-        'required' => false,
-        'type'     => 'string',
-      ],
-    ],
-  ]);
-});
+if (!defined('CORAL_SSO_TTL')) {
+  define('CORAL_SSO_TTL', 60);
+}
+if (!defined('CORAL_SSO_MINT_LIMIT')) {
+  // Max handoff URLs a single user may request per window.
+  define('CORAL_SSO_MINT_LIMIT', 30);
+}
+if (!defined('CORAL_SSO_MINT_WINDOW')) {
+  define('CORAL_SSO_MINT_WINDOW', 5 * MINUTE_IN_SECONDS);
+}
 
-if (!function_exists('coral_app_login_link_handler')) {
-  function coral_app_login_link_handler(WP_REST_Request $request) {
+/** Strip a leading "www." so www/non-www count as the same site. */
+if (!function_exists('coral_sso_bare_host')) {
+  function coral_sso_bare_host($host) {
+    return preg_replace('/^www\./', '', strtolower((string) $host));
+  }
+}
+
+/**
+ * Return $url if it is an absolute http(s) URL on this site's host,
+ * otherwise ''. Any coral_sso parameter is removed so a target can never
+ * loop back into the handoff.
+ */
+if (!function_exists('coral_sso_same_site_url')) {
+  function coral_sso_same_site_url($url) {
+    if (!is_string($url) || $url === '') return '';
+    $url = esc_url_raw(trim($url), ['http', 'https']);
+    if ($url === '') return '';
+
+    $parts = wp_parse_url($url);
+    if (!is_array($parts) || empty($parts['host']) || empty($parts['scheme'])) return '';
+    if (!in_array(strtolower($parts['scheme']), ['http', 'https'], true)) return '';
+    // user:pass@host tricks are never legitimate here.
+    if (isset($parts['user']) || isset($parts['pass'])) return '';
+
+    $home_host = wp_parse_url(home_url(), PHP_URL_HOST);
+    if (!$home_host || coral_sso_bare_host($parts['host']) !== coral_sso_bare_host($home_host)) {
+      return '';
+    }
+
+    return remove_query_arg('coral_sso', $url);
+  }
+}
+
+if (!function_exists('coral_sso_transient_key')) {
+  function coral_sso_transient_key($user_id) {
+    return 'coral_sso_u_' . (int) $user_id;
+  }
+}
+
+if (!function_exists('coral_sso_hash')) {
+  function coral_sso_hash($secret) {
+    // Keyed with the site's auth salt so a leaked options table alone is
+    // not enough to forge a token.
+    return hash_hmac('sha256', (string) $secret, wp_salt('auth'));
+  }
+}
+
+/**
+ * Per-user mint rate limit (fixed window).
+ * @return true|WP_Error
+ */
+if (!function_exists('coral_sso_check_mint_rate')) {
+  function coral_sso_check_mint_rate($user_id) {
+    $key   = 'coral_sso_rl_' . (int) $user_id;
+    $state = get_transient($key);
+    $now   = time();
+
+    if (!is_array($state) || empty($state['reset']) || $state['reset'] <= $now) {
+      $state = ['count' => 0, 'reset' => $now + CORAL_SSO_MINT_WINDOW];
+    }
+
+    if ($state['count'] >= CORAL_SSO_MINT_LIMIT) {
+      return new WP_Error(
+        'coral_sso_rate_limited',
+        'Too many requests. Please wait a moment and try again.',
+        ['status' => 429]
+      );
+    }
+
+    $state['count']++;
+    set_transient($key, $state, max(1, $state['reset'] - $now));
+    return true;
+  }
+}
+
+/**
+ * Mint a single-use handoff token for $user_id and return the URL that
+ * consumes it. Replaces any token the user already had.
+ */
+if (!function_exists('coral_sso_issue_url')) {
+  function coral_sso_issue_url($user_id, $redirect) {
+    $user_id = (int) $user_id;
+
+    try {
+      $secret = bin2hex(random_bytes(32));
+    } catch (Exception $e) {
+      $secret = strtolower(wp_generate_password(64, false, false));
+      $secret = substr(hash('sha256', $secret . wp_rand()), 0, 64);
+    }
+
+    set_transient(coral_sso_transient_key($user_id), [
+      'hash'     => coral_sso_hash($secret),
+      'redirect' => $redirect,
+      'expires'  => time() + CORAL_SSO_TTL,
+    ], CORAL_SSO_TTL);
+
+    // add_query_arg() does NOT encode values, so encode redirect_to here.
+    // The token is [0-9a-f.] only and needs no encoding.
+    return add_query_arg([
+      'coral_sso'   => $user_id . '.' . $secret,
+      'redirect_to' => rawurlencode($redirect),
+    ], home_url('/'));
+  }
+}
+
+/** REST callback shared by /auth/web-session and the legacy /app-login-link. */
+if (!function_exists('coral_web_session_handler')) {
+  function coral_web_session_handler(WP_REST_Request $request) {
     $user_id = get_current_user_id();
     if (!$user_id) {
       return new WP_Error('not_logged_in', 'Authentication required.', ['status' => 401]);
     }
 
-    $home     = home_url('/');
-    $redirect = $request->get_param('redirect');
-    $redirect = is_string($redirect) ? esc_url_raw($redirect) : '';
-
-    // Same-origin only — compare parsed hosts (a string-prefix check could be
-    // fooled by e.g. https://example.com.evil.com). Fall back to home for
-    // off-site or empty targets.
-    $home_host = wp_parse_url(home_url(), PHP_URL_HOST);
-    $r_host    = $redirect ? wp_parse_url($redirect, PHP_URL_HOST) : null;
-    if (!$redirect || !$r_host || strcasecmp($r_host, (string) $home_host) !== 0) {
-      $redirect = $home;
+    $rate = coral_sso_check_mint_rate($user_id);
+    if (is_wp_error($rate)) {
+      return $rate;
     }
 
-    // Mint a single-use token; store only its hash + payload server-side.
-    $token = wp_generate_password(48, false, false);
-    $hash  = hash('sha256', $token);
-    set_transient('coral_sso_' . $hash, [
-      'user_id'  => (int) $user_id,
-      'redirect' => $redirect,
-    ], 60); // 60-second TTL
+    $target = $request->get_param('redirect_to');
+    if (!is_string($target) || $target === '') {
+      $target = $request->get_param('redirect');
+    }
+    $redirect = coral_sso_same_site_url(is_string($target) ? $target : '');
+    if ($redirect === '') {
+      $redirect = home_url('/');
+    }
 
-    // add_query_arg encodes the value. Encoding it first makes the token
-    // fail the single-use check, so the visitor is never logged in.
-    $url = add_query_arg(['coral_sso' => $token], $home);
-
-    return new WP_REST_Response(['url' => $url], 200);
+    $response = new WP_REST_Response([
+      'url'        => coral_sso_issue_url($user_id, $redirect),
+      'expires_in' => CORAL_SSO_TTL,
+    ], 200);
+    $response->header('Cache-Control', 'no-store, private');
+    return $response;
   }
 }
 
-/**
- * Front-end handler for /?coral_sso=<token>
- * Validates the single-use token, logs the user in (sets the WP cookie),
- * then redirects to the stored same-origin target.
- */
-add_action('template_redirect', function () {
-  if (empty($_GET['coral_sso'])) {
-    return;
+if (!function_exists('coral_app_login_link_handler')) {
+  // Back-compat name used by plugin v1.4.
+  function coral_app_login_link_handler(WP_REST_Request $request) {
+    return coral_web_session_handler($request);
   }
+}
 
-  $token = sanitize_text_field(wp_unslash($_GET['coral_sso']));
-  $key   = 'coral_sso_' . hash('sha256', $token);
-  $data  = get_transient($key);
+add_action('rest_api_init', function () {
+  $args = [
+    'methods'             => 'POST',
+    'callback'            => 'coral_web_session_handler',
+    'permission_callback' => function () {
+      return is_user_logged_in();
+    },
+    'args' => [
+      'redirect_to' => ['required' => false, 'type' => 'string'],
+      'redirect'    => ['required' => false, 'type' => 'string'],
+    ],
+  ];
 
-  // Enforce single use regardless of validity.
-  delete_transient($key);
-
-  $redirect = home_url('/');
-  if (is_array($data) && !empty($data['user_id'])) {
-    $user_id = (int) $data['user_id'];
-    if (!empty($data['redirect'])) {
-      $redirect = $data['redirect'];
-    }
-    wp_set_current_user($user_id);
-    wp_set_auth_cookie($user_id, true);
-  }
-
-  wp_safe_redirect($redirect);
-  exit;
+  // Current route used by the app.
+  register_rest_route('coral/v1', '/auth/web-session', $args);
+  // v1.4 name, kept so older builds keep working.
+  register_rest_route('coral/v1', '/app-login-link', $args);
 });
+
+/**
+ * Consume /?coral_sso=<uid>.<secret>
+ * Runs early on `init` (before themes, PMPro redirects, or page caches
+ * that run inside WordPress) and always exits.
+ */
+if (!function_exists('coral_sso_consume')) {
+  function coral_sso_consume() {
+    if (!isset($_GET['coral_sso'])) {
+      return;
+    }
+    if ((defined('REST_REQUEST') && REST_REQUEST) || wp_doing_ajax() || wp_doing_cron()) {
+      return;
+    }
+
+    $raw = is_string($_GET['coral_sso']) ? wp_unslash($_GET['coral_sso']) : '';
+
+    // The target stored with the token wins; the query-string copy is only
+    // used (after the same-site check) when the stored one is missing.
+    $query_target = (isset($_GET['redirect_to']) && is_string($_GET['redirect_to']))
+      ? coral_sso_same_site_url(wp_unslash($_GET['redirect_to']))
+      : '';
+
+    $user_id = 0;
+    $target  = '';
+
+    if (preg_match('/^(\d{1,20})\.([a-f0-9]{64})$/', $raw, $m)) {
+      $candidate = (int) $m[1];
+      $key       = coral_sso_transient_key($candidate);
+      $data      = get_transient($key);
+
+      if (
+        is_array($data)
+        && !empty($data['hash'])
+        && !empty($data['expires'])
+        && (int) $data['expires'] >= time()
+        && hash_equals((string) $data['hash'], coral_sso_hash($m[2]))
+        // Single use: only the request that actually deletes the token
+        // may log in.
+        && delete_transient($key)
+        && get_userdata($candidate)
+      ) {
+        $user_id = $candidate;
+        $target  = coral_sso_same_site_url(isset($data['redirect']) ? $data['redirect'] : '');
+      }
+    }
+
+    nocache_headers();
+    header('Referrer-Policy: no-referrer');
+    header('X-Robots-Tag: noindex, nofollow');
+
+    if (!$user_id) {
+      // Expired / used / invalid: fall back to the normal website login,
+      // returning to the resource afterwards. Never reveal why it failed.
+      $dest  = $query_target !== '' ? $query_target : home_url('/');
+      $login = apply_filters('coral_sso_failure_login_url', home_url('/login/'));
+      wp_safe_redirect(add_query_arg('redirect_to', rawurlencode($dest), $login));
+      exit;
+    }
+
+    if ($target === '') {
+      $target = $query_target !== '' ? $query_target : home_url('/');
+    }
+
+    // Replace whatever session the WebView had (e.g. a different account).
+    wp_clear_auth_cookie();
+    wp_set_current_user($user_id);
+    wp_set_auth_cookie($user_id, true, is_ssl());
+    do_action('coral_sso_logged_in', $user_id);
+
+    // Respond 200 with a tiny page that navigates on, instead of a 302.
+    // Some iOS WKWebView versions drop Set-Cookie headers on redirect
+    // responses for the very first load; a 200 guarantees the cookie is
+    // stored before the resource is requested.
+    status_header(200);
+    header('Content-Type: text/html; charset=utf-8');
+    $href = esc_url($target);
+    $js   = wp_json_encode($target, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_SLASHES);
+    echo '<!doctype html><html><head><meta charset="utf-8">'
+      . '<meta name="viewport" content="width=device-width,initial-scale=1">'
+      . '<meta name="referrer" content="no-referrer">'
+      . '<meta http-equiv="refresh" content="0;url=' . $href . '">'
+      . '<title>Opening…</title></head><body>'
+      . '<script>window.location.replace(' . $js . ');</script>'
+      . '<p style="font-family:sans-serif;text-align:center;margin-top:40vh;color:#6b7280">Opening… '
+      . '<a href="' . $href . '">Continue</a></p>'
+      . '</body></html>';
+    exit;
+  }
+}
+add_action('init', 'coral_sso_consume', 1);
