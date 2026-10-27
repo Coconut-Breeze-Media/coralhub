@@ -19,8 +19,14 @@ class Coral_Auth_Endpoint {
 
     private $namespace = 'coral/v1';
 
-    /** Max lost-password requests per IP inside the window */
-    const RATE_LIMIT_MAX    = 5;
+    /**
+     * Max lost-password requests per IP inside the window. Kept above a
+     * single person's needs because members behind one carrier NAT or a
+     * proxy share an IP.
+     */
+    const RATE_LIMIT_MAX    = 10;
+    /** Max reset emails per account inside the window */
+    const ACCOUNT_EMAIL_MAX = 3;
     /** Rate-limit window in seconds (15 minutes) */
     const RATE_LIMIT_WINDOW = 15 * MINUTE_IN_SECONDS;
 
@@ -55,10 +61,16 @@ class Coral_Auth_Endpoint {
 
         $user_login = trim((string) $request->get_param('user_login'));
 
-        if ($user_login !== '') {
+        if ($user_login !== '' && function_exists('retrieve_password')) {
             $user = is_email($user_login)
                 ? get_user_by('email', $user_login)
                 : get_user_by('login', $user_login);
+
+            // Per-account throttle so one inbox cannot be flooded with reset
+            // emails. Silent: the caller still gets the generic response.
+            if ($user instanceof WP_User && !$this->allow_account_email($user->ID)) {
+                $user = null;
+            }
 
             if ($user instanceof WP_User) {
                 // WP core >= 5.7. Returns true or WP_Error; either way we fall
@@ -74,6 +86,20 @@ class Coral_Auth_Endpoint {
             'success' => true,
             'message' => 'If an account exists for that email or username, a password reset link has been sent.',
         ));
+    }
+
+    /**
+     * At most ACCOUNT_EMAIL_MAX reset emails per account per RATE_LIMIT_WINDOW.
+     */
+    private function allow_account_email($user_id) {
+        $key = 'coral_lost_pw_u_' . (int) $user_id;
+        $count = (int) get_transient($key);
+        if ($count >= self::ACCOUNT_EMAIL_MAX) {
+            return false;
+        }
+        // Fixed window from the first email is good enough here.
+        set_transient($key, $count + 1, self::RATE_LIMIT_WINDOW);
+        return true;
     }
 
     /**

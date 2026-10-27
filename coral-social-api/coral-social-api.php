@@ -214,6 +214,8 @@ class Coral_Social_API {
         require_once CORAL_SOCIAL_API_PLUGIN_DIR . 'includes/class-mentions-endpoint.php';
         require_once CORAL_SOCIAL_API_PLUGIN_DIR . 'includes/class-auth-endpoint.php';
         require_once CORAL_SOCIAL_API_PLUGIN_DIR . 'includes/class-activity-enhancements.php';
+        require_once CORAL_SOCIAL_API_PLUGIN_DIR . 'includes/class-search-endpoint.php';
+        require_once CORAL_SOCIAL_API_PLUGIN_DIR . 'includes/class-messages-endpoint.php';
 
         // Emoji storage, link previews and share normalization for the
         // BuddyPress activity REST API the app uses.
@@ -269,6 +271,14 @@ class Coral_Social_API {
         // Register auth routes (public: lost password)
         $auth_endpoint = new Coral_Auth_Endpoint();
         $auth_endpoint->register_routes();
+
+        // Register site-wide search (app "Search CoRR Hub")
+        $search_endpoint = new Coral_Search_Endpoint();
+        $search_endpoint->register_routes();
+
+        // Register direct messages (Better Messages bridge)
+        $messages_endpoint = new Coral_Messages_Endpoint();
+        $messages_endpoint->register_routes();
     }
 }
 

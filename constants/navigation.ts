@@ -111,6 +111,11 @@ export const PROFILE_MENU_ITEMS: ReadonlyArray<ProfileMenuItem> = [
     icon: 'link-outline',
   },
   {
+    label: 'Search CoRR Hub',
+    href: '/search',
+    icon: 'search-outline',
+  },
+  {
     label: 'Contact Us',
     href: '/profile/contact',
     icon: 'mail-outline',
@@ -146,6 +151,9 @@ export const ROUTES = {
 
   // In-app resource viewer (WebView)
   RESOURCE_VIEWER: '/resource-viewer',
+
+  // Site-wide search ("Search CoRR Hub", opened from the Profile menu)
+  SEARCH: '/search',
 
   // Groups
   CREATE_GROUP: '/create-group',
