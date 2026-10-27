@@ -6,7 +6,7 @@
 
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
 import {
-  getMyGroups, getUserGroups, getGroupById, getGroupActivity, getGroupMembers, getAllGroups, createGroup, deleteGroup,
+  getMyGroups, getMemberGroupsWithExtras, getUserGroups, getGroupById, getGroupActivity, getGroupMembers, getAllGroups, createGroup, deleteGroup,
   uploadGroupAvatar,
   joinGroup, leaveGroup,
   requestGroupMembership, getGroupMembershipRequests, getMyMembershipRequest,
@@ -124,6 +124,50 @@ export function useMyGroups(token: string | null, max?: number) {
         const bTime = b.last_activity ? new Date(b.last_activity).getTime() : 0;
         return bTime - aTime;
       }),
+  });
+}
+
+/** Timestamp (ms) of a group's last activity, preferring the GMT value. */
+export function groupLastActivityTime(group: BPGroup): number {
+  const gmt = group.last_activity_gmt;
+  if (gmt) {
+    const parsed = Date.parse(/[zZ]|[+-]\d\d:?\d\d$/.test(gmt) ? gmt : `${gmt.replace(' ', 'T')}Z`);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  const local = group.last_activity ? Date.parse(group.last_activity) : NaN;
+  return Number.isFinite(local) ? local : 0;
+}
+
+/**
+ * The current user's groups for Profile > My Groups: complete list from
+ * `/groups/me`, enriched with member counts and last activity from the
+ * `populate_extras` collection query, ordered most recently active first
+ * (like the website's "Order By: Last Active").
+ */
+export function useMyGroupsByActivity(token: string | null, userId: number | null | undefined) {
+  return useQuery({
+    queryKey: ['groups', 'me', 'by-activity', userId] as const,
+    queryFn: async () => {
+      if (!token) throw new Error('No authentication token');
+      if (!userId) throw new Error('No user ID provided');
+      const [memberships, withExtras] = await Promise.all([
+        getMyGroups(token, { context: 'view' }),
+        getMemberGroupsWithExtras(userId, token).catch(() => [] as BPGroup[]),
+      ]);
+      const extrasById = new Map(withExtras.map((group) => [Number(group.id), group]));
+      const merged = memberships.map((group) => {
+        const extras = extrasById.get(Number(group.id));
+        extrasById.delete(Number(group.id));
+        return extras ? { ...group, ...extras } : group;
+      });
+      // Groups the collection query found but /groups/me didn't.
+      merged.push(...extrasById.values());
+      return merged.sort((a, b) => groupLastActivityTime(b) - groupLastActivityTime(a));
+    },
+    enabled: !!token && !!userId,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
 }
 

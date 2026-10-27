@@ -1493,6 +1493,42 @@ export async function getMyGroups(
 }
 
 /**
+ * Groups a member belongs to, most recently active first, with the extras
+ * (`total_member_count`, `last_activity`, `last_activity_diff`) that
+ * BuddyPress only fills in when `populate_extras=true`. `/groups/me` does not
+ * honour that flag, which is why My Groups showed "0 members" everywhere.
+ *
+ * `show_hidden` is allowed for the logged-in user's own groups; if the site
+ * refuses it, retry without so the list still loads.
+ */
+export async function getMemberGroupsWithExtras(
+  userId: number,
+  token: string,
+  perPage: number = 100
+): Promise<import('../types').BPGroup[]> {
+  const params = new URLSearchParams({
+    user_id: String(userId),
+    type: 'active',
+    populate_extras: 'true',
+    per_page: String(perPage),
+  });
+  try {
+    return await authedFetch<import('../types').BPGroup[]>(
+      `/buddypress/v1/groups?${params.toString()}&show_hidden=true`,
+      token
+    );
+  } catch (error) {
+    if (error instanceof ApiError && error.status >= 400 && error.status < 500) {
+      return authedFetch<import('../types').BPGroup[]>(
+        `/buddypress/v1/groups?${params.toString()}`,
+        token
+      );
+    }
+    throw error;
+  }
+}
+
+/**
  * Get all groups (public exploration)
  * @param {string} token - JWT authentication token
  * @param {object} params - Query parameters
