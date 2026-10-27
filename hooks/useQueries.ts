@@ -340,8 +340,13 @@ export function useAcceptFriendRequest() {
       }
     },
     onSettled: (data, error, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['friends', 'pending', variables.userId] });
       queryClient.invalidateQueries({ queryKey: ['friends'] });
+      // Connect/Connected state in the directory and on the member profile.
+      queryClient.invalidateQueries({ queryKey: ['members', 'list'] });
+      queryClient.invalidateQueries({ queryKey: ['member', variables.otherUserId] });
+      queryClient.invalidateQueries({ queryKey: ['profile', 'member', variables.otherUserId] });
+      // BuddyPress marks the friendship_request notification read on accept.
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
     },
   });
 }

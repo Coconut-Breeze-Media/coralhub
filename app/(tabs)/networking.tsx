@@ -27,7 +27,8 @@ import {
   useRejectFriendRequest,
   useSendFriendRequest,
 } from '../../hooks/useQueries';
-import { useMember, useMembersList } from '../../hooks/useMembers';
+import { useMembersList, usePendingRequestMembers } from '../../hooks/useMembers';
+import FriendRequestRow from '../../components/FriendRequestRow';
 import { useAllGroups } from '../../hooks/useGroups';
 import RemoveFriendModal from '../../components/RemoveFriendModal';
 import type { FriendWithDetails, BPFriendship, BPMember, BPGroup } from '../../types';
@@ -37,6 +38,11 @@ type MembersTab = 'connect' | 'friends' | 'requests';
 type GroupsTab = 'explore' | 'mygroups';
 
 // ─── Status badge config ─────────────────────────────────────────────────────
+/** Badge text with a ceiling, e.g. 1203 -> "999+". */
+function formatCappedCount(count: number, cap: number): string {
+  return count > cap ? `${cap}+` : String(count);
+}
+
 const STATUS_COLORS: Record<string, { bg: string; text: string; icon: string }> = {
   public:  { bg: '#dcfce7', text: '#15803d', icon: 'earth-outline' },
   private: { bg: '#fef3c7', text: '#a16207', icon: 'lock-closed-outline' },
@@ -45,13 +51,19 @@ const STATUS_COLORS: Record<string, { bg: string; text: string; icon: string }> 
 
 // ─── Connect Tab ─────────────────────────────────────────────────────────────
 function ConnectTab() {
-  const { token } = useAuth();
+  const { token, userId } = useAuth();
   const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [sentIds, setSentIds] = useState<Set<number>>(new Set());
   const [pendingIds, setPendingIds] = useState<Set<number>>(new Set());
 
-  const { data: members, isLoading } = useMembersList(token, { search: searchQuery, perPage: 100 });
+  // The directory never lists the current user (connecting to yourself errors).
+  const { data: directory, isLoading } = useMembersList(token, {
+    search: searchQuery,
+    perPage: 100,
+    exclude: userId ? [userId] : [],
+  });
+  const members = (directory || []).filter((member) => Number(member.id) !== Number(userId));
   const sendFriendMutation = useSendFriendRequest();
 
   const handleConnect = async (memberId: number, memberName: string) => {
@@ -150,7 +162,7 @@ function ConnectTab() {
         </View>
       ) : (
         <FlatList
-          data={members || []}
+          data={members}
           renderItem={renderMemberItem}
           keyExtractor={(item) => item.id.toString()}
           contentContainerStyle={styles.listContent}
@@ -389,6 +401,11 @@ export default function NetworkingScreen() {
   const removeFriendMutation = useRemoveFriend();
   const acceptRequestMutation = useAcceptFriendRequest();
   const rejectRequestMutation = useRejectFriendRequest();
+  const [acceptingId, setAcceptingId] = useState<number | null>(null);
+  const [rejectingId, setRejectingId] = useState<number | null>(null);
+  const { token } = useAuth();
+  const { data: requestMembers, isLoading: isLoadingRequestMembers } =
+    usePendingRequestMembers(token, userId, pendingRequests);
 
   const [refreshing, setRefreshing] = useState(false);
 
@@ -437,12 +454,17 @@ export default function NetworkingScreen() {
   const handleAcceptRequest = async (request: BPFriendship) => {
     if (!userId) { Alert.alert('Error', 'User ID not available'); return; }
     const otherUserId = request.initiator_id === userId ? request.friend_id : request.initiator_id;
+    const name = requestMembers?.[otherUserId]?.name;
+    setAcceptingId(request.id);
     try {
+      // The hook removes the request optimistically and refreshes the
+      // connections, requests, directory and notifications afterwards.
       await acceptRequestMutation.mutateAsync({ otherUserId, userId });
-      await Promise.all([refetchRequests(), refetchFriends()]);
-      Alert.alert('Success', 'Connection request accepted!');
+      Alert.alert('Connected', name ? `You are now connected with ${name}.` : 'Connection request accepted.');
     } catch (err) {
       Alert.alert('Error', `Failed to accept request: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
+      setAcceptingId(null);
     }
   };
 
@@ -454,6 +476,7 @@ export default function NetworkingScreen() {
         text: 'Reject',
         style: 'destructive',
         onPress: async () => {
+          setRejectingId(request.id);
           try {
             const otherUserId = request.initiator_id === userId ? request.friend_id : request.initiator_id;
             await rejectRequestMutation.mutateAsync(otherUserId);
@@ -461,6 +484,8 @@ export default function NetworkingScreen() {
             Alert.alert('Success', 'Connection request rejected.');
           } catch (err) {
             Alert.alert('Error', `Failed to reject request: ${err instanceof Error ? err.message : 'Unknown error'}`);
+          } finally {
+            setRejectingId(null);
           }
         },
       },
@@ -504,61 +529,6 @@ export default function NetworkingScreen() {
         >
           <Ionicons name="person-remove-outline" size={18} color="#fff" />
         </TouchableOpacity>
-      </View>
-    );
-  };
-
-  const FriendRequestItem = ({ item }: { item: BPFriendship }) => {
-    const isReceived = item.friend_id === userId;
-    const otherUserId = isReceived ? item.initiator_id : item.friend_id;
-    const { token } = useAuth();
-    const { data: userData } = useMember(token, otherUserId);
-    const avatarUrl = userData?.avatar_urls?.thumb || userData?.avatar_urls?.full;
-    const userName = userData?.name || 'Loading...';
-    return (
-      <View style={styles.requestCard}>
-        <TouchableOpacity
-          style={styles.requestInfo}
-          activeOpacity={0.7}
-          onPress={() => router.push({ pathname: ROUTES.MEMBER_PROFILE, params: { id: String(otherUserId) } } as any)}
-        >
-          {avatarUrl ? (
-            <Image source={{ uri: avatarUrl }} style={styles.avatar} />
-          ) : (
-            <View style={[styles.avatar, styles.avatarPlaceholder]}>
-              <Text style={styles.avatarPlaceholderText}>{userName.charAt(0).toUpperCase()}</Text>
-            </View>
-          )}
-          <View style={styles.requestDetails}>
-            <Text style={styles.requestName}>{userName}</Text>
-            <Text style={styles.requestType}>{isReceived ? 'Sent you a connection request' : 'Connection request sent'}</Text>
-            <Text style={styles.requestDate}>
-              {new Date(item.date_created).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-            </Text>
-          </View>
-        </TouchableOpacity>
-        <View style={styles.requestActions}>
-          {isReceived ? (
-            <>
-              <TouchableOpacity style={styles.acceptButton} onPress={() => handleAcceptRequest(item)} disabled={acceptRequestMutation.isPending}>
-                {acceptRequestMutation.isPending ? <ActivityIndicator size="small" color="#fff" /> : (
-                  <><Ionicons name="checkmark" size={18} color="#fff" /><Text style={styles.acceptButtonText}>Accept</Text></>
-                )}
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.rejectButton} onPress={() => handleRejectRequest(item)} disabled={rejectRequestMutation.isPending}>
-                {rejectRequestMutation.isPending ? <ActivityIndicator size="small" color="#ff4444" /> : (
-                  <><Ionicons name="close" size={18} color="#ff4444" /><Text style={styles.rejectButtonText}>Reject</Text></>
-                )}
-              </TouchableOpacity>
-            </>
-          ) : (
-            <TouchableOpacity style={styles.cancelButton} onPress={() => handleRejectRequest(item)} disabled={rejectRequestMutation.isPending}>
-              {rejectRequestMutation.isPending ? <ActivityIndicator size="small" color="#fff" /> : (
-                <Text style={styles.cancelButtonText}>Cancel Request</Text>
-              )}
-            </TouchableOpacity>
-          )}
-        </View>
       </View>
     );
   };
@@ -625,7 +595,7 @@ export default function NetworkingScreen() {
               <Text style={[styles.tabText, activeMembersTab === 'friends' && styles.activeTabText]}>Connections</Text>
               {totalConnections > 0 && (
                 <View style={styles.badge}>
-                  <Text style={styles.badgeText}>{totalConnections}</Text>
+                  <Text style={styles.badgeText}>{formatCappedCount(totalConnections, 999)}</Text>
                 </View>
               )}
             </TouchableOpacity>
@@ -638,7 +608,7 @@ export default function NetworkingScreen() {
               <Text style={[styles.tabText, activeMembersTab === 'requests' && styles.activeTabText]}>Requests</Text>
               {requests.length > 0 && (
                 <View style={[styles.badge, styles.badgeAlert]}>
-                  <Text style={styles.badgeText}>{requests.length}</Text>
+                  <Text style={styles.badgeText}>{formatCappedCount(requests.length, 99)}</Text>
                 </View>
               )}
             </TouchableOpacity>
@@ -705,7 +675,21 @@ export default function NetworkingScreen() {
             ) : (
               <FlatList
                 data={requests}
-                renderItem={({ item }) => <FriendRequestItem item={item} />}
+                renderItem={({ item }) => (
+                  <FriendRequestRow
+                    request={item}
+                    userId={userId as number}
+                    member={requestMembers?.[
+                      item.initiator_id === userId ? item.friend_id : item.initiator_id
+                    ]}
+                    memberLoading={isLoadingRequestMembers}
+                    accepting={acceptingId === item.id}
+                    rejecting={rejectingId === item.id}
+                    busy={acceptingId !== null || rejectingId !== null}
+                    onAccept={handleAcceptRequest}
+                    onReject={handleRejectRequest}
+                  />
+                )}
                 keyExtractor={(item) => item.id.toString()}
                 contentContainerStyle={styles.listContent}
                 refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}

@@ -504,10 +504,12 @@ export async function getMemberById(userId: number, token: string): Promise<BPMe
  */
 export async function getMembers(
   token: string,
-  options?: { search?: string; page?: number; perPage?: number }
+  options?: { search?: string; page?: number; perPage?: number; exclude?: number[] }
 ): Promise<BPMember[]> {
   const params = new URLSearchParams();
   if (options?.search) params.set('search', options.search);
+  const exclude = (options?.exclude ?? []).filter((id) => Number.isFinite(id) && id > 0);
+  if (exclude.length > 0) params.set('exclude', exclude.join(','));
   params.set('page', String(options?.page ?? 1));
   params.set('per_page', String(options?.perPage ?? 20));
   params.set('type', 'active');
@@ -845,10 +847,14 @@ export async function getFriendshipRelationships(
   confirmed: 0 | 1 = 1
 ): Promise<import('../types').BPFriendship[]> {
   // BuddyPress defaults to 10 per page, so fetch every page (100 per page).
+  // Don't trust X-WP-Total / X-WP-TotalPages here: the BP friends endpoint
+  // sets them from the size of the *current page*, so they always say one
+  // page — which capped Connections at 100 and Requests at 50. Keep reading
+  // until a short (or repeated) page comes back.
   const perPage = 100;
   const all: import('../types').BPFriendship[] = [];
-  let totalPages = 1;
-  for (let page = 1; page <= totalPages && page <= 50; page++) {
+  const seen = new Set<number>();
+  for (let page = 1; page <= 50; page++) {
     const res = await fetchWithTimeout(
       `${API}/buddypress/v1/friends?user_id=${userId}&is_confirmed=${confirmed}&per_page=${perPage}&page=${page}`,
       {
@@ -857,15 +863,17 @@ export async function getFriendshipRelationships(
     );
     await assertOk(res);
     const batch = (await res.json()) as import('../types').BPFriendship[];
-    all.push(...batch);
-    const headerPages = parseInt(res.headers.get('X-WP-TotalPages') || '', 10);
-    if (Number.isFinite(headerPages) && headerPages > 0) {
-      totalPages = headerPages;
-    } else if (batch.length >= perPage) {
-      totalPages = page + 1;
-    } else {
-      break;
+    const list = Array.isArray(batch) ? batch : [];
+    let added = 0;
+    for (const friendship of list) {
+      if (seen.has(friendship.id)) continue;
+      seen.add(friendship.id);
+      all.push(friendship);
+      added++;
     }
+    // A short page is the last one; a page with nothing new means the server
+    // ignored `page` and keeps returning the same rows.
+    if (list.length < perPage || added === 0) break;
   }
   return all;
 }
@@ -1010,25 +1018,68 @@ export async function acceptFriendRequest(
   otherUserId: number,
   token: string
 ): Promise<import('../types').BPFriendship> {
-  
-  // PUT on the other user's ID to accept their friendship request
-  const res = await fetchWithTimeout(
-    `${API}/buddypress/v1/friends/${otherUserId}`,
-    {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
+  // PUT /friends/{initiator user id}: BuddyPress looks up the friendship
+  // between that user and the logged-in user (the receiver) and confirms it.
+  //
+  // Accepting runs BuddyPress' friends_friendship_accepted hooks on the
+  // server (activity item, notification and an email to the initiator),
+  // which can outlast the default 15s client timeout. The app then aborted
+  // the request ("FetchRequestCanceledException") even though the server
+  // usually completed it. Allow more time, and if the request still fails
+  // without an HTTP answer, ask the server whether the friendship is now
+  // confirmed before reporting an error.
+  let res: Response;
+  try {
+    res = await fetchWithTimeout(
+      `${API}/buddypress/v1/friends/${otherUserId}`,
+      {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ context: 'edit' }),
       },
-      body: JSON.stringify({
-        context: 'edit',
-      }),
-    }
-  );
-  
+      45000
+    );
+  } catch (networkError) {
+    const confirmed = await getConfirmedFriendship(otherUserId, token);
+    if (confirmed) return confirmed;
+    throw new Error(
+      'The server took too long to respond. Please check your connection and try again.'
+    );
+  }
+
+  if (!res.ok) {
+    // Already accepted (double tap, or accepted on the website meanwhile).
+    const confirmed = await getConfirmedFriendship(otherUserId, token);
+    if (confirmed) return confirmed;
+  }
   await assertOk(res);
   const result = await res.json();
-  return result;
+  return Array.isArray(result) ? result[0] : result;
+}
+
+/**
+ * The friendship between the logged-in user and `otherUserId`, if it is
+ * confirmed; null if it is still pending, missing, or can't be checked.
+ */
+async function getConfirmedFriendship(
+  otherUserId: number,
+  token: string
+): Promise<import('../types').BPFriendship | null> {
+  try {
+    const data = await authedFetch<any>(`/buddypress/v1/friends/${otherUserId}`, token);
+    const friendship = (Array.isArray(data) ? data[0] : data) as
+      | import('../types').BPFriendship
+      | undefined;
+    if (!friendship) return null;
+    const confirmed =
+      friendship.is_confirmed === true || Number(friendship.is_confirmed) === 1;
+    return confirmed ? friendship : null;
+  } catch {
+    return null;
+  }
 }
 
 /**

@@ -4,7 +4,7 @@
  * Shows connections list and connection requests with tabs
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -17,7 +17,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { ROUTES } from '../../../constants/navigation';
 import { useAuth } from '../../../lib/auth';
 import {
@@ -28,17 +28,28 @@ import {
   useAcceptFriendRequest,
   useRejectFriendRequest,
 } from '../../../hooks/useQueries';
-import { useMember } from '../../../hooks/useMembers';
+import { usePendingRequestMembers } from '../../../hooks/useMembers';
 import RemoveFriendModal from '../../../components/RemoveFriendModal';
+import FriendRequestRow from '../../../components/FriendRequestRow';
 import type { FriendWithDetails, BPFriendship } from '../../../types';
 
 type TabType = 'friends' | 'requests';
+
+/** Badge text with a ceiling, e.g. 1203 -> "999+". */
+function formatCappedCount(count: number, cap: number): string {
+  return count > cap ? `${cap}+` : String(count);
+}
 
 // ─── Main Screen ────────────────────────────────────────────────────────────
 export default function ConnectionsScreen() {
   // Profile is a personal area: it shows the member's own confirmed
   // connections (and their own pending requests), never the public directory.
-  const [activeTab, setActiveTab] = useState<TabType>('friends');
+  // `tab=requests` (e.g. from a connection-request notification) opens the Requests tab.
+  const { tab } = useLocalSearchParams<{ tab?: string }>();
+  const [activeTab, setActiveTab] = useState<TabType>(tab === 'requests' ? 'requests' : 'friends');
+  useEffect(() => {
+    if (tab === 'requests' || tab === 'friends') setActiveTab(tab);
+  }, [tab]);
   const [limit, setLimit] = useState(50);
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedFriend, setSelectedFriend] = useState<FriendWithDetails | null>(null);
@@ -53,6 +64,11 @@ export default function ConnectionsScreen() {
   const removeFriendMutation = useRemoveFriend();
   const acceptRequestMutation = useAcceptFriendRequest();
   const rejectRequestMutation = useRejectFriendRequest();
+  const [acceptingId, setAcceptingId] = useState<number | null>(null);
+  const [rejectingId, setRejectingId] = useState<number | null>(null);
+  const { token } = useAuth();
+  const { data: requestMembers, isLoading: isLoadingRequestMembers } =
+    usePendingRequestMembers(token, userId, pendingRequests);
 
   const [refreshing, setRefreshing] = useState(false);
 
@@ -108,12 +124,17 @@ export default function ConnectionsScreen() {
   const handleAcceptRequest = async (request: BPFriendship) => {
     if (!userId) { Alert.alert('Error', 'User ID not available'); return; }
     const otherUserId = request.initiator_id === userId ? request.friend_id : request.initiator_id;
+    const name = requestMembers?.[otherUserId]?.name;
+    setAcceptingId(request.id);
     try {
+      // The hook removes the request optimistically and refreshes the
+      // connections, requests, directory and notifications afterwards.
       await acceptRequestMutation.mutateAsync({ otherUserId, userId });
-      await Promise.all([refetchRequests(), refetchFriends()]);
-      Alert.alert('Success', 'Connection request accepted!');
+      Alert.alert('Connected', name ? `You are now connected with ${name}.` : 'Connection request accepted.');
     } catch (err) {
       Alert.alert('Error', `Failed to accept request: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
+      setAcceptingId(null);
     }
   };
 
@@ -125,6 +146,7 @@ export default function ConnectionsScreen() {
         text: 'Reject',
         style: 'destructive',
         onPress: async () => {
+          setRejectingId(request.id);
           try {
             const otherUserId = request.initiator_id === userId ? request.friend_id : request.initiator_id;
             await rejectRequestMutation.mutateAsync(otherUserId);
@@ -132,6 +154,8 @@ export default function ConnectionsScreen() {
             Alert.alert('Success', 'Connection request rejected.');
           } catch (err) {
             Alert.alert('Error', `Failed to reject request: ${err instanceof Error ? err.message : 'Unknown error'}`);
+          } finally {
+            setRejectingId(null);
           }
         },
       },
@@ -186,89 +210,6 @@ export default function ConnectionsScreen() {
         >
           <Ionicons name="person-remove-outline" size={18} color="#fff" />
         </TouchableOpacity>
-      </View>
-    );
-  };
-
-  const FriendRequestItem = ({ item }: { item: BPFriendship }) => {
-    const isReceived = item.friend_id === userId;
-    const otherUserId = isReceived ? item.initiator_id : item.friend_id;
-    const { token } = useAuth();
-    const { data: userData } = useMember(token, otherUserId);
-    const avatarUrl = userData?.avatar_urls?.thumb || userData?.avatar_urls?.full;
-    const userName = userData?.name || 'Loading...';
-    return (
-      <View style={styles.requestCard}>
-        <TouchableOpacity
-          style={styles.requestInfo}
-          activeOpacity={0.7}
-          onPress={() => router.push({ pathname: ROUTES.MEMBER_PROFILE, params: { id: String(otherUserId) } } as any)}
-        >
-          {avatarUrl ? (
-            <Image source={{ uri: avatarUrl }} style={styles.avatar} />
-          ) : (
-            <View style={[styles.avatar, styles.avatarPlaceholder]}>
-              <Text style={styles.avatarPlaceholderText}>{userName.charAt(0).toUpperCase()}</Text>
-            </View>
-          )}
-          <View style={styles.requestDetails}>
-            <Text style={styles.requestName}>{userName}</Text>
-            <Text style={styles.requestType}>
-              {isReceived ? 'Sent you a connection request' : 'Connection request sent'}
-            </Text>
-            <Text style={styles.requestDate}>
-              {new Date(item.date_created).toLocaleDateString('en-US', {
-                month: 'short', day: 'numeric', year: 'numeric',
-              })}
-            </Text>
-          </View>
-        </TouchableOpacity>
-        <View style={styles.requestActions}>
-          {isReceived ? (
-            <>
-              <TouchableOpacity
-                style={styles.acceptButton}
-                onPress={() => handleAcceptRequest(item)}
-                disabled={acceptRequestMutation.isPending}
-              >
-                {acceptRequestMutation.isPending ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <>
-                    <Ionicons name="checkmark" size={18} color="#fff" />
-                    <Text style={styles.acceptButtonText}>Accept</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.rejectButton}
-                onPress={() => handleRejectRequest(item)}
-                disabled={rejectRequestMutation.isPending}
-              >
-                {rejectRequestMutation.isPending ? (
-                  <ActivityIndicator size="small" color="#ff4444" />
-                ) : (
-                  <>
-                    <Ionicons name="close" size={18} color="#ff4444" />
-                    <Text style={styles.rejectButtonText}>Reject</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-            </>
-          ) : (
-            <TouchableOpacity
-              style={styles.cancelButton}
-              onPress={() => handleRejectRequest(item)}
-              disabled={rejectRequestMutation.isPending}
-            >
-              {rejectRequestMutation.isPending ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <Text style={styles.cancelButtonText}>Cancel Request</Text>
-              )}
-            </TouchableOpacity>
-          )}
-        </View>
       </View>
     );
   };
@@ -337,7 +278,7 @@ export default function ConnectionsScreen() {
               </Text>
               {totalConnections > 0 && (
                 <View style={styles.badge}>
-                  <Text style={styles.badgeText}>{totalConnections}</Text>
+                  <Text style={styles.badgeText}>{formatCappedCount(totalConnections, 999)}</Text>
                 </View>
               )}
             </TouchableOpacity>
@@ -351,7 +292,7 @@ export default function ConnectionsScreen() {
               </Text>
               {requests.length > 0 && (
                 <View style={[styles.badge, styles.badgeAlert]}>
-                  <Text style={styles.badgeText}>{requests.length}</Text>
+                  <Text style={styles.badgeText}>{formatCappedCount(requests.length, 99)}</Text>
                 </View>
               )}
             </TouchableOpacity>
@@ -391,7 +332,21 @@ export default function ConnectionsScreen() {
             requests.length === 0 ? renderEmptyRequests() : (
               <FlatList
                 data={requests}
-                renderItem={({ item }) => <FriendRequestItem item={item} />}
+                renderItem={({ item }) => (
+                  <FriendRequestRow
+                    request={item}
+                    userId={userId as number}
+                    member={requestMembers?.[
+                      item.initiator_id === userId ? item.friend_id : item.initiator_id
+                    ]}
+                    memberLoading={isLoadingRequestMembers}
+                    accepting={acceptingId === item.id}
+                    rejecting={rejectingId === item.id}
+                    busy={acceptingId !== null || rejectingId !== null}
+                    onAccept={handleAcceptRequest}
+                    onReject={handleRejectRequest}
+                  />
+                )}
                 keyExtractor={(item) => item.id.toString()}
                 contentContainerStyle={styles.listContent}
                 refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}

@@ -12,6 +12,7 @@ import BackButton from '../../components/BackButton';
 import { brandHeaderTitle } from '../../components/AppHeader';
 import { useMe, usePendingFriendRequests, useFriendsList } from '../../hooks/useQueries';
 import { useConversations } from '../../hooks/useMessages';
+import { usePendingRequestMembers } from '../../hooks/useMembers';
 import { useMyGroups } from '../../hooks/useGroups';
 import {
   useBuddyPressNotifications,
@@ -34,6 +35,8 @@ function NotificationButton() {
   const { data: currentUser } = useMe();
   const userId = currentUser?.id ?? authUserId ?? undefined;
   const { data: pendingRequests } = usePendingFriendRequests(userId);
+  // Warm the names/avatars for the Requests lists so they open fully drawn.
+  usePendingRequestMembers(token, userId, pendingRequests);
   const { data: friendsData } = useFriendsList(userId, 1, 1000);
   const { data: conversationsData } = useConversations(token);
   const { data: nativeNotifications } = useBuddyPressNotifications(token, userId);
