@@ -13,6 +13,8 @@ import {
   Modal,
   ActivityIndicator,
   StyleSheet,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 
 export default function PostActionModals({
@@ -48,7 +50,12 @@ export default function PostActionModals({
         transparent={true}
         onRequestClose={onCloseEdit}
       >
-        <View style={styles.editModalOverlay}>
+        {/* Shrink the card above the keyboard so Cancel/Save stay visible;
+            the text field scrolls inside the remaining space. */}
+        <KeyboardAvoidingView
+          style={styles.editModalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
           <View style={styles.editModalCard}>
             <View style={styles.editModalHeader}>
               <Text style={styles.editModalTitle}>Edit Post</Text>
@@ -62,6 +69,7 @@ export default function PostActionModals({
               placeholder="Edit your post..."
               placeholderTextColor="#9ca3af"
               multiline
+              scrollEnabled
               value={editContent}
               onChangeText={onChangeEditContent}
               editable={!isSaving}
@@ -92,7 +100,7 @@ export default function PostActionModals({
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       <Modal
@@ -175,7 +183,10 @@ const styles = StyleSheet.create({
     padding: 12,
     fontSize: 14,
     color: '#1f2937',
-    minHeight: 120,
+    minHeight: 80,
+    maxHeight: 280,
+    // Give up height to the action buttons when the keyboard is open.
+    flexShrink: 1,
     textAlignVertical: 'top',
     marginBottom: 16,
   },
