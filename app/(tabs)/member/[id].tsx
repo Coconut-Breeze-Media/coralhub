@@ -12,7 +12,8 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams, useNavigation } from 'expo-router';
+import { goBackOrFallback, type BackNavigation } from '../../../lib/tabNavigation';
 import RequireAuth from '../../../components/RequireAuth';
 import { useAuth } from '../../../lib/auth';
 import { ROUTES } from '../../../constants/navigation';
@@ -64,6 +65,7 @@ function MemberProfileScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const memberId = Number(Array.isArray(id) ? id[0] : id) || null;
   const { userId: authUserId } = useAuth();
+  const navigation = useNavigation<BackNavigation>();
   const { member, fields, coverUrl, isLoading, isError, isRefetching, refetch } =
     useMemberProfile(memberId);
   const sendRequest = useSendFriendRequest();
@@ -97,7 +99,7 @@ function MemberProfileScreen() {
         <Text style={styles.errorText}>This member profile is not available.</Text>
         <TouchableOpacity
           style={styles.primaryButton}
-          onPress={() => router.replace(ROUTES.NETWORKING)}
+          onPress={() => goBackOrFallback(navigation, ROUTES.NETWORKING)}
           activeOpacity={0.8}
         >
           <Text style={styles.primaryButtonText}>Back</Text>

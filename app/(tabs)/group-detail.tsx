@@ -28,6 +28,7 @@ import PostCard from '../../components/PostCard';
 import PostActionModals from '../../components/PostActionModals';
 import { useState, useEffect, useRef } from 'react';
 import { useLocalSearchParams, useNavigation, router } from 'expo-router';
+import { goBackOrFallback, type BackNavigation } from '../../lib/tabNavigation';
 import * as ImagePicker from 'expo-image-picker';
 import type { BPActivity } from '../../types';
 
@@ -373,7 +374,7 @@ export default function GroupDetailScreen() {
             try {
               await deleteGroupMutation.mutateAsync(groupId);
               Alert.alert('Group Deleted', 'The group has been permanently deleted.', [
-                { text: 'OK', onPress: () => router.replace('/profile/groups') },
+                { text: 'OK', onPress: () => goBackOrFallback(navigation as BackNavigation, '/profile/groups') },
               ]);
             } catch (err) {
               Alert.alert('Error', err instanceof Error ? err.message : 'Failed to delete group.');

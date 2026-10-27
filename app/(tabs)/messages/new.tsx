@@ -14,7 +14,8 @@ import {
 } from 'react-native';
 
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router, Stack, useLocalSearchParams } from 'expo-router';
+import { router, Stack, useLocalSearchParams, useNavigation } from 'expo-router';
+import { replaceTabRoute, type BackNavigation } from '../../../lib/tabNavigation';
 import { useAuth } from '../../../lib/auth';
 import { useMember, useMembersList } from '../../../hooks/useMembers';
 import {
@@ -141,6 +142,7 @@ function shouldSendOnEnterPress(event: ComposerKeyPressEvent): boolean {
 }
 
 export default function NewMessageScreen() {
+  const navigation = useNavigation<BackNavigation>();
   const { token, userId, profile } = useAuth();
   const { height: viewportHeight } = useWindowDimensions();
   // Optional recipient handed over from a member profile ("Message" button).
@@ -330,7 +332,11 @@ export default function NewMessageScreen() {
         {
           onSuccess: () => {
             resetComposerState();
-            router.replace(`/messages/${existingConversation.threadId}`);
+            // Replace the composer so back from the thread returns to where
+            // the user started (a member profile, the inbox, ...).
+            replaceTabRoute(navigation, 'messages/[threadId]', {
+              threadId: String(existingConversation.threadId),
+            });
           },
         }
       );
@@ -349,11 +355,14 @@ export default function NewMessageScreen() {
           resetComposerState();
 
           if (threadId != null) {
-            router.replace(`/messages/${threadId}?sent=1`);
+            replaceTabRoute(navigation, 'messages/[threadId]', {
+              threadId: String(threadId),
+              sent: '1',
+            });
             return;
           }
 
-          router.replace('/messages?sent=1');
+          replaceTabRoute(navigation, 'messages', { sent: '1' });
         },
       }
     );
