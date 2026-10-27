@@ -2080,6 +2080,99 @@ export async function searchUsers(query: string, token: string): Promise<UserSea
 }
 
 // ---------- Messages API ----------
+//
+// The website inbox is the Better Messages plugin, which keeps its own tables.
+// Messages written through BuddyPress (/buddypress/v1/messages) never appear
+// there. When the coral-social-api bridge (/coral/v1/messages/threads) is
+// deployed and Better Messages is active, every call below goes through it;
+// otherwise (route 404 / 501) the app keeps using BuddyPress as before. The
+// bridge answers in BuddyPress' response shape, so callers don't change.
+
+type MessagingBackend = 'better-messages' | 'buddypress';
+
+let messagingBackend: MessagingBackend | null = null;
+let messagingBackendProbe: Promise<MessagingBackend> | null = null;
+
+const BM_THREADS_PATH = '/coral/v1/messages/threads';
+
+async function resolveMessagingBackend(token: string): Promise<MessagingBackend> {
+  if (messagingBackend) return messagingBackend;
+  if (messagingBackendProbe) return messagingBackendProbe;
+
+  messagingBackendProbe = (async () => {
+    try {
+      const res = await fetchWithTimeout(`${API}${BM_THREADS_PATH}?per_page=1`, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      // 404 = route not deployed, 501 = Better Messages not active.
+      if (res.status === 404 || res.status === 501) {
+        messagingBackend = 'buddypress';
+        return messagingBackend;
+      }
+      await assertOk(res);
+      messagingBackend = 'better-messages';
+      return messagingBackend;
+    } finally {
+      messagingBackendProbe = null;
+    }
+  })();
+
+  return messagingBackendProbe;
+}
+
+async function usesBetterMessages(token: string): Promise<boolean> {
+  return (await resolveMessagingBackend(token)) === 'better-messages';
+}
+
+async function bmFetch<T>(
+  token: string,
+  path: string,
+  init: RequestInit = {}
+): Promise<{ data: T; res: Response }> {
+  const res = await fetchWithTimeout(`${API}${BM_THREADS_PATH}${path}`, {
+    ...init,
+    headers: {
+      ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+      ...(init.headers || {}),
+      Authorization: `Bearer ${token}`,
+    },
+  });
+  await assertOk(res);
+  return { data: (await res.json()) as T, res };
+}
+
+async function replyWithBetterMessages(
+  token: string,
+  threadId: number,
+  message: string
+): Promise<BPMessageMutationResponse> {
+  const { data } = await bmFetch<BPMessageMutationResponse>(token, `/${threadId}`, {
+    method: 'POST',
+    body: JSON.stringify({ message: encodeMessageForTransport(message) }),
+  });
+  return data;
+}
+
+async function getBetterMessagesConversations(token: string): Promise<BPConversationSummary[]> {
+  const all: BPConversationSummary[] = [];
+  let totalPages = 1;
+  for (let page = 1; page <= totalPages && page <= 20; page++) {
+    const { data, res } = await bmFetch<BPConversationSummary[]>(
+      token,
+      `?${new URLSearchParams({ page: String(page), per_page: String(CONVERSATIONS_PER_PAGE) })}`
+    );
+    const batch = Array.isArray(data) ? data : [];
+    all.push(...batch);
+    const headerPages = parseInt(res.headers.get('X-WP-TotalPages') || '', 10);
+    if (Number.isFinite(headerPages) && headerPages > 0) {
+      totalPages = headerPages;
+    } else {
+      break;
+    }
+  }
+  return all;
+}
 
 /** BuddyPress caps `per_page` at 100; request close to the max so the inbox is not truncated. */
 const CONVERSATIONS_PER_PAGE = 99;
@@ -2162,6 +2255,10 @@ export async function getConversations(
   token: string,
   userId?: number | null
 ): Promise<BPConversationsResponse> {
+  if (await usesBetterMessages(token)) {
+    return getBetterMessagesConversations(token);
+  }
+
   const [inbox, sentbox] = await Promise.all([
     getConversationBox(token, 'inbox', userId),
     // A failing sentbox must not blank out the whole list.
@@ -2195,6 +2292,18 @@ export async function getMessages(
   pageSize = 20,
   userId?: number | null
 ): Promise<BPMessageThreadResult> {
+  if (await usesBetterMessages(token)) {
+    const { data } = await bmFetch<BPMessageThreadResult>(
+      token,
+      `/${threadId}?${new URLSearchParams({
+        page: String(page),
+        per_page: String(pageSize),
+        order: 'desc',
+      })}`
+    );
+    return data;
+  }
+
   const params = new URLSearchParams({
     messages_page: String(page),
     messages_per_page: String(pageSize),
@@ -2227,6 +2336,18 @@ export async function sendMessage(
   subject: string,
   message: string
 ): Promise<BPMessageMutationResponse> {
+  if (await usesBetterMessages(token)) {
+    const { data } = await bmFetch<BPMessageMutationResponse>(token, '', {
+      method: 'POST',
+      body: JSON.stringify({
+        recipients,
+        subject,
+        message: encodeMessageForTransport(message),
+      }),
+    });
+    return data;
+  }
+
   const url = `${API}/buddypress/v1/messages`;
   const res = await fetchWithTimeout(url, {
     method: 'POST',
@@ -2252,6 +2373,10 @@ export async function replyToThread(
   message: string,
   recipients: number[]
 ): Promise<BPMessageMutationResponse> {
+  if (await usesBetterMessages(token)) {
+    return replyWithBetterMessages(token, threadId, message);
+  }
+
   const url = `${API}/buddypress/v1/messages`;
   const res = await fetchWithTimeout(url, {
     method: 'POST',
@@ -2276,6 +2401,10 @@ export async function replyToConversation(
   threadId: number,
   message: string
 ): Promise<BPMessageMutationResponse> {
+  if (await usesBetterMessages(token)) {
+    return replyWithBetterMessages(token, threadId, message);
+  }
+
   const url = `${API}/buddypress/v1/messages`;
 
   const res = await fetchWithTimeout(url, {
@@ -2302,6 +2431,13 @@ export async function markConversationAsRead(
   threadId: number,
   token: string
 ): Promise<BPMessageMutationResponse> {
+  if (await usesBetterMessages(token)) {
+    const { data } = await bmFetch<BPMessageMutationResponse>(token, `/${threadId}/read`, {
+      method: 'POST',
+    });
+    return data;
+  }
+
   const url = `${API}/buddypress/v1/messages/${threadId}`;
 
   try {
@@ -2330,6 +2466,13 @@ export async function deleteConversation(
   token: string,
   userId?: number | null
 ): Promise<BPMessageDeleteResponse> {
+  if (await usesBetterMessages(token)) {
+    const { data } = await bmFetch<BPMessageDeleteResponse>(token, `/${threadId}`, {
+      method: 'DELETE',
+    });
+    return data;
+  }
+
   // `user_id` ("the user ID to remove from the thread") is declared required with a
   // default of 0. Without it the delete is not scoped to the current user.
   const params = new URLSearchParams();

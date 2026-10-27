@@ -214,6 +214,7 @@ class Coral_Social_API {
         require_once CORAL_SOCIAL_API_PLUGIN_DIR . 'includes/class-mentions-endpoint.php';
         require_once CORAL_SOCIAL_API_PLUGIN_DIR . 'includes/class-auth-endpoint.php';
         require_once CORAL_SOCIAL_API_PLUGIN_DIR . 'includes/class-search-endpoint.php';
+        require_once CORAL_SOCIAL_API_PLUGIN_DIR . 'includes/class-messages-endpoint.php';
     }
     
     public function check_dependencies() {
@@ -269,6 +270,10 @@ class Coral_Social_API {
         // Register site-wide search (app "Search CoRR Hub")
         $search_endpoint = new Coral_Search_Endpoint();
         $search_endpoint->register_routes();
+
+        // Register direct messages (Better Messages bridge)
+        $messages_endpoint = new Coral_Messages_Endpoint();
+        $messages_endpoint->register_routes();
     }
 }
 
