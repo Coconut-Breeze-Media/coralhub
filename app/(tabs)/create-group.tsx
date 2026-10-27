@@ -19,7 +19,8 @@ import {
   Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { useNavigation } from 'expo-router';
+import { replaceTabRoute, type BackNavigation } from '../../lib/tabNavigation';
 import * as ImagePicker from 'expo-image-picker';
 import { useAuth } from '../../lib/auth';
 import { useCreateGroup, useUploadGroupAvatar } from '../../hooks/useGroups';
@@ -42,6 +43,7 @@ const TYPE_OPTIONS: { value: GroupType; label: string }[] = [
 
 export default function CreateGroupScreen() {
   const { token } = useAuth();
+  const navigation = useNavigation<BackNavigation>();
   const createGroupMutation = useCreateGroup(token);
   const uploadAvatarMutation = useUploadGroupAvatar(token);
 
@@ -76,10 +78,12 @@ export default function CreateGroupScreen() {
     // If the server response didn't include a usable id (seen once with an
     // unexpected response shape), fall back to My Groups instead of
     // navigating to a broken /group-detail?id=undefined.
+    // Replace this form in the back history: back from the new group returns
+    // to wherever the user opened Create Group from.
     if (createdId) {
-      router.replace(`/group-detail?id=${createdId}`);
+      replaceTabRoute(navigation, 'group-detail', { id: String(createdId) });
     } else {
-      router.replace('/profile/groups');
+      replaceTabRoute(navigation, 'profile/groups');
     }
   };
 

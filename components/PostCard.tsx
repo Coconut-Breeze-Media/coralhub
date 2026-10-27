@@ -25,30 +25,24 @@ import CommentsModal from './CommentsModal';
 import ShareButton from './ShareButton';
 import { useMember } from '../hooks/useMembers';
 import { useActivityById } from '../hooks/useActivity';
-import { normalizeExternalUrl } from '../lib/postContent';
-import type { BPActivity, BPGroup } from '../types';
+import {
+  decodeHtmlEntities as decodeEntities,
+  isEmojiImageTag,
+  isEmojiImageUrl,
+  normalizeExternalUrl,
+  repairMojibake,
+  replaceEmojiImages,
+  toAbsoluteUrl,
+} from '../lib/postContent';
+import type { ActivityLinkPreview, BPActivity, BPGroup } from '../types';
 
 // ─────────────────────────────────────────────
 // Content helpers
 // ─────────────────────────────────────────────
 function decodeHtmlEntities(text: string): string {
-  const decoded = text.replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (match, entity) => {
-    if (entity.startsWith('#')) {
-      const isHex = entity[1]?.toLowerCase() === 'x';
-      const codePoint = Number.parseInt(entity.slice(isHex ? 2 : 1), isHex ? 16 : 10);
-      if (!Number.isFinite(codePoint) || codePoint <= 0) return match;
-      try {
-        return String.fromCodePoint(codePoint);
-      } catch {
-        return match;
-      }
-    }
-
-    const named: Record<string, string> = {
-      amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ',
-    };
-    return named[entity.toLowerCase()] ?? match;
-  });
+  // Two passes, as before: website content is sometimes escaped twice
+  // (`&amp;#8217;`, `&amp;amp;`).
+  const decoded = repairMojibake(decodeEntities(decodeEntities(text)));
 
   // Some website plugins return common emoji shortcodes instead of the
   // character. Convert the ones supported by the in-app composer as well.
@@ -57,26 +51,17 @@ function decodeHtmlEntities(text: string): string {
     tada: '🎉', fire: '🔥', '100': '💯', raised_hands: '🙌',
   };
 
-  return decoded
-    .replace(/:([+\w-]+):/g, (match, shortcode) => emojiShortcodes[shortcode.toLowerCase()] ?? match)
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#8211;/g, '–')
-    .replace(/&#8212;/g, '—')
-    .replace(/&#8216;/g, '‘')
-    .replace(/&#8217;/g, '’')
-    .replace(/&#8220;/g, '“')
-    .replace(/&#8221;/g, '”')
-    .replace(/&nbsp;/g, ' ');
+  return decoded.replace(
+    /:([+\w-]+):/g,
+    (match, shortcode: string) => emojiShortcodes[shortcode.toLowerCase()] ?? match
+  );
 }
 
-function getContentHtml(content: string | { rendered: string; raw?: string }): string {
+function getContentHtml(content: string | { rendered: string; raw?: string } | null | undefined): string {
   if (typeof content === 'string') {
     return content;
   }
-  return content.rendered || content.raw || '';
+  return content?.rendered || content?.raw || '';
 }
 
 function stripUnavailableShareFallback(text: string): string {
@@ -92,14 +77,10 @@ function stripUnavailableShareFallback(text: string): string {
 function getContentText(content: string | { rendered: string; raw?: string }): string {
   let html = getContentHtml(content);
 
-  // WordPress may render emoji as <img class="emoji" alt="😊">. Preserve
-  // the accessible alt character before removing markup, while leaving normal
-  // post images alone.
-  html = html.replace(/<img\b[^>]*>/gi, (tag) => {
-    if (!/\bemoji\b/i.test(tag)) return tag;
-    const alt = tag.match(/\balt=["']([^"']*)["']/i)?.[1];
-    return alt ?? '';
-  });
+  // WordPress renders emoji as <img class="wp-smiley|emoji" alt="😊"> (and
+  // plugins use Twemoji/EmojiOne images). Keep the unicode alt character in
+  // the text before removing markup, while leaving normal post images alone.
+  html = replaceEmojiImages(html);
 
   // Preserve paragraph/line structure before stripping tags
   html = html
@@ -148,35 +129,64 @@ function getShareIntroText(content: string | { rendered: string; raw?: string })
   return getContentText(shareEmbedIndex >= 0 ? html.slice(0, shareEmbedIndex) : html);
 }
 
-function getSharedActivityId(activity: BPActivity): number | null {
-  const sharedActivityId = Number(activity.primary_item_id);
+function isActivityShare(activity: BPActivity): boolean {
+  // `post_share` (a shared blog post) points at a WP post, not an activity.
+  return /share/i.test(activity.type || '') && activity.type !== 'post_share';
+}
 
-  if (
-    activity.type === 'activity_share' &&
-    Number.isFinite(sharedActivityId) &&
-    sharedActivityId > 0 &&
-    sharedActivityId !== activity.id
-  ) {
-    return sharedActivityId;
+/**
+ * The original activity of a share. The website's share feature stores it in
+ * `secondary_item_id` (`primary_item_id` is the group for group shares);
+ * shares made by earlier app builds only set `primary_item_id`. The plugin's
+ * `shared_activity_id` REST field resolves this server-side when available.
+ */
+function getSharedActivityId(activity: BPActivity): number | null {
+  if (!isActivityShare(activity)) return null;
+
+  const candidates = [
+    activity.shared_activity_id,
+    activity.secondary_item_id,
+    activity.component === 'groups' ? null : activity.primary_item_id,
+  ];
+
+  for (const candidate of candidates) {
+    const id = Number(candidate);
+    if (Number.isFinite(id) && id > 0 && id !== activity.id) return id;
   }
 
   return null;
 }
 
+function getLinkPreview(activity: BPActivity | undefined): ActivityLinkPreview | null {
+  const preview = activity?.link_preview;
+  const url = preview?.url ? normalizeExternalUrl(preview.url) : null;
+  if (!preview || !url || (!preview.title && !preview.description && !preview.image)) return null;
+  return {
+    ...preview,
+    url,
+    title: preview.title ? decodeHtmlEntities(preview.title) : undefined,
+    description: preview.description ? decodeHtmlEntities(preview.description) : undefined,
+    image: toAbsoluteUrl(preview.image),
+  };
+}
+
+function getLinkHostname(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return url;
+  }
+}
+
 // Helper function to extract user name from title HTML
-function getUserNameFromTitle(title: string): string {
-  const match = title.match(/>([^<]+)</);
+function getUserNameFromTitle(title: string | undefined): string {
+  const match = title?.match(/>([^<]+)</);
   return match ? match[1].trim() : '';
 }
 
 // Helper function to extract image URLs from HTML content
-function extractImageUrls(content: string | { rendered: string; raw?: string }): string[] {
-  let html = '';
-  if (typeof content === 'string') {
-    html = content;
-  } else {
-    html = content.rendered || content.raw || '';
-  }
+function extractImageUrls(content: string | { rendered: string; raw?: string } | null | undefined): string[] {
+  const html = getContentHtml(content);
 
   const imageUrls: string[] = [];
   const imageExtensions = /\.(jpg|jpeg|png|gif|webp)(\?[^"']*)?$/i;
@@ -185,9 +195,9 @@ function extractImageUrls(content: string | { rendered: string; raw?: string }):
   let match;
   while ((match = imgRegex.exec(html)) !== null) {
     const url = match[1];
-    // WordPress uses inline <img class="emoji"> markup on some installs;
-    // it belongs in the text, never as a full post attachment.
-    if (url && !/\bemoji\b/i.test(match[0]) && !url.includes('Please-Upload-Avatar-Image')) {
+    // WordPress converts emoji to inline <img class="wp-smiley|emoji"> markup;
+    // it belongs in the text, never as a post image.
+    if (url && !isEmojiImageTag(match[0]) && !url.includes('Please-Upload-Avatar-Image')) {
       imageUrls.push(url);
     }
   }
@@ -196,7 +206,13 @@ function extractImageUrls(content: string | { rendered: string; raw?: string }):
   const anchorRegex = /<a[^>]+href=["']([^"']+)["'][^>]*>/gi;
   while ((match = anchorRegex.exec(html)) !== null) {
     const url = match[1];
-    if (url && imageExtensions.test(url) && !imageUrls.includes(url) && !url.includes('Please-Upload-Avatar-Image')) {
+    if (
+      url &&
+      imageExtensions.test(url) &&
+      !isEmojiImageUrl(url) &&
+      !imageUrls.includes(url) &&
+      !url.includes('Please-Upload-Avatar-Image')
+    ) {
       imageUrls.push(url);
     }
   }
@@ -211,13 +227,8 @@ type ExtractedLink = {
 
 // Extract tappable links from anchors and plain text. Every link is normalized
 // so legacy posts containing www.example.com are still usable in the app.
-function extractAllLinks(content: string | { rendered: string; raw?: string }): ExtractedLink[] {
-  let html = '';
-  if (typeof content === 'string') {
-    html = content;
-  } else {
-    html = content.rendered || content.raw || '';
-  }
+function extractAllLinks(content: string | { rendered: string; raw?: string } | null | undefined): ExtractedLink[] {
+  const html = getContentHtml(content);
 
   const results: ExtractedLink[] = [];
   const seenUrls = new Set<string>();
@@ -347,6 +358,44 @@ function ExpandablePostText({
   );
 }
 
+/** Open Graph preview card for the first link in a post (title, image, site). */
+function LinkPreviewCard({
+  preview,
+  onPress,
+}: {
+  preview: ActivityLinkPreview;
+  onPress: (url: string) => void;
+}) {
+  return (
+    <TouchableOpacity
+      style={styles.linkPreviewCard}
+      onPress={() => onPress(preview.url)}
+      activeOpacity={0.85}
+      accessibilityRole="link"
+      accessibilityLabel={preview.title ? `Open link: ${preview.title}` : `Open ${preview.url}`}
+    >
+      {preview.image ? (
+        <Image source={{ uri: preview.image }} style={styles.linkPreviewImage} resizeMode="cover" />
+      ) : null}
+      <View style={styles.linkPreviewBody}>
+        {preview.title ? (
+          <Text style={styles.linkPreviewTitle} numberOfLines={2}>
+            {preview.title}
+          </Text>
+        ) : null}
+        {preview.description ? (
+          <Text style={styles.linkPreviewDescription} numberOfLines={3}>
+            {preview.description}
+          </Text>
+        ) : null}
+        <Text style={styles.linkPreviewHost} numberOfLines={1}>
+          {(preview.site_name || getLinkHostname(preview.url)).toUpperCase()}
+        </Text>
+      </View>
+    </TouchableOpacity>
+  );
+}
+
 // ─────────────────────────────────────────────
 // PostCard
 // ─────────────────────────────────────────────
@@ -384,7 +433,7 @@ function PostCard({
   } = useActivityById(token, sharedActivityId);
   const { data: sharedMemberData } = useMember(token, sharedActivity?.user_id);
 
-  const isSharedPost = item.type === 'activity_share';
+  const isSharedPost = isActivityShare(item);
   const isCurrentUserPost = item.user_id === profile?.user_id;
   const canModify = isCurrentUserPost || !!canModifyOverride;
   const isLiked = item.favorited || false;
@@ -405,25 +454,37 @@ function PostCard({
 
   // HTML parsing is several regex passes. Memoize it so parent state
   // (composer text, scroll position) does not re-parse every card.
+  const linkPreview = useMemo(() => getLinkPreview(item), [item]);
   const parsedContent = useMemo(() => {
     return {
       displayText: isSharedPost ? getShareIntroText(item.content) : getContentText(item.content),
-      imageUrls: isSharedPost ? [] : extractImageUrls(item.content),
+      // A link preview's image is shown in its card, not as a post photo.
+      imageUrls: isSharedPost
+        ? []
+        : extractImageUrls(item.content).filter((url) => url !== linkPreview?.image),
       links: isSharedPost ? [] : extractAllLinks(item.content),
     };
-  }, [isSharedPost, item.content]);
+  }, [isSharedPost, item.content, linkPreview]);
   const { displayText, imageUrls, links } = parsedContent;
 
   const parsedShared = useMemo(() => {
     if (!sharedActivity) {
-      return { imageUrls: [] as string[], links: [] as ReturnType<typeof extractAllLinks>, text: '' };
+      return {
+        imageUrls: [] as string[],
+        links: [] as ReturnType<typeof extractAllLinks>,
+        text: '',
+        linkPreview: null as ActivityLinkPreview | null,
+      };
     }
+    const sharedPreview = getLinkPreview(sharedActivity);
     return {
-      imageUrls: extractImageUrls(sharedActivity.content),
+      imageUrls: extractImageUrls(sharedActivity.content).filter((url) => url !== sharedPreview?.image),
       links: extractAllLinks(sharedActivity.content),
       text: getContentText(sharedActivity.content),
+      linkPreview: sharedPreview,
     };
   }, [sharedActivity]);
+  const sharedLinkPreview = parsedShared.linkPreview;
   const sharedImageUrls = parsedShared.imageUrls;
   const sharedLinks = parsedShared.links;
   const sharedText = parsedShared.text;
@@ -451,7 +512,9 @@ function PostCard({
     if (initialCommentsOpen) setCommentModalVisible(true);
   }, [initialCommentsOpen]);
 
-  if (isMemberLoading || !userName) {
+  // Never render a malformed cache entry (e.g. an unexpected API response
+  // shape) — it has no id/content and would crash the whole list.
+  if (!item?.id || isMemberLoading || !userName) {
     return null;
   }
 
@@ -570,6 +633,12 @@ function PostCard({
         </View>
       )}
 
+      {linkPreview ? (
+        <View style={styles.linkPreviewWrapper}>
+          <LinkPreviewCard preview={linkPreview} onPress={handleLinkPress} />
+        </View>
+      ) : null}
+
       {sharedActivityId ? (
         <View style={styles.sharedPostCard}>
           {isSharedActivityLoading ? (
@@ -617,6 +686,12 @@ function PostCard({
                 />
               ) : null}
 
+              {sharedLinkPreview ? (
+                <View style={styles.sharedLinkPreviewWrapper}>
+                  <LinkPreviewCard preview={sharedLinkPreview} onPress={handleLinkPress} />
+                </View>
+              ) : null}
+
             </>
           ) : (
             <Text style={styles.sharedPostUnavailableText}>Original post is no longer available.</Text>
@@ -651,7 +726,8 @@ function PostCard({
         </TouchableOpacity>
 
         <ShareButton
-          activityId={item.id}
+          // Re-sharing a share shares the original post, like the website.
+          activityId={sharedActivityId ?? item.id}
           postUrl={item.link}
           style={styles.actionButton}
           iconColor="#6b7280"
@@ -665,7 +741,7 @@ function PostCard({
             minute: '2-digit',
           })}
           previewText={displayText}
-          previewImageUrl={imageUrls[0] || sharedImageUrls[0]}
+          previewImageUrl={imageUrls[0] || sharedImageUrls[0] || linkPreview?.image || sharedLinkPreview?.image}
           previewLinkUrl={links[0]?.url || sharedLinks[0]?.url || item.link}
         />
       </View>
@@ -860,6 +936,48 @@ const styles = StyleSheet.create({
     maxHeight: 400,
     borderRadius: 8,
     backgroundColor: '#f0f0f0',
+  },
+  linkPreviewWrapper: {
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+  },
+  sharedLinkPreviewWrapper: {
+    padding: 12,
+    paddingTop: 8,
+  },
+  linkPreviewCard: {
+    borderWidth: 1,
+    borderColor: '#dbdbdb',
+    borderRadius: 8,
+    overflow: 'hidden',
+    backgroundColor: '#fafafa',
+  },
+  linkPreviewImage: {
+    width: '100%',
+    height: 180,
+    backgroundColor: '#f0f0f0',
+  },
+  linkPreviewBody: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 4,
+  },
+  linkPreviewTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#262626',
+    lineHeight: 19,
+  },
+  linkPreviewDescription: {
+    fontSize: 13,
+    color: '#525252',
+    lineHeight: 18,
+  },
+  linkPreviewHost: {
+    fontSize: 11,
+    color: '#8e8e8e',
+    fontWeight: '600',
+    letterSpacing: 0.3,
   },
   sharedPostCard: {
     marginHorizontal: 16,

@@ -86,7 +86,7 @@ export const TAB_BAR_OPTIONS = {
  */
 export const PROFILE_MENU_ITEMS: ReadonlyArray<ProfileMenuItem> = [
   {
-    label: 'Profile Settings',
+    label: 'My Profile Settings',
     href: '/profile/settings',
     icon: 'person-circle-outline',
   },
@@ -109,6 +109,11 @@ export const PROFILE_MENU_ITEMS: ReadonlyArray<ProfileMenuItem> = [
     label: 'My Connections',
     href: '/profile/connections',
     icon: 'link-outline',
+  },
+  {
+    label: 'Search CoRR Hub',
+    href: '/search',
+    icon: 'search-outline',
   },
   {
     label: 'Contact Us',
@@ -147,6 +152,9 @@ export const ROUTES = {
   // In-app resource viewer (WebView)
   RESOURCE_VIEWER: '/resource-viewer',
 
+  // Site-wide search ("Search CoRR Hub", opened from the Profile menu)
+  SEARCH: '/search',
+
   // Groups
   CREATE_GROUP: '/create-group',
 
@@ -160,6 +168,7 @@ export const ROUTES = {
   
   // Profile subroutes
   PROFILE_SETTINGS: '/profile/settings',
+  PROFILE_EDIT: '/profile/edit-profile',
   PROFILE_ACTIVITY: '/profile/activity',
   PROFILE_MESSAGES: '/messages',
   PROFILE_GROUPS: '/profile/groups',

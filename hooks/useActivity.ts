@@ -18,6 +18,7 @@ import {
   searchUsers,
 } from '../lib/api';
 import type { UserSearchResult } from '../lib/api';
+import { encodeEmojiEntities } from '../lib/postContent';
 import type {
   BPActivity,
   CreateActivityPayload,
@@ -33,7 +34,7 @@ function prependActivityToInfiniteData(
   previous: ActivityInfiniteData | undefined,
   activity: BPActivity
 ): ActivityInfiniteData | undefined {
-  if (!previous?.pages?.length) return previous;
+  if (!previous?.pages?.length || !activity?.id) return previous;
 
   return {
     ...previous,
@@ -50,6 +51,7 @@ function prependActivityToInfiniteData(
 }
 
 function prependActivityToGroupData(previous: any, activity: BPActivity) {
+  if (!activity?.id) return previous;
   if (previous?.pages?.length) {
     return {
       ...previous,
@@ -200,9 +202,16 @@ export function useCreatePost(token: string | null) {
   return useMutation({
     mutationFn: async (payload: CreateActivityPayload) => {
       if (!token) throw new Error('No authentication token');
-      return createPost(token, payload);
+      return createPost(token, { ...payload, content: encodeEmojiEntities(payload.content) });
     },
     onSuccess: (activity) => {
+      if (!activity?.id) {
+        // Unexpected response shape — never put it in the feed cache, just
+        // reload the feeds from the server.
+        queryClient.invalidateQueries({ queryKey: ['activity'], refetchType: 'active' });
+        return;
+      }
+
       // The server has accepted the post, so put that returned activity in all
       // relevant in-memory feeds immediately. This covers "My Posts" even if
       // that tab is currently inactive, rather than waiting for its cache TTL.
@@ -362,7 +371,7 @@ export function useSharePost(token: string | null) {
       content?: string;
     }) => {
       if (!token) throw new Error('No authentication token');
-      return sharePost(activityId, postUrl, token, content);
+      return sharePost(activityId, postUrl, token, content ? encodeEmojiEntities(content) : content);
     },
     onSuccess: (activity) => {
       if (activity?.id) {
@@ -493,7 +502,7 @@ export function useUpdatePost(token: string | null) {
       primary_item_id?: number;
     }) => {
       if (!token) throw new Error('No authentication token');
-      return updatePost(activityId, content, token, { component, primary_item_id });
+      return updatePost(activityId, encodeEmojiEntities(content), token, { component, primary_item_id });
     },
     onMutate: async ({ activityId, content }) => {
       await queryClient.cancelQueries({ queryKey: ['activity'] });
@@ -613,7 +622,7 @@ export function useCreateComment(token: string | null) {
       parentCommentId?: number;
     }) => {
       if (!token) throw new Error('No authentication token');
-      return createComment(postId, content, token, parentCommentId);
+      return createComment(postId, encodeEmojiEntities(content), token, parentCommentId);
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['comments', variables.postId] });
@@ -643,7 +652,7 @@ export function useUpdateComment(token: string | null) {
       secondaryItemId?: number;
     }) => {
       if (!token) throw new Error('No authentication token');
-      return updateComment(commentId, content, token, primaryItemId, secondaryItemId);
+      return updateComment(commentId, encodeEmojiEntities(content), token, primaryItemId, secondaryItemId);
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['comments', variables.postId] });
@@ -679,7 +688,7 @@ export function useCreateGroupPost(token: string | null) {
   return useMutation({
     mutationFn: async ({ groupId, content }: { groupId: number; content: string }) => {
       if (!token) throw new Error('No authentication token');
-      return createGroupPost(groupId, content, token);
+      return createGroupPost(groupId, encodeEmojiEntities(content), token);
     },
     onSuccess: (activity, { groupId }) => {
       queryClient.getQueriesData<any>({ queryKey: ['groups', 'activity'] }).forEach(([key, previous]) => {

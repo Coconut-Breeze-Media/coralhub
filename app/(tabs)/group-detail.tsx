@@ -13,7 +13,7 @@ import {
   formatFileSize,
   type SelectedImageAttachment,
 } from '../../lib/imageAttachment';
-import { normalizeBareUrlsInText, normalizeExternalUrl, postLinkMarkup } from '../../lib/postContent';
+import { htmlToPlainText, normalizeBareUrlsInText, normalizeExternalUrl, postLinkMarkup } from '../../lib/postContent';
 import {
   useGroup, useGroupActivityInfinite, useGroupMembersInfinite,
   useJoinGroup, useLeaveGroup, useDeleteGroup,
@@ -26,8 +26,10 @@ import { useCreateGroupPost, useLikePost, useUpdatePost, useDeletePost } from '.
 import { brandHeaderTitle } from '../../components/AppHeader';
 import PostCard from '../../components/PostCard';
 import PostActionModals from '../../components/PostActionModals';
+import ComposerAvatar from '../../components/ComposerAvatar';
 import { useState, useEffect, useRef } from 'react';
 import { useLocalSearchParams, useNavigation, router } from 'expo-router';
+import { goBackOrFallback, type BackNavigation } from '../../lib/tabNavigation';
 import * as ImagePicker from 'expo-image-picker';
 import type { BPActivity } from '../../types';
 
@@ -267,13 +269,19 @@ export default function GroupDetailScreen() {
         content: fullContent,
       });
       
-      // Reset all states
+      // Reset the composer and show this group's feed — useCreateGroupPost
+      // has already put the new post at the top of it.
       setNewPostContent('');
       setSelectedImages([]);
       setPostLink('');
-      
-      await refetchActivity();
-      Alert.alert('Success', 'Post created successfully!');
+      Keyboard.dismiss();
+      setActiveTab('home');
+      requestAnimationFrame(() => {
+        contentScrollRef.current?.scrollTo({
+          y: Math.max(0, postComposerOffsetRef.current - 40),
+          animated: true,
+        });
+      });
     } catch (error: any) {
       Alert.alert('Error', error.message || 'Failed to create post');
     } finally {
@@ -304,7 +312,7 @@ export default function GroupDetailScreen() {
       content = item.content.raw || item.content.rendered || '';
     }
     setEditingPost(item);
-    setEditContent(content.replace(/<[^>]+>/g, '').trim());
+    setEditContent(htmlToPlainText(content));
     setIsEditModalVisible(true);
   };
 
@@ -373,7 +381,7 @@ export default function GroupDetailScreen() {
             try {
               await deleteGroupMutation.mutateAsync(groupId);
               Alert.alert('Group Deleted', 'The group has been permanently deleted.', [
-                { text: 'OK', onPress: () => router.replace('/profile/groups') },
+                { text: 'OK', onPress: () => goBackOrFallback(navigation as BackNavigation, '/profile/groups') },
               ]);
             } catch (err) {
               Alert.alert('Error', err instanceof Error ? err.message : 'Failed to delete group.');
@@ -1090,19 +1098,7 @@ export default function GroupDetailScreen() {
                   }}
                 >
                   <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
-                    <View style={{
-                      width: 40,
-                      height: 40,
-                      borderRadius: 20,
-                      backgroundColor: '#0095f6',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      marginRight: 12,
-                    }}>
-                      <Text style={{ color: '#fff', fontSize: 18, fontWeight: '600' }}>
-                        {profile?.user_display_name?.charAt(0).toUpperCase() || 'U'}
-                      </Text>
-                    </View>
+                    <ComposerAvatar size={40} />
                     <TextInput
                       style={{
                         flex: 1,
@@ -1117,6 +1113,7 @@ export default function GroupDetailScreen() {
                       placeholder="What's on your mind?"
                       placeholderTextColor="#999"
                       multiline
+                      scrollEnabled
                       maxLength={500}
                       value={newPostContent}
                       onChangeText={setNewPostContent}

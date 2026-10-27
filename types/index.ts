@@ -43,6 +43,15 @@ export interface MembershipResponse {
   subscription_status?: string | null;
   expires_at?: string | null;
   roles?: string[];
+  /** Recurring billing of the resolved level (coral-membership v1.5+). */
+  billing?: { amount: number; cycle_number: number; cycle_period: string } | null;
+  /** Every active PMPro level the user holds (coral-membership v1.5+). */
+  levels?: { id: number; name: string }[];
+  /**
+   * True when the tier was guessed (legacy server, level lookup failed), so the
+   * UI must not present it as the user's actual plan name.
+   */
+  tier_inferred?: boolean;
 }
 
 /**
@@ -217,6 +226,39 @@ export interface UpdateXProfilePayload {
   value: string;
 }
 
+/** Option of a selectbox/radio/checkbox/multiselectbox xprofile field. */
+export interface BPXProfileFieldOption {
+  id: number;
+  name: string;
+  is_default_option?: boolean;
+  option_order?: number;
+}
+
+/** An xprofile field as returned by /buddypress/v1/xprofile/groups?fetch_fields=true. */
+export interface BPXProfileField {
+  id: number;
+  group_id?: number;
+  name: string;
+  type: string;
+  description?: { raw?: string; rendered?: string } | string;
+  is_required?: boolean;
+  field_order?: number;
+  visibility_level?: string;
+  options?: BPXProfileFieldOption[];
+  data?: {
+    value?: { raw?: string; unserialized?: unknown; rendered?: string } | string;
+  };
+}
+
+/** An xprofile field group with its fields. */
+export interface BPXProfileGroup {
+  id: number;
+  name: string;
+  description?: { raw?: string; rendered?: string } | string;
+  group_order?: number;
+  fields?: BPXProfileField[];
+}
+
 /**
  * BuddyPress activity item
  */
@@ -237,6 +279,18 @@ export interface BPActivity {
   favorited?: boolean;
   favorite_count?: number;
   comment_count?: number;
+  /** Open Graph preview of the first link in the post (coral-social-api REST field). */
+  link_preview?: ActivityLinkPreview | null;
+  /** Original activity of a share, whichever field the share was stored in (coral-social-api REST field). */
+  shared_activity_id?: number | null;
+}
+
+export interface ActivityLinkPreview {
+  url: string;
+  title?: string;
+  description?: string;
+  image?: string;
+  site_name?: string;
 }
 
 /**
@@ -728,4 +782,34 @@ export interface NormalizedXProfileField {
   name: string;
   value: string;
   group?: string;
+}
+
+// ============================================
+// Site-wide search ("Search CoRR Hub")
+// ============================================
+
+/** One result from GET /coral/v1/search (or the WP core fallback). */
+export interface SiteSearchResult {
+  id: number;
+  /** WP post type slug, or 'document' for an uploaded file. */
+  type: string;
+  /** Human label for the badge, e.g. "Page", "Post", "PDF". */
+  type_label: string;
+  title: string;
+  excerpt: string;
+  /** Permalink of the page/post (attachment page for files). */
+  url: string;
+  /** Direct file URL for documents, '' otherwise. */
+  file_url?: string;
+  mime_type?: string;
+  date?: string;
+  /** True when the member's level cannot open it (excerpt withheld). */
+  locked?: boolean;
+}
+
+export interface SiteSearchPage {
+  results: SiteSearchResult[];
+  page: number;
+  total_pages: number;
+  total?: number;
 }

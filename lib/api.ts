@@ -23,6 +23,7 @@ import type {
   BPMessageDeleteResponse,
 } from '../types';
 import { encodeMessageForTransport } from './messagePresentation';
+import { convertToJPEG } from './imageHelpers';
 import { API_BASE_URL, SITE_URL } from './config';
 import { createTokenRefreshCoordinator, isRefreshExemptPath, replacementBearer } from './tokenRefresh';
 
@@ -137,10 +138,106 @@ async function refreshAccessToken(): Promise<string | null> {
   return accessRefreshInFlight;
 }
 
+/**
+ * True when a native FormData body carries React Native's `{ uri, name, type }`
+ * file parts. Expo's WinterCG `fetch` (the global `fetch` since Expo SDK 52+)
+ * cannot serialise those parts and throws "Unsupported FormDataPart
+ * implementation", so such uploads must go through XMLHttpRequest instead,
+ * which streams `uri` parts natively on iOS and Android.
+ */
+function hasNativeFileParts(body: unknown): boolean {
+  if (Platform.OS === 'web' || !body || typeof body !== 'object') return false;
+  const parts = (body as { _parts?: unknown })._parts;
+  if (!Array.isArray(parts)) return false;
+  return parts.some((part) => {
+    const value = Array.isArray(part) ? part[1] : null;
+    return Boolean(value && typeof value === 'object' && typeof (value as { uri?: unknown }).uri === 'string');
+  });
+}
+
+function abortError(): Error {
+  const error = new Error('Aborted');
+  error.name = 'AbortError';
+  return error;
+}
+
+/** Minimal fetch-compatible multipart upload over React Native's XMLHttpRequest. */
+function xhrFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open(init.method || 'POST', requestUrl(input));
+
+    // Never set Content-Type: XHR adds multipart/form-data with the boundary.
+    new Headers(init.headers).forEach((value, key) => {
+      if (key.toLowerCase() !== 'content-type') xhr.setRequestHeader(key, value);
+    });
+
+    const signal = init.signal;
+    const onAbort = () => xhr.abort();
+    if (signal) {
+      if (signal.aborted) {
+        reject(abortError());
+        return;
+      }
+      signal.addEventListener('abort', onAbort);
+    }
+    const cleanup = () => signal?.removeEventListener('abort', onAbort);
+
+    xhr.onload = () => {
+      cleanup();
+      const headers = new Headers();
+      (xhr.getAllResponseHeaders() || '')
+        .trim()
+        .split(/[\r\n]+/)
+        .forEach((line) => {
+          const index = line.indexOf(':');
+          if (index > 0) headers.append(line.slice(0, index).trim(), line.slice(index + 1).trim());
+        });
+      const status = xhr.status >= 200 && xhr.status <= 599 ? xhr.status : 500;
+      const bodyText = status === 204 || status === 205 ? null : xhr.responseText;
+      resolve(new Response(bodyText, { status, headers }));
+    };
+    xhr.onerror = () => {
+      cleanup();
+      reject(new TypeError('Network request failed'));
+    };
+    xhr.ontimeout = () => {
+      cleanup();
+      reject(new TypeError('Network request timed out'));
+    };
+    xhr.onabort = () => {
+      cleanup();
+      reject(abortError());
+    };
+
+    xhr.send(init.body as XMLHttpRequestBodyInit);
+  });
+}
+
+const UPLOADABLE_IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'gif']);
+
+/**
+ * On native, convert images whose extension is not JPEG/PNG/GIF (e.g. HEIC
+ * from iOS, or extension-less content:// URIs on Android) to a local JPEG so
+ * the BuddyPress / WordPress upload handlers accept the file type.
+ */
+async function ensureUploadableImageUri(imageUri: string): Promise<string> {
+  if (Platform.OS === 'web' || imageUri.startsWith('blob:') || imageUri.startsWith('data:')) {
+    return imageUri;
+  }
+  const lastSegment = imageUri.split(/[?#]/)[0].split('/').pop() || '';
+  const extension = lastSegment.includes('.') ? lastSegment.split('.').pop()!.toLowerCase() : '';
+  if (UPLOADABLE_IMAGE_EXTENSIONS.has(extension)) return imageUri;
+  return convertToJPEG(imageUri, 0.85);
+}
+
 function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit, ms = 15000) {
   const exec = (nextInit?: RequestInit) => {
     const ctrl = new AbortController();
     const id = setTimeout(() => ctrl.abort(), ms);
+    if (hasNativeFileParts(nextInit?.body)) {
+      return xhrFetch(input, { ...nextInit, signal: ctrl.signal }).finally(() => clearTimeout(id));
+    }
     // The WP host sends long-lived Cache-Control headers on some REST responses
     // (e.g. `public, max-age=604800`). Without this, the device's own HTTP cache
     // can silently serve a stale response for up to a week, so force every
@@ -161,6 +258,18 @@ function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit, ms = 150
 }
 
 const sharePostRequestsInFlight = new Map<string, Promise<import('../types').BPActivity>>();
+
+/**
+ * BuddyPress REST v1 returns create/update results as a one-item array
+ * (`[activity]`), not the activity object. Callers prepend the result to the
+ * cached feeds, so always hand back the activity itself — an array in the
+ * feed cache rendered a post with no id/content and crashed the screen.
+ */
+function firstActivity(
+  result: import('../types').BPActivity | import('../types').BPActivity[]
+): import('../types').BPActivity {
+  return Array.isArray(result) ? result[0] : result;
+}
 
 // ---------- auth ----------
 export async function wpLogin(username: string, password: string): Promise<JWTPayload> {
@@ -285,6 +394,21 @@ export async function getMembershipLevels(): Promise<MembershipLevel[]> {
   }));
 }
 
+/**
+ * Get a single-use checkout link that signs the browser into the logged-in
+ * app user's WordPress account before showing PMPro checkout (coral-app-checkout
+ * v1.1+). Without it, PMPro treats an upgrading member as a new registrant.
+ * POST /coral-checkout/v1/link { level }
+ */
+export async function getAppCheckoutLink(token: string, levelId: number): Promise<string> {
+  const data = await authedFetch<{ url?: string }>('/coral-checkout/v1/link', token, {
+    method: 'POST',
+    body: JSON.stringify({ level: levelId }),
+  });
+  if (!data?.url) throw new ApiError('Checkout link unavailable', 500);
+  return data.url;
+}
+
 // =========================
 // Premium Resources (protected)
 // =========================
@@ -344,6 +468,24 @@ export function extractPmproLevel(me: any): { id: number | null; name: string | 
     id: Number.isFinite(id) && id > 0 ? id : null,
     name: typeof name === 'string' && name.trim() !== '' ? name : null,
   };
+}
+
+/**
+ * Exchange the app's JWT for a one-time website sign-in URL.
+ * POST /coral/v1/auth/web-session (coral-membership plugin >= 1.5).
+ * Loading the returned URL in a WebView sets the WordPress login cookie and
+ * lands on `redirectTo`. The URL is single use and expires after ~60s, so
+ * request a fresh one for every load. Throws ApiError (404 = plugin route
+ * not deployed yet).
+ */
+export async function getWebSessionUrl(
+  token: string,
+  redirectTo: string
+): Promise<{ url: string; expires_in?: number }> {
+  return authedFetch<{ url: string; expires_in?: number }>('/coral/v1/auth/web-session', token, {
+    method: 'POST',
+    body: JSON.stringify({ redirect_to: redirectTo }),
+  });
 }
 
 // ---------- authedFetch + /users/me ----------
@@ -504,10 +646,12 @@ export async function getMemberById(userId: number, token: string): Promise<BPMe
  */
 export async function getMembers(
   token: string,
-  options?: { search?: string; page?: number; perPage?: number }
+  options?: { search?: string; page?: number; perPage?: number; exclude?: number[] }
 ): Promise<BPMember[]> {
   const params = new URLSearchParams();
   if (options?.search) params.set('search', options.search);
+  const exclude = (options?.exclude ?? []).filter((id) => Number.isFinite(id) && id > 0);
+  if (exclude.length > 0) params.set('exclude', exclude.join(','));
   params.set('page', String(options?.page ?? 1));
   params.set('per_page', String(options?.perPage ?? 20));
   params.set('type', 'active');
@@ -613,7 +757,8 @@ export async function uploadUserAvatar(
       size: file.size,
     });
   } else {
-    const uriParts = imageUri.split('.');
+    imageUri = await ensureUploadableImageUri(imageUri);
+    const uriParts = imageUri.split(/[?#]/)[0].split('.');
     const fileType = uriParts[uriParts.length - 1] || 'jpg';
     
     // Map common extensions to proper MIME types
@@ -818,6 +963,30 @@ export async function updateXProfileField(
 }
 
 /**
+ * Get every xprofile field group with its fields, options and the given
+ * user's saved values (used by the "Edit My Profile" screen).
+ * GET /buddypress/v1/xprofile/groups?fetch_fields=true&fetch_field_data=true&user_id=
+ */
+export async function getXProfileGroupsForUser(
+  userId: number,
+  token: string
+): Promise<import('../types').BPXProfileGroup[]> {
+  const params = new URLSearchParams({
+    fetch_fields: 'true',
+    fetch_field_data: 'true',
+    fetch_visibility_level: 'true',
+    hide_empty_fields: 'false',
+    user_id: String(userId),
+    per_page: '100',
+  });
+  const result = await authedFetch<import('../types').BPXProfileGroup[]>(
+    `/buddypress/v1/xprofile/groups?${params.toString()}`,
+    token
+  );
+  return Array.isArray(result) ? result : [];
+}
+
+/**
  * Get user activity from BuddyPress
  * @param {number} userId - User ID
  * @param {string} token - JWT authentication token
@@ -845,10 +1014,14 @@ export async function getFriendshipRelationships(
   confirmed: 0 | 1 = 1
 ): Promise<import('../types').BPFriendship[]> {
   // BuddyPress defaults to 10 per page, so fetch every page (100 per page).
+  // Don't trust X-WP-Total / X-WP-TotalPages here: the BP friends endpoint
+  // sets them from the size of the *current page*, so they always say one
+  // page — which capped Connections at 100 and Requests at 50. Keep reading
+  // until a short (or repeated) page comes back.
   const perPage = 100;
   const all: import('../types').BPFriendship[] = [];
-  let totalPages = 1;
-  for (let page = 1; page <= totalPages && page <= 50; page++) {
+  const seen = new Set<number>();
+  for (let page = 1; page <= 50; page++) {
     const res = await fetchWithTimeout(
       `${API}/buddypress/v1/friends?user_id=${userId}&is_confirmed=${confirmed}&per_page=${perPage}&page=${page}`,
       {
@@ -857,15 +1030,17 @@ export async function getFriendshipRelationships(
     );
     await assertOk(res);
     const batch = (await res.json()) as import('../types').BPFriendship[];
-    all.push(...batch);
-    const headerPages = parseInt(res.headers.get('X-WP-TotalPages') || '', 10);
-    if (Number.isFinite(headerPages) && headerPages > 0) {
-      totalPages = headerPages;
-    } else if (batch.length >= perPage) {
-      totalPages = page + 1;
-    } else {
-      break;
+    const list = Array.isArray(batch) ? batch : [];
+    let added = 0;
+    for (const friendship of list) {
+      if (seen.has(friendship.id)) continue;
+      seen.add(friendship.id);
+      all.push(friendship);
+      added++;
     }
+    // A short page is the last one; a page with nothing new means the server
+    // ignored `page` and keeps returning the same rows.
+    if (list.length < perPage || added === 0) break;
   }
   return all;
 }
@@ -1010,25 +1185,68 @@ export async function acceptFriendRequest(
   otherUserId: number,
   token: string
 ): Promise<import('../types').BPFriendship> {
-  
-  // PUT on the other user's ID to accept their friendship request
-  const res = await fetchWithTimeout(
-    `${API}/buddypress/v1/friends/${otherUserId}`,
-    {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
+  // PUT /friends/{initiator user id}: BuddyPress looks up the friendship
+  // between that user and the logged-in user (the receiver) and confirms it.
+  //
+  // Accepting runs BuddyPress' friends_friendship_accepted hooks on the
+  // server (activity item, notification and an email to the initiator),
+  // which can outlast the default 15s client timeout. The app then aborted
+  // the request ("FetchRequestCanceledException") even though the server
+  // usually completed it. Allow more time, and if the request still fails
+  // without an HTTP answer, ask the server whether the friendship is now
+  // confirmed before reporting an error.
+  let res: Response;
+  try {
+    res = await fetchWithTimeout(
+      `${API}/buddypress/v1/friends/${otherUserId}`,
+      {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ context: 'edit' }),
       },
-      body: JSON.stringify({
-        context: 'edit',
-      }),
-    }
-  );
-  
+      45000
+    );
+  } catch (networkError) {
+    const confirmed = await getConfirmedFriendship(otherUserId, token);
+    if (confirmed) return confirmed;
+    throw new Error(
+      'The server took too long to respond. Please check your connection and try again.'
+    );
+  }
+
+  if (!res.ok) {
+    // Already accepted (double tap, or accepted on the website meanwhile).
+    const confirmed = await getConfirmedFriendship(otherUserId, token);
+    if (confirmed) return confirmed;
+  }
   await assertOk(res);
   const result = await res.json();
-  return result;
+  return Array.isArray(result) ? result[0] : result;
+}
+
+/**
+ * The friendship between the logged-in user and `otherUserId`, if it is
+ * confirmed; null if it is still pending, missing, or can't be checked.
+ */
+async function getConfirmedFriendship(
+  otherUserId: number,
+  token: string
+): Promise<import('../types').BPFriendship | null> {
+  try {
+    const data = await authedFetch<any>(`/buddypress/v1/friends/${otherUserId}`, token);
+    const friendship = (Array.isArray(data) ? data[0] : data) as
+      | import('../types').BPFriendship
+      | undefined;
+    if (!friendship) return null;
+    const confirmed =
+      friendship.is_confirmed === true || Number(friendship.is_confirmed) === 1;
+    return confirmed ? friendship : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -1207,9 +1425,13 @@ export async function uploadImage(
 
     // Create FormData for multipart upload
     const formData = new FormData();
-    
+
+    // WordPress rejects HEIC/HEIF and other formats outside its allowed mime
+    // list, so normalise anything that is not JPEG/PNG/GIF to JPEG first.
+    imageUri = await ensureUploadableImageUri(imageUri);
+
     // Detect file extension and MIME type
-    const fileExtension = imageUri.split('.').pop()?.toLowerCase() || 'jpg';
+    const fileExtension = imageUri.split(/[?#]/)[0].split('.').pop()?.toLowerCase() || 'jpg';
     const mimeType = fileExtension === 'png' ? 'image/png' : 
                      fileExtension === 'gif' ? 'image/gif' : 
                      'image/jpeg';
@@ -1224,12 +1446,15 @@ export async function uploadImage(
       // Append blob to FormData
       formData.append('file', blob, fileName);
     } else {
-      // For React Native native (file:// URIs)
+      // For React Native native (file:// URIs). Keep the file name's
+      // extension consistent with the MIME type so WordPress accepts it.
+      const extension = mimeType === 'image/png' ? 'png' : mimeType === 'image/gif' ? 'gif' : 'jpg';
+      const nativeFileName = fileName.replace(/\.[a-z0-9]+$/i, '') + `.${extension}`;
       // @ts-ignore - React Native FormData accepts this format
       formData.append('file', {
         uri: imageUri,
         type: mimeType,
-        name: fileName,
+        name: nativeFileName,
       });
     }
 
@@ -1270,11 +1495,16 @@ export async function createPost(
     type: payload.type || 'activity_update',
     ...(payload.primary_item_id && { primary_item_id: payload.primary_item_id }),
   };
-  
-  return authedFetch<import('../types').BPActivity>('/buddypress/v1/activity', token, {
-    method: 'POST',
-    body: JSON.stringify(data),
-  });
+
+  const result = await authedFetch<import('../types').BPActivity | import('../types').BPActivity[]>(
+    '/buddypress/v1/activity',
+    token,
+    {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }
+  );
+  return firstActivity(result);
 }
 
 /**
@@ -1339,16 +1569,21 @@ export async function sharePost(
     return existingRequest;
   }
 
+  // The website's share feature stores the original activity in
+  // `secondary_item_id`; earlier app builds only set `primary_item_id`, so
+  // the website could not resolve app shares. Send both.
   const data: {
     component: 'activity';
     type: 'activity_share';
     primary_item_id: number;
+    secondary_item_id: number;
     link: string;
     content?: string;
   } = {
     component: 'activity',
     type: 'activity_share',
     primary_item_id: originalActivityId,
+    secondary_item_id: originalActivityId,
     link: postUrl,
   };
 
@@ -1367,7 +1602,7 @@ export async function sharePost(
     });
 
     await assertOk(res);
-    return res.json();
+    return firstActivity(await res.json());
   })();
 
   sharePostRequestsInFlight.set(requestKey, request);
@@ -1427,7 +1662,7 @@ export async function updatePost(
     data.primary_item_id = options.primary_item_id;
   }
   
-  return authedFetch<import('../types').BPActivity>(
+  const result = await authedFetch<import('../types').BPActivity | import('../types').BPActivity[]>(
     `/buddypress/v1/activity/${activityId}`,
     token,
     {
@@ -1435,6 +1670,7 @@ export async function updatePost(
       body: JSON.stringify(data),
     }
   );
+  return firstActivity(result);
 }
 
 /**
@@ -1455,11 +1691,16 @@ export async function createGroupPost(
     type: 'activity_update',
     primary_item_id: groupId,
   };
-  
-  return authedFetch<import('../types').BPActivity>('/buddypress/v1/activity', token, {
-    method: 'POST',
-    body: JSON.stringify(data),
-  });
+
+  const result = await authedFetch<import('../types').BPActivity | import('../types').BPActivity[]>(
+    '/buddypress/v1/activity',
+    token,
+    {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }
+  );
+  return firstActivity(result);
 }
 
 // ---------- BuddyPress Groups API ----------
@@ -1490,6 +1731,42 @@ export async function getMyGroups(
   const endpoint = `/buddypress/v1/groups/me${queryString ? `?${queryString}` : ''}`;
   
   return authedFetch<import('../types').BPGroup[]>(endpoint, token);
+}
+
+/**
+ * Groups a member belongs to, most recently active first, with the extras
+ * (`total_member_count`, `last_activity`, `last_activity_diff`) that
+ * BuddyPress only fills in when `populate_extras=true`. `/groups/me` does not
+ * honour that flag, which is why My Groups showed "0 members" everywhere.
+ *
+ * `show_hidden` is allowed for the logged-in user's own groups; if the site
+ * refuses it, retry without so the list still loads.
+ */
+export async function getMemberGroupsWithExtras(
+  userId: number,
+  token: string,
+  perPage: number = 100
+): Promise<import('../types').BPGroup[]> {
+  const params = new URLSearchParams({
+    user_id: String(userId),
+    type: 'active',
+    populate_extras: 'true',
+    per_page: String(perPage),
+  });
+  try {
+    return await authedFetch<import('../types').BPGroup[]>(
+      `/buddypress/v1/groups?${params.toString()}&show_hidden=true`,
+      token
+    );
+  } catch (error) {
+    if (error instanceof ApiError && error.status >= 400 && error.status < 500) {
+      return authedFetch<import('../types').BPGroup[]>(
+        `/buddypress/v1/groups?${params.toString()}`,
+        token
+      );
+    }
+    throw error;
+  }
 }
 
 /**
@@ -1980,16 +2257,21 @@ export async function createComment(
   token: string,
   parentCommentId?: number
 ): Promise<import('../types').BPActivity> {
-  return authedFetch<import('../types').BPActivity>('/buddypress/v1/activity', token, {
-    method: 'POST',
-    body: JSON.stringify({
-      component: 'activity',
-      type: 'activity_comment',
-      primary_item_id: activityId,
-      secondary_item_id: parentCommentId ?? activityId,
-      content,
-    }),
-  });
+  const result = await authedFetch<import('../types').BPActivity | import('../types').BPActivity[]>(
+    '/buddypress/v1/activity',
+    token,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        component: 'activity',
+        type: 'activity_comment',
+        primary_item_id: activityId,
+        secondary_item_id: parentCommentId ?? activityId,
+        content,
+      }),
+    }
+  );
+  return firstActivity(result);
 }
 
 /**
@@ -2062,6 +2344,99 @@ export async function searchUsers(query: string, token: string): Promise<UserSea
 }
 
 // ---------- Messages API ----------
+//
+// The website inbox is the Better Messages plugin, which keeps its own tables.
+// Messages written through BuddyPress (/buddypress/v1/messages) never appear
+// there. When the coral-social-api bridge (/coral/v1/messages/threads) is
+// deployed and Better Messages is active, every call below goes through it;
+// otherwise (route 404 / 501) the app keeps using BuddyPress as before. The
+// bridge answers in BuddyPress' response shape, so callers don't change.
+
+type MessagingBackend = 'better-messages' | 'buddypress';
+
+let messagingBackend: MessagingBackend | null = null;
+let messagingBackendProbe: Promise<MessagingBackend> | null = null;
+
+const BM_THREADS_PATH = '/coral/v1/messages/threads';
+
+async function resolveMessagingBackend(token: string): Promise<MessagingBackend> {
+  if (messagingBackend) return messagingBackend;
+  if (messagingBackendProbe) return messagingBackendProbe;
+
+  messagingBackendProbe = (async () => {
+    try {
+      const res = await fetchWithTimeout(`${API}${BM_THREADS_PATH}?per_page=1`, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      // 404 = route not deployed, 501 = Better Messages not active.
+      if (res.status === 404 || res.status === 501) {
+        messagingBackend = 'buddypress';
+        return messagingBackend;
+      }
+      await assertOk(res);
+      messagingBackend = 'better-messages';
+      return messagingBackend;
+    } finally {
+      messagingBackendProbe = null;
+    }
+  })();
+
+  return messagingBackendProbe;
+}
+
+async function usesBetterMessages(token: string): Promise<boolean> {
+  return (await resolveMessagingBackend(token)) === 'better-messages';
+}
+
+async function bmFetch<T>(
+  token: string,
+  path: string,
+  init: RequestInit = {}
+): Promise<{ data: T; res: Response }> {
+  const res = await fetchWithTimeout(`${API}${BM_THREADS_PATH}${path}`, {
+    ...init,
+    headers: {
+      ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+      ...(init.headers || {}),
+      Authorization: `Bearer ${token}`,
+    },
+  });
+  await assertOk(res);
+  return { data: (await res.json()) as T, res };
+}
+
+async function replyWithBetterMessages(
+  token: string,
+  threadId: number,
+  message: string
+): Promise<BPMessageMutationResponse> {
+  const { data } = await bmFetch<BPMessageMutationResponse>(token, `/${threadId}`, {
+    method: 'POST',
+    body: JSON.stringify({ message: encodeMessageForTransport(message) }),
+  });
+  return data;
+}
+
+async function getBetterMessagesConversations(token: string): Promise<BPConversationSummary[]> {
+  const all: BPConversationSummary[] = [];
+  let totalPages = 1;
+  for (let page = 1; page <= totalPages && page <= 20; page++) {
+    const { data, res } = await bmFetch<BPConversationSummary[]>(
+      token,
+      `?${new URLSearchParams({ page: String(page), per_page: String(CONVERSATIONS_PER_PAGE) })}`
+    );
+    const batch = Array.isArray(data) ? data : [];
+    all.push(...batch);
+    const headerPages = parseInt(res.headers.get('X-WP-TotalPages') || '', 10);
+    if (Number.isFinite(headerPages) && headerPages > 0) {
+      totalPages = headerPages;
+    } else {
+      break;
+    }
+  }
+  return all;
+}
 
 /** BuddyPress caps `per_page` at 100; request close to the max so the inbox is not truncated. */
 const CONVERSATIONS_PER_PAGE = 99;
@@ -2144,6 +2519,10 @@ export async function getConversations(
   token: string,
   userId?: number | null
 ): Promise<BPConversationsResponse> {
+  if (await usesBetterMessages(token)) {
+    return getBetterMessagesConversations(token);
+  }
+
   const [inbox, sentbox] = await Promise.all([
     getConversationBox(token, 'inbox', userId),
     // A failing sentbox must not blank out the whole list.
@@ -2177,6 +2556,18 @@ export async function getMessages(
   pageSize = 20,
   userId?: number | null
 ): Promise<BPMessageThreadResult> {
+  if (await usesBetterMessages(token)) {
+    const { data } = await bmFetch<BPMessageThreadResult>(
+      token,
+      `/${threadId}?${new URLSearchParams({
+        page: String(page),
+        per_page: String(pageSize),
+        order: 'desc',
+      })}`
+    );
+    return data;
+  }
+
   const params = new URLSearchParams({
     messages_page: String(page),
     messages_per_page: String(pageSize),
@@ -2209,6 +2600,18 @@ export async function sendMessage(
   subject: string,
   message: string
 ): Promise<BPMessageMutationResponse> {
+  if (await usesBetterMessages(token)) {
+    const { data } = await bmFetch<BPMessageMutationResponse>(token, '', {
+      method: 'POST',
+      body: JSON.stringify({
+        recipients,
+        subject,
+        message: encodeMessageForTransport(message),
+      }),
+    });
+    return data;
+  }
+
   const url = `${API}/buddypress/v1/messages`;
   const res = await fetchWithTimeout(url, {
     method: 'POST',
@@ -2234,6 +2637,10 @@ export async function replyToThread(
   message: string,
   recipients: number[]
 ): Promise<BPMessageMutationResponse> {
+  if (await usesBetterMessages(token)) {
+    return replyWithBetterMessages(token, threadId, message);
+  }
+
   const url = `${API}/buddypress/v1/messages`;
   const res = await fetchWithTimeout(url, {
     method: 'POST',
@@ -2258,6 +2665,10 @@ export async function replyToConversation(
   threadId: number,
   message: string
 ): Promise<BPMessageMutationResponse> {
+  if (await usesBetterMessages(token)) {
+    return replyWithBetterMessages(token, threadId, message);
+  }
+
   const url = `${API}/buddypress/v1/messages`;
 
   const res = await fetchWithTimeout(url, {
@@ -2284,6 +2695,13 @@ export async function markConversationAsRead(
   threadId: number,
   token: string
 ): Promise<BPMessageMutationResponse> {
+  if (await usesBetterMessages(token)) {
+    const { data } = await bmFetch<BPMessageMutationResponse>(token, `/${threadId}/read`, {
+      method: 'POST',
+    });
+    return data;
+  }
+
   const url = `${API}/buddypress/v1/messages/${threadId}`;
 
   try {
@@ -2312,6 +2730,13 @@ export async function deleteConversation(
   token: string,
   userId?: number | null
 ): Promise<BPMessageDeleteResponse> {
+  if (await usesBetterMessages(token)) {
+    const { data } = await bmFetch<BPMessageDeleteResponse>(token, `/${threadId}`, {
+      method: 'DELETE',
+    });
+    return data;
+  }
+
   // `user_id` ("the user ID to remove from the thread") is declared required with a
   // default of 0. Without it the delete is not scoped to the current user.
   const params = new URLSearchParams();

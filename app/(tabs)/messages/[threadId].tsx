@@ -11,7 +11,8 @@ import {
 } from 'react-native';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { router, Stack, useLocalSearchParams } from 'expo-router';
+import { router, Stack, useLocalSearchParams, useNavigation } from 'expo-router';
+import { replaceTabRoute, type BackNavigation } from '../../../lib/tabNavigation';
 import { Ionicons } from '@expo/vector-icons';
 
 import { useAuth } from '../../../lib/auth';
@@ -212,6 +213,7 @@ function normalizeMessages(
 }
 
 export default function ThreadScreen() {
+  const navigation = useNavigation<BackNavigation>();
   const { threadId, sent } = useLocalSearchParams<{
     threadId?: string | string[];
     sent?: string | string[];
@@ -413,7 +415,8 @@ export default function ThreadScreen() {
     deleteConversationMutation.mutate(parsedThreadId, {
       onSuccess: () => {
         setIsDeleteConfirmVisible(false);
-        router.replace('/messages?deleted=1');
+        // Swap the deleted thread for the inbox so back doesn't return to it.
+        replaceTabRoute(navigation, 'messages', { deleted: '1' });
       },
       onError: (deleteError) => {
         setIsDeleteConfirmVisible(false);
@@ -499,7 +502,7 @@ export default function ThreadScreen() {
               onDismiss={() => {
                 setShowSentNotice(false);
                 if (Number.isFinite(parsedThreadId)) {
-                  router.replace(`/messages/${parsedThreadId}`);
+                  router.setParams({ sent: undefined });
                 }
               }}
             />
