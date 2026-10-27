@@ -8,10 +8,13 @@ import {
   ActivityIndicator,
   FlatList,
   Linking,
+  Alert,
+  AppState,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { getMembershipLevels } from '../../lib/api';
+import { ApiError, getAppCheckoutLink, getMembershipLevels } from '../../lib/api';
+import { useAuth } from '../../lib/auth';
 import type { MembershipLevel } from '../../types';
 
 export const options = { headerShown: false };
@@ -142,9 +145,13 @@ const isFeatured = (lvl: MembershipLevel) =>
 function LevelCard({
   level,
   onSelect,
+  isCurrent = false,
+  opening = false,
 }: {
   level: MembershipLevel;
-  onSelect: (url: string) => void;
+  onSelect: (level: MembershipLevel) => void;
+  isCurrent?: boolean;
+  opening?: boolean;
 }) {
   const parsed = parseDescription(level.description);
   const benefits = mergeUnique(
@@ -177,7 +184,20 @@ function LevelCard({
           {level.name}
         </Text>
 
-        {featured && (
+        {isCurrent ? (
+          <View
+            style={{
+              paddingHorizontal: 10,
+              paddingVertical: 4,
+              borderRadius: 999,
+              backgroundColor: '#dcfce7',
+            }}
+          >
+            <Text style={{ color: '#166534', fontWeight: '700', fontSize: 12 }}>
+              Current plan
+            </Text>
+          </View>
+        ) : featured && (
           <View
             style={{
               paddingHorizontal: 10,
@@ -227,19 +247,27 @@ function LevelCard({
 
       {/* CTA */}
       <TouchableOpacity
-        onPress={() => onSelect(level.checkout_url)}
+        onPress={() => onSelect(level)}
+        disabled={isCurrent || opening}
         style={{
           height: 48,
           borderRadius: 12,
-          backgroundColor: PRIMARY,
+          backgroundColor: isCurrent ? '#e5e7eb' : PRIMARY,
           alignItems: 'center',
           justifyContent: 'center',
+          opacity: opening ? 0.7 : 1,
         }}
         activeOpacity={0.8}
         accessibilityRole="button"
-        accessibilityLabel={`Select ${level.name}`}
+        accessibilityLabel={isCurrent ? `${level.name} is your current plan` : `Select ${level.name}`}
       >
-        <Text style={{ color: '#fff', fontWeight: '700', fontSize: 16 }}>Select</Text>
+        {opening ? (
+          <ActivityIndicator color="#fff" />
+        ) : (
+          <Text style={{ color: isCurrent ? MUTED : '#fff', fontWeight: '700', fontSize: 16 }}>
+            {isCurrent ? 'Current plan' : 'Select'}
+          </Text>
+        )}
       </TouchableOpacity>
     </View>
   );
@@ -249,6 +277,24 @@ export default function MembershipLevelsScreen() {
   const [levels, setLevels] = useState<MembershipLevel[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  const [openingLevelId, setOpeningLevelId] = useState<number | null>(null);
+  const { token, membership, refreshMembership } = useAuth();
+  const currentLevelIds = useMemo(() => {
+    const ids = new Set<number>();
+    if (membership?.level_id) ids.add(membership.level_id);
+    membership?.levels?.forEach((lvl) => ids.add(lvl.id));
+    return ids;
+  }, [membership]);
+
+  // Checkout happens in the browser; re-check membership when the member
+  // comes back to the app so an upgrade shows up immediately.
+  useEffect(() => {
+    if (!token) return;
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') refreshMembership();
+    });
+    return () => sub.remove();
+  }, [token, refreshMembership]);
 
   // Fetch & sort
   useEffect(() => {
@@ -265,7 +311,35 @@ export default function MembershipLevelsScreen() {
     })();
   }, []);
 
-  const openCheckout = (url: string) => Linking.openURL(url);
+  const openCheckout = async (level: MembershipLevel) => {
+    if (!token) {
+      Linking.openURL(level.checkout_url);
+      return;
+    }
+
+    // Logged-in members are upgrading/changing level: carry their session into
+    // checkout so PMPro applies the level to the existing account instead of
+    // asking them to register again ("That username is already taken").
+    setOpeningLevelId(level.id);
+    try {
+      const url = await getAppCheckoutLink(token, level.id);
+      await Linking.openURL(url);
+    } catch (e) {
+      const notDeployed = e instanceof ApiError && (e.status === 404 || e.status === 405);
+      Alert.alert(
+        'Sign in to continue',
+        notDeployed
+          ? 'We could not start a signed-in checkout. On the next page, log in with your existing CoRR Hub account before completing checkout — do not register a new account.'
+          : 'We could not connect your account to checkout. On the next page, log in with your existing CoRR Hub account before completing checkout.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Continue', onPress: () => Linking.openURL(level.checkout_url) },
+        ]
+      );
+    } finally {
+      setOpeningLevelId(null);
+    }
+  };
 
   // Nice empty-state if no levels
   const empty = useMemo(
@@ -295,7 +369,21 @@ export default function MembershipLevelsScreen() {
           <FlatList
             data={levels}
             keyExtractor={(item) => String(item.id)}
-            renderItem={({ item }) => <LevelCard level={item} onSelect={openCheckout} />}
+            ListHeaderComponent={
+              token ? (
+                <Text style={{ color: MUTED, fontSize: 14, marginBottom: 12 }}>
+                  Choose a new plan for your account. You will stay signed in during checkout.
+                </Text>
+              ) : null
+            }
+            renderItem={({ item }) => (
+              <LevelCard
+                level={item}
+                onSelect={openCheckout}
+                isCurrent={!!token && currentLevelIds.has(item.id)}
+                opening={openingLevelId === item.id}
+              />
+            )}
             contentContainerStyle={{
               paddingTop: 12,
               paddingBottom: 16,

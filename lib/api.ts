@@ -382,6 +382,21 @@ export async function getMembershipLevels(): Promise<MembershipLevel[]> {
   }));
 }
 
+/**
+ * Get a single-use checkout link that signs the browser into the logged-in
+ * app user's WordPress account before showing PMPro checkout (coral-app-checkout
+ * v1.1+). Without it, PMPro treats an upgrading member as a new registrant.
+ * POST /coral-checkout/v1/link { level }
+ */
+export async function getAppCheckoutLink(token: string, levelId: number): Promise<string> {
+  const data = await authedFetch<{ url?: string }>('/coral-checkout/v1/link', token, {
+    method: 'POST',
+    body: JSON.stringify({ level: levelId }),
+  });
+  if (!data?.url) throw new ApiError('Checkout link unavailable', 500);
+  return data.url;
+}
+
 // =========================
 // Premium Resources (protected)
 // =========================
@@ -913,6 +928,30 @@ export async function updateXProfileField(
       body: JSON.stringify(payload),
     }
   );
+}
+
+/**
+ * Get every xprofile field group with its fields, options and the given
+ * user's saved values (used by the "Edit My Profile" screen).
+ * GET /buddypress/v1/xprofile/groups?fetch_fields=true&fetch_field_data=true&user_id=
+ */
+export async function getXProfileGroupsForUser(
+  userId: number,
+  token: string
+): Promise<import('../types').BPXProfileGroup[]> {
+  const params = new URLSearchParams({
+    fetch_fields: 'true',
+    fetch_field_data: 'true',
+    fetch_visibility_level: 'true',
+    hide_empty_fields: 'false',
+    user_id: String(userId),
+    per_page: '100',
+  });
+  const result = await authedFetch<import('../types').BPXProfileGroup[]>(
+    `/buddypress/v1/xprofile/groups?${params.toString()}`,
+    token
+  );
+  return Array.isArray(result) ? result : [];
 }
 
 /**
