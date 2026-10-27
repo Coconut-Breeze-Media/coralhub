@@ -207,16 +207,19 @@ export default function NotificationsScreen() {
     invitesError ||
     membershipRequestsError;
 
-  const openNativeNotification = async (notification: BPNotification) => {
+  const openNativeNotification = (notification: BPNotification) => {
     const presentation = getNotificationPresentation(notification);
-    try {
-      await markRead.mutateAsync(notification.id);
-    } catch {
-      // Opening the destination is still useful if the read-state request
-      // fails temporarily; React Query will retry it on the next refresh.
-    } finally {
-      if (presentation.route) router.push(presentation.route as never);
+    if (!presentation.route) {
+      markRead.mutate(notification.id);
+      return;
     }
+    // Open the destination first (push, so back returns here), then mark the
+    // notification read once this screen is behind it. Marking it read first
+    // removed it from the list while the request was in flight, flashing
+    // "You're all caught up" before navigating. When the user comes back the
+    // list is already updated (and shows "all caught up" if it is empty).
+    router.push(presentation.route as never);
+    setTimeout(() => markRead.mutate(notification.id), 400);
   };
 
   const handleInvite = async (inviteId: number, action: 'accept' | 'reject') => {
@@ -276,7 +279,9 @@ export default function NotificationsScreen() {
               <Pressable
                 key={`friend-${request.id}`}
                 style={styles.card}
-                onPress={() => router.push('/profile/connections')}
+                onPress={() =>
+                  router.push({ pathname: '/profile/connections', params: { tab: 'requests' } })
+                }
               >
                 <Avatar uri={avatarUrl} fallback="person-add-outline" />
                 <View style={styles.cardBody}>
