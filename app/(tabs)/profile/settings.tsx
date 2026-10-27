@@ -306,7 +306,8 @@ export default function ProfileSettingsScreen() {
       } else {
         const filename = imageUri.split('/').pop() || 'cover.jpg';
         const match = /\.(\w+)$/.exec(filename);
-        const fileType = match ? `image/${match[1]}` : 'image/jpeg';
+        const extension = match ? match[1].toLowerCase() : 'jpg';
+        const fileType = extension === 'jpg' ? 'image/jpeg' : `image/${extension}`;
 
         // @ts-ignore - FormData append is different in React Native
         formData.append('file', {
