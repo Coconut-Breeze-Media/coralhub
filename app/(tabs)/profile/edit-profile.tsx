@@ -21,10 +21,11 @@ import {
   RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useNavigation } from 'expo-router';
 import { useCurrentMember, useUpdateXProfileField, useXProfileGroups } from '../../../hooks';
 import { xprofileValueToString } from '../../../hooks/useMemberProfile';
 import { ROUTES } from '../../../constants/navigation';
+import { goBackOrFallback, type BackNavigation } from '../../../lib/tabNavigation';
 import type { BPXProfileField } from '../../../types';
 
 const PRIMARY = '#2563eb';
@@ -135,7 +136,7 @@ function visibilityLabel(level?: string) {
 }
 
 export default function EditProfileScreen() {
-  const router = useRouter();
+  const navigation = useNavigation<BackNavigation>();
   const { data: member } = useCurrentMember();
   const userId = member?.id ?? 0;
   const { data: groups, isLoading, error, refetch, isRefetching } = useXProfileGroups(userId);
@@ -228,7 +229,7 @@ export default function EditProfileScreen() {
     }
 
     Alert.alert('Saved', 'Your profile has been updated.', [
-      { text: 'OK', onPress: () => router.replace(ROUTES.PROFILE_SETTINGS) },
+      { text: 'OK', onPress: () => goBackOrFallback(navigation, ROUTES.PROFILE_SETTINGS) },
     ]);
   };
 
@@ -452,7 +453,7 @@ export default function EditProfileScreen() {
 
         <View style={{ flexDirection: 'row', gap: 12, padding: 16 }}>
           <Pressable
-            onPress={() => router.replace(ROUTES.PROFILE_SETTINGS)}
+            onPress={() => goBackOrFallback(navigation, ROUTES.PROFILE_SETTINGS)}
             disabled={saving}
             style={{
               flex: 1,
