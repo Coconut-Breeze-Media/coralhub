@@ -18,6 +18,7 @@ import {
   deleteUserCover,
   updateXProfileField,
   getUserActivity,
+  getXProfileGroupsForUser,
 } from '../lib/api';
 import type {
   BPMember,
@@ -38,6 +39,7 @@ const profileKeys = {
   avatar: (userId: number) => [...profileKeys.all, 'avatar', userId] as const,
   cover: (userId: number) => [...profileKeys.all, 'cover', userId] as const,
   activity: (userId: number) => [...profileKeys.all, 'activity', userId] as const,
+  xprofileGroups: (userId: number) => [...profileKeys.all, 'xprofile-groups', userId] as const,
 };
 
 // ============================================
@@ -296,6 +298,25 @@ export function useUpdateXProfileField() {
       // Invalidate profile queries to refetch with updated data
       queryClient.invalidateQueries({ queryKey: profileKeys.me() });
       queryClient.invalidateQueries({ queryKey: profileKeys.member(variables.userId) });
+      queryClient.invalidateQueries({ queryKey: profileKeys.xprofileGroups(variables.userId) });
     },
+  });
+}
+
+/**
+ * Hook to fetch all xprofile field groups, fields and saved values for a user
+ * (the current user's own extended profile on "Edit My Profile").
+ */
+export function useXProfileGroups(userId: number) {
+  const { token } = useAuth();
+
+  return useQuery({
+    queryKey: profileKeys.xprofileGroups(userId),
+    queryFn: () => {
+      if (!token) throw new Error('No authentication token');
+      return getXProfileGroupsForUser(userId, token);
+    },
+    enabled: !!token && !!userId,
+    staleTime: 10 * 60 * 1000,
   });
 }

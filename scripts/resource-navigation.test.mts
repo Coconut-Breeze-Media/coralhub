@@ -3,6 +3,8 @@ import {
   resourceViewerEntry,
   shouldKeepResourceNavigation,
   websiteLoginUrl,
+  needsWebSession,
+  isWebSessionHandoffUrl,
 } from '../lib/resourceNavigation.ts';
 
 const site = 'www.thecoralreefresearchhub.com';
@@ -79,4 +81,26 @@ check('pdfs skip the login page', () => {
   );
 });
 
-console.log('\n7 checks passed');
+check('html resources on this site get a one-time website session', () => {
+  assert.equal(needsWebSession(`${origin}/courses/`, origin), true);
+  assert.equal(needsWebSession('https://thecoralreefresearchhub.com/courses/', origin), true);
+  assert.equal(needsWebSession(`${origin}/wp-content/uploads/guide.pdf`, origin), false);
+  assert.equal(needsWebSession('https://example.com/courses/', origin), false);
+  assert.equal(needsWebSession('javascript:alert(1)', origin), false);
+});
+
+check('only same-site sign-in urls with a token are loaded', () => {
+  assert.equal(
+    isWebSessionHandoffUrl(`${origin}/?coral_sso=12.abc&redirect_to=${encodeURIComponent(`${origin}/courses/`)}`, origin),
+    true
+  );
+  assert.equal(isWebSessionHandoffUrl(`${origin}/courses/`, origin), false);
+  assert.equal(isWebSessionHandoffUrl('https://evil.example/?coral_sso=12.abc', origin), false);
+  assert.equal(
+    isWebSessionHandoffUrl('https://www.thecoralreefresearchhub.com.evil.example/?coral_sso=1.a', origin),
+    false
+  );
+  assert.equal(isWebSessionHandoffUrl('http://www.thecoralreefresearchhub.com/?coral_sso=1.a', origin), false);
+});
+
+console.log('\n9 checks passed');

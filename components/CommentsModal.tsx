@@ -23,6 +23,7 @@ import {
 } from '../hooks/useActivity';
 import type { BPActivity } from '../types';
 import MentionInput from './MentionInput';
+import { htmlToPlainText } from '../lib/postContent';
 
 interface CommentsModalProps {
   visible: boolean;
@@ -93,7 +94,9 @@ function CommentItem({
       : item.user_avatar?.full || item.user_avatar?.thumb;
 
   const rawContent = typeof item.content === 'string' ? item.content : item.content?.rendered || '';
-  const content = rawContent.replace(/<[^>]+>/g, '').trim();
+  // Decode emoji entities / emoji <img> tags / mis-encoded UTF-8 so emoji
+  // render as emoji instead of "&#x1f600;" or "ð".
+  const content = htmlToPlainText(rawContent);
   const authorName = resolveAuthor(item);
   const avatarInitial = authorName !== 'Anonymous' ? authorName.charAt(0).toUpperCase() : '?';
   const date = new Date(item.date).toLocaleDateString('en-US', {
@@ -346,6 +349,7 @@ export default function CommentsModal({
                 />
               )}
               style={styles.list}
+              keyboardShouldPersistTaps="handled"
               contentContainerStyle={
                 commentCount === 0 ? styles.emptyContainer : styles.listContent
               }

@@ -259,7 +259,7 @@ export default function MessagesScreen() {
           description="Your conversation was created and your inbox has been refreshed."
           onDismiss={() => {
             setShowSentNotice(false);
-            router.replace('/messages');
+            router.setParams({ sent: undefined });
           }}
         />
       )}
@@ -271,7 +271,7 @@ export default function MessagesScreen() {
           description="The conversation was removed from your inbox."
           onDismiss={() => {
             setShowDeletedNotice(false);
-            router.replace('/messages');
+            router.setParams({ deleted: undefined });
           }}
         />
       )}

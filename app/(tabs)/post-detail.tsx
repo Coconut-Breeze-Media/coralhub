@@ -19,6 +19,7 @@ import {
 import { useMyGroups } from '../../hooks/useGroups';
 import PostCard from '../../components/PostCard';
 import PostActionModals from '../../components/PostActionModals';
+import { htmlToPlainText, normalizeBareUrlsInText } from '../../lib/postContent';
 import type { BPActivity } from '../../types';
 
 function getEditableText(activity: BPActivity): string {
@@ -26,7 +27,7 @@ function getEditableText(activity: BPActivity): string {
     typeof activity.content === 'string'
       ? activity.content
       : activity.content.raw || activity.content.rendered || '';
-  return value.replace(/<[^>]+>/g, '').trim();
+  return htmlToPlainText(value);
 }
 
 export default function PostDetailScreen() {
@@ -73,7 +74,7 @@ export default function PostDetailScreen() {
     try {
       await updateMutation.mutateAsync({
         activityId: editingPost.id,
-        content: editContent.trim(),
+        content: normalizeBareUrlsInText(editContent.trim()),
         component: editingPost.component,
         primary_item_id: editingPost.primary_item_id,
       });
@@ -106,7 +107,7 @@ export default function PostDetailScreen() {
           <Text style={styles.errorText}>It may have been removed or you may not have access.</Text>
         </View>
       ) : (
-        <ScrollView contentContainerStyle={styles.content}>
+        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <PostCard
             item={activity}
             token={token}

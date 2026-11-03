@@ -36,14 +36,10 @@ export default function RootLayout() {
               headerShown: false,
             }}
           />
-          {/* Password recovery remains inside the application WebView. */}
+          {/* Native password reset screen (renders its own back button, like sign-in) */}
           <Stack.Screen
             name="password-reset"
-            options={{
-              headerShown: true,
-              headerTitle: 'Reset password',
-              headerLeft: () => <BackButton />,
-            }}
+            options={{ headerShown: false }}
           />
 
           {/* Membership levels screen with back button */}

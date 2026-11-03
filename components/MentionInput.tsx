@@ -195,14 +195,20 @@ export default function MentionInput({
       )}
 
       <TextInput
-        style={[styles.input, style]}
+        // A multiline input must size to its content on the vertical axis.
+        // `flex: 1` there (from the default or a caller's style) gave it a 0
+        // flex-basis inside this auto-height column, so it stuck at its
+        // minHeight (two lines in the News Feed composer) and could not show
+        // earlier lines. Grow with the text up to maxHeight, then scroll.
+        style={[styles.input, style, multiline ? [styles.autoGrowInput, maxHeight ? { maxHeight } : null] : null]}
         value={value}
         onChangeText={handleChangeText}
         placeholder={placeholder}
         placeholderTextColor={placeholderTextColor}
         multiline={multiline}
         maxLength={maxLength}
-        {...(maxHeight ? { maxHeight } : {})}
+        scrollEnabled
+        textAlignVertical={multiline ? 'top' : undefined}
       />
 
       {suggestionPosition === 'below' && showSuggestions && (
@@ -222,6 +228,11 @@ const styles = StyleSheet.create({
   },
   input: {
     flex: 1,
+  },
+  autoGrowInput: {
+    flexGrow: 0,
+    flexShrink: 0,
+    flexBasis: 'auto',
   },
   // Suggestions dropdown
   suggestionsContainer: {

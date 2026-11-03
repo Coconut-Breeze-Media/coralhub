@@ -22,6 +22,10 @@ function stripHtml(input: string): string {
     .trim();
 }
 
+export function xprofileValueToString(v: unknown): string {
+  return valueToString(v);
+}
+
 function valueToString(v: unknown): string {
   if (v == null) return '';
   if (Array.isArray(v)) {
