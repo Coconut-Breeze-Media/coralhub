@@ -8,7 +8,10 @@ import {
   validateJwtToken,
   refreshCoralToken,
   getPmproMe,
+  getPmproLevelsForUser,
+  getMeWithRoles,
   extractPmproLevels,
+  levelsFromRoles,
   registerAuthSession,
   ApiError,
 } from './api';
@@ -61,13 +64,34 @@ async function deleteStorageItem(key: string): Promise<void> {
   }
 }
 
+type LevelRef = { id: number | null; name: string | null };
+
+/** Highest-ranked level that maps to a known tier (same rule as the website). */
+function pickHighestLevel(levels: LevelRef[]): (LevelRef & { tier: MembershipTier }) | null {
+  let best: (LevelRef & { tier: MembershipTier }) | null = null;
+  for (const lvl of levels) {
+    const tier =
+      (lvl.id != null ? LEVEL_ID_TIER_MAP[lvl.id] : undefined) ?? tierFromLevelName(lvl.name);
+    if (tier == null) continue;
+    if (best === null || TIER_RANK[tier] > TIER_RANK[best.tier]) best = { ...lvl, tier };
+  }
+  return best;
+}
+
 /**
- * Fetch membership and resolve the user's tier + allowed resources.
- * New server (coral-membership v1.4+) returns tier/allowed_resources directly;
- * on the legacy server (only { is_member }) the tier is derived from PMPro's
- * built-in /pmpro/v1/me endpoint, falling back to the level-name prefix, then
- * to is_member ? 'monthly' : 'none'. Shared by every membership-check path so
- * token refreshes and fresh logins never leave membership stale.
+ * Fetch membership and resolve the user's tier + allowed resources using only
+ * REST routes the live site already exposes (nothing to install on WordPress).
+ *
+ * /coral/v1/membership on the live site only answers { is_member }, so the
+ * actual level is read from, in order:
+ *   1. PMPro  GET /pmpro/v1/me
+ *   2. WP     GET /wp/v2/users/me?context=edit  (roles, e.g. pmpro_role_1)
+ *   3. PMPro  GET /pmpro/v1/getmembershiplevelsforuser?user_id=<me>
+ * The first source that yields a known level wins. If none does, the member
+ * is a paid member on an unknown plan: the label says so without naming a
+ * plan, and every paid resource opens; the website's own PMPro restrictions
+ * still decide what the page shows. If a richer /coral/v1/membership ever
+ * returns `tier`, it is used as-is.
  */
 async function deriveMembership(activeToken: string): Promise<MembershipResponse> {
   const res: MembershipResponse = await getMembershipStatus(activeToken);
@@ -75,39 +99,62 @@ async function deriveMembership(activeToken: string): Promise<MembershipResponse
     return res;
   }
 
-  let tier: MembershipTier = res.is_member ? 'monthly' : 'none';
-  let levelId: number | null = null;
-  let levelName: string | null = null;
-  let tierInferred = true;
-  try {
-    const me = await getPmproMe(activeToken);
-    // Highest-ranked level wins (same rule as coral-membership v1.5), so an
-    // Annual member who also holds Basic is never resolved as Basic.
-    let bestRank = -1;
-    for (const lvl of extractPmproLevels(me)) {
-      const mapped =
-        (lvl.id != null ? LEVEL_ID_TIER_MAP[lvl.id] : undefined) ?? tierFromLevelName(lvl.name);
-      if (mapped == null) continue;
-      if (TIER_RANK[mapped] > bestRank) {
-        bestRank = TIER_RANK[mapped];
-        tier = mapped;
-        levelId = lvl.id;
-        levelName = lvl.name;
-        tierInferred = false;
-      }
+  let userId: number | null = res.user_id ?? null;
+  let roles: string[] | undefined = res.roles;
+
+  const sources: Array<[string, () => Promise<LevelRef[]>]> = [
+    ['/pmpro/v1/me', async () => extractPmproLevels(await getPmproMe(activeToken))],
+    [
+      '/wp/v2/users/me?context=edit',
+      async () => {
+        const me = await getMeWithRoles(activeToken);
+        userId = userId ?? me.id ?? null;
+        roles = me.roles ?? roles;
+        return levelsFromRoles(me.roles);
+      },
+    ],
+    [
+      '/pmpro/v1/getmembershiplevelsforuser',
+      async () =>
+        userId ? extractPmproLevels(await getPmproLevelsForUser(activeToken, userId)) : [],
+    ],
+  ];
+
+  let resolved: ReturnType<typeof pickHighestLevel> = null;
+  for (const [route, load] of sources) {
+    try {
+      resolved = pickHighestLevel(await load());
+      if (resolved) break;
+      if (__DEV__) console.warn(`[membership] ${route}: no recognisable level`);
+    } catch (e) {
+      if (__DEV__) console.warn(`[membership] ${route} failed:`, e);
     }
-  } catch {
-    // /pmpro/v1/me unavailable or denied — keep the is_member-based tier so
-    // paying users aren't locked out of monthly resources.
   }
 
+  if (resolved) {
+    return {
+      ...res,
+      roles,
+      tier: resolved.tier,
+      level_id: resolved.id,
+      level_name: resolved.name,
+      tier_inferred: false,
+      allowed_resources: allowedResourcesForTier(resolved.tier),
+    };
+  }
+
+  // Level unreadable. A paid member must not be locked out of resources
+  // their real plan includes (e.g. an Annual member and Mentorships), so the
+  // app stops gating and leaves it to the website.
+  const tier: MembershipTier = res.is_member ? 'monthly' : 'none';
   return {
     ...res,
+    roles,
     tier,
-    level_id: levelId,
-    level_name: levelName,
-    tier_inferred: tierInferred && Boolean(res.is_member),
-    allowed_resources: allowedResourcesForTier(tier),
+    level_id: null,
+    level_name: null,
+    tier_inferred: Boolean(res.is_member),
+    allowed_resources: allowedResourcesForTier(res.is_member ? 'institutional' : 'none'),
   };
 }
 

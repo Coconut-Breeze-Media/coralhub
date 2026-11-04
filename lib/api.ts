@@ -450,15 +450,44 @@ export async function getPmproMe(token: string): Promise<any> {
 }
 
 /**
+ * GET /pmpro/v1/getmembershiplevelsforuser — PMPro core route listing a user's
+ * levels. Some PMPro versions restrict it to admins, so callers treat a
+ * 401/403 as "no answer" and try the next source.
+ */
+export async function getPmproLevelsForUser(token: string, userId: number): Promise<any> {
+  return authedFetch<any>(`/pmpro/v1/getmembershiplevelsforuser?user_id=${userId}`, token);
+}
+
+/**
+ * GET /wp/v2/users/me?context=edit — WordPress core. `context=edit` is allowed
+ * for your own user and includes `roles`, which carry the PMPro level when the
+ * site maps levels to roles (`pmpro_role_<levelId>`).
+ */
+export async function getMeWithRoles(token: string): Promise<WPUser> {
+  return authedFetch<WPUser>('/wp/v2/users/me?context=edit', token);
+}
+
+/** Turn WordPress role slugs into level hints (`pmpro_role_1` → level 1, `annual_member` → "annual member"). */
+export function levelsFromRoles(roles?: string[] | null): { id: number | null; name: string | null }[] {
+  return (roles ?? []).map((role) => {
+    const match = /^pmpro_role_(\d+)$/.exec(role);
+    if (match) return { id: Number(match[1]), name: null };
+    return { id: null, name: role.replace(/[_-]+/g, ' ') };
+  });
+}
+
+/**
  * Pull every PMPro level id/name out of a /pmpro/v1/me response, tolerating
  * the shape differences between PMPro versions (membership_levels array,
  * membership_level object, or flat fields). A member can hold several levels
  * (e.g. Basic + Annual), so callers pick the highest-ranked one.
  */
 export function extractPmproLevels(me: any): { id: number | null; name: string | null }[] {
-  const raw: any[] = Array.isArray(me?.membership_levels)
-    ? me.membership_levels
-    : [me?.membership_level ?? me?.level ?? null];
+  const raw: any[] = Array.isArray(me)
+    ? me
+    : Array.isArray(me?.membership_levels)
+      ? me.membership_levels
+      : [me?.membership_level ?? me?.level ?? null];
 
   const levels = raw.filter(Boolean).map((lvl: any) => {
     const id = Number(lvl?.id ?? lvl?.ID ?? NaN);
