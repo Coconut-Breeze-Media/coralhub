@@ -10,7 +10,7 @@
  * prefers the server's answers — keep this table in sync with the plugin.
  */
 
-import type { MembershipTier, PremiumResource } from '../types';
+import type { MembershipResponse, MembershipTier, PremiumResource } from '../types';
 
 const WP = process.env.EXPO_PUBLIC_WP_URL ?? 'https://www.thecoralreefresearchhub.com';
 
@@ -46,6 +46,21 @@ export function tierFromLevelName(name?: string | null): MembershipTier | null {
     default:
       return null;
   }
+}
+
+/**
+ * The member's plan as shown in the UI (Resources header, Profile Settings).
+ * Uses the real PMPro level name when known. When the tier was guessed
+ * (legacy server and the level lookup failed) it never names a specific plan,
+ * so an Annual member is not told they are on Monthly.
+ */
+export function membershipPlanLabel(
+  membership: Pick<MembershipResponse, 'tier' | 'level_name' | 'tier_inferred'>
+): string {
+  if (membership.level_name) return membership.level_name;
+  if (membership.tier_inferred) return 'Premium member';
+  if (membership.tier === 'none') return 'Basic Membership';
+  return `${membership.tier.charAt(0).toUpperCase()}${membership.tier.slice(1)} Membership`;
 }
 
 interface CatalogItem {

@@ -28,6 +28,15 @@ import {
 import type { TabScreen } from '../../types';
 
 /**
+ * What expo-router's `href: null` expands to. Use this for hidden screens whose
+ * `options` is a function — `href` only works on plain-object options.
+ */
+const HIDDEN_TAB_OPTIONS = {
+  tabBarItemStyle: { display: 'none' as const },
+  tabBarButton: () => null,
+};
+
+/**
  * Notification bell header button component
  */
 function NotificationButton() {
@@ -263,8 +272,11 @@ export default function TabsLayout() {
           // Opened from search results → back returns to the search screen.
           const fromSearch =
             (route.params as { returnTo?: string } | undefined)?.returnTo === 'search';
+          // `href: null` is ignored when `options` is a function (expo-router
+          // only applies that shortcut to object options), which surfaced this
+          // screen as an extra "Resource" tab. Hide the tab button explicitly.
           return {
-            href: null,
+            ...HIDDEN_TAB_OPTIONS,
             title: 'Resource',
             headerTitle: brandHeaderTitle('Resource'),
             headerLeft: () => (

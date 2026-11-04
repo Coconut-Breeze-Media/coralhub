@@ -8,7 +8,7 @@ import {
   validateJwtToken,
   refreshCoralToken,
   getPmproMe,
-  extractPmproLevel,
+  extractPmproLevels,
   registerAuthSession,
   ApiError,
 } from './api';
@@ -16,6 +16,7 @@ import { isTransientError } from './authErrors';
 import { queryClient } from './queryClient';
 import {
   LEVEL_ID_TIER_MAP,
+  TIER_RANK,
   tierFromLevelName,
   allowedResourcesForTier,
 } from '../constants/premiumResources';
@@ -80,16 +81,18 @@ async function deriveMembership(activeToken: string): Promise<MembershipResponse
   let tierInferred = true;
   try {
     const me = await getPmproMe(activeToken);
-    const lvl = extractPmproLevel(me);
-    levelId = lvl.id;
-    levelName = lvl.name;
-    if (lvl.id != null && LEVEL_ID_TIER_MAP[lvl.id] != null) {
-      tier = LEVEL_ID_TIER_MAP[lvl.id];
-      tierInferred = false;
-    } else {
-      const byName = tierFromLevelName(lvl.name);
-      if (byName) {
-        tier = byName;
+    // Highest-ranked level wins (same rule as coral-membership v1.5), so an
+    // Annual member who also holds Basic is never resolved as Basic.
+    let bestRank = -1;
+    for (const lvl of extractPmproLevels(me)) {
+      const mapped =
+        (lvl.id != null ? LEVEL_ID_TIER_MAP[lvl.id] : undefined) ?? tierFromLevelName(lvl.name);
+      if (mapped == null) continue;
+      if (TIER_RANK[mapped] > bestRank) {
+        bestRank = TIER_RANK[mapped];
+        tier = mapped;
+        levelId = lvl.id;
+        levelName = lvl.name;
         tierInferred = false;
       }
     }

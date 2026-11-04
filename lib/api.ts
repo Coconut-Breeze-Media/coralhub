@@ -450,24 +450,35 @@ export async function getPmproMe(token: string): Promise<any> {
 }
 
 /**
- * Pull a PMPro level id/name out of a /pmpro/v1/me response, tolerating the
- * shape differences between PMPro versions (membership_level object,
- * membership_levels array, or flat fields).
+ * Pull every PMPro level id/name out of a /pmpro/v1/me response, tolerating
+ * the shape differences between PMPro versions (membership_levels array,
+ * membership_level object, or flat fields). A member can hold several levels
+ * (e.g. Basic + Annual), so callers pick the highest-ranked one.
  */
-export function extractPmproLevel(me: any): { id: number | null; name: string | null } {
-  const lvl =
-    me?.membership_level ??
-    (Array.isArray(me?.membership_levels) ? me.membership_levels[0] : null) ??
-    me?.level ??
-    null;
+export function extractPmproLevels(me: any): { id: number | null; name: string | null }[] {
+  const raw: any[] = Array.isArray(me?.membership_levels)
+    ? me.membership_levels
+    : [me?.membership_level ?? me?.level ?? null];
 
-  const id = Number(lvl?.id ?? lvl?.ID ?? me?.membership_level_id ?? NaN);
-  const name = lvl?.name ?? me?.membership_level_name ?? null;
+  const levels = raw.filter(Boolean).map((lvl: any) => {
+    const id = Number(lvl?.id ?? lvl?.ID ?? NaN);
+    const name = lvl?.name;
+    return {
+      id: Number.isFinite(id) && id > 0 ? id : null,
+      name: typeof name === 'string' && name.trim() !== '' ? name : null,
+    };
+  });
 
-  return {
-    id: Number.isFinite(id) && id > 0 ? id : null,
-    name: typeof name === 'string' && name.trim() !== '' ? name : null,
-  };
+  if (levels.length === 0 && (me?.membership_level_id || me?.membership_level_name)) {
+    const id = Number(me?.membership_level_id ?? NaN);
+    const name = me?.membership_level_name;
+    levels.push({
+      id: Number.isFinite(id) && id > 0 ? id : null,
+      name: typeof name === 'string' && name.trim() !== '' ? name : null,
+    });
+  }
+
+  return levels;
 }
 
 /**

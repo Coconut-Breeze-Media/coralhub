@@ -38,6 +38,7 @@ import {
 import { optimizeCoverImage } from '../../../lib/imageHelpers';
 import { useAuth } from '../../../lib/auth';
 import { ROUTES } from '../../../constants/navigation';
+import { membershipPlanLabel } from '../../../constants/premiumResources';
 import type { MembershipResponse } from '../../../types';
 
 const COVER_ASPECT: [number, number] = [27, 7];
@@ -48,14 +49,6 @@ function billingLabel(billing: NonNullable<MembershipResponse['billing']>) {
   const period = billing.cycle_period.toLowerCase();
   const every = billing.cycle_number > 1 ? `${billing.cycle_number} ${period}s` : period;
   return `$${billing.amount.toFixed(2)} per ${every}`;
-}
-
-/** Display name of the member's plan without inventing one we don't know. */
-function planLabel(membership: MembershipResponse) {
-  if (membership.level_name) return membership.level_name;
-  if (membership.tier_inferred) return 'Premium member';
-  if (membership.tier === 'none') return 'Basic';
-  return `${membership.tier.charAt(0).toUpperCase()}${membership.tier.slice(1)}`;
 }
 
 export default function ProfileSettingsScreen() {
@@ -761,7 +754,7 @@ export default function ProfileSettingsScreen() {
               </View>
               <View>
                 <Text style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Plan</Text>
-                <Text style={{ fontSize: 16, color: '#1f2937' }}>{planLabel(membership)}</Text>
+                <Text style={{ fontSize: 16, color: '#1f2937' }}>{membershipPlanLabel(membership)}</Text>
                 {membership.billing && membership.billing.amount > 0 && (
                   <Text style={{ fontSize: 14, color: '#6b7280', marginTop: 2 }}>
                     {billingLabel(membership.billing)}
