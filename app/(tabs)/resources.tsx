@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { useAuth } from '../../lib/auth';
 import { ROUTES } from '../../constants/navigation';
-import { PREMIUM_RESOURCE_CATALOG } from '../../constants/premiumResources';
+import { PREMIUM_RESOURCE_CATALOG, membershipPlanLabel } from '../../constants/premiumResources';
 import AccessRestrictedModal from '../../components/AccessRestrictedModal';
 
 /**
@@ -25,13 +25,6 @@ const MENU: ReadonlyArray<{ key: string; label: string; icon: string }> = [
   { key: 'historical_archive',     label: 'Historical Archive',         icon: 'archive-outline' },
 ];
 
-const TIER_LABEL: Record<string, string> = {
-  none: 'Basic',
-  monthly: 'Monthly',
-  annual: 'Annual',
-  institutional: 'Institutional',
-};
-
 export default function ResourcesScreen() {
   const { membership, canAccess, refreshMembership } = useAuth();
   const [restricted, setRestricted] = useState(false);
@@ -44,8 +37,7 @@ export default function ResourcesScreen() {
     }, [refreshMembership])
   );
 
-  const tierText =
-    membership?.level_name || (membership ? `${TIER_LABEL[membership.tier] ?? 'Basic'} membership` : '');
+  const tierText = membership ? membershipPlanLabel(membership) : '';
 
   const onPressItem = (key: string, label: string) => {
     if (!canAccess(key)) {

@@ -450,24 +450,64 @@ export async function getPmproMe(token: string): Promise<any> {
 }
 
 /**
- * Pull a PMPro level id/name out of a /pmpro/v1/me response, tolerating the
- * shape differences between PMPro versions (membership_level object,
- * membership_levels array, or flat fields).
+ * GET /pmpro/v1/getmembershiplevelsforuser — PMPro core route listing a user's
+ * levels. Some PMPro versions restrict it to admins, so callers treat a
+ * 401/403 as "no answer" and try the next source.
  */
-export function extractPmproLevel(me: any): { id: number | null; name: string | null } {
-  const lvl =
-    me?.membership_level ??
-    (Array.isArray(me?.membership_levels) ? me.membership_levels[0] : null) ??
-    me?.level ??
-    null;
+export async function getPmproLevelsForUser(token: string, userId: number): Promise<any> {
+  return authedFetch<any>(`/pmpro/v1/getmembershiplevelsforuser?user_id=${userId}`, token);
+}
 
-  const id = Number(lvl?.id ?? lvl?.ID ?? me?.membership_level_id ?? NaN);
-  const name = lvl?.name ?? me?.membership_level_name ?? null;
+/**
+ * GET /wp/v2/users/me?context=edit — WordPress core. `context=edit` is allowed
+ * for your own user and includes `roles`, which carry the PMPro level when the
+ * site maps levels to roles (`pmpro_role_<levelId>`).
+ */
+export async function getMeWithRoles(token: string): Promise<WPUser> {
+  return authedFetch<WPUser>('/wp/v2/users/me?context=edit', token);
+}
 
-  return {
-    id: Number.isFinite(id) && id > 0 ? id : null,
-    name: typeof name === 'string' && name.trim() !== '' ? name : null,
-  };
+/** Turn WordPress role slugs into level hints (`pmpro_role_1` → level 1, `annual_member` → "annual member"). */
+export function levelsFromRoles(roles?: string[] | null): { id: number | null; name: string | null }[] {
+  return (roles ?? []).map((role) => {
+    const match = /^pmpro_role_(\d+)$/.exec(role);
+    if (match) return { id: Number(match[1]), name: null };
+    return { id: null, name: role.replace(/[_-]+/g, ' ') };
+  });
+}
+
+/**
+ * Pull every PMPro level id/name out of a /pmpro/v1/me response, tolerating
+ * the shape differences between PMPro versions (membership_levels array,
+ * membership_level object, or flat fields). A member can hold several levels
+ * (e.g. Basic + Annual), so callers pick the highest-ranked one.
+ */
+export function extractPmproLevels(me: any): { id: number | null; name: string | null }[] {
+  const raw: any[] = Array.isArray(me)
+    ? me
+    : Array.isArray(me?.membership_levels)
+      ? me.membership_levels
+      : [me?.membership_level ?? me?.level ?? null];
+
+  const levels = raw.filter(Boolean).map((lvl: any) => {
+    const id = Number(lvl?.id ?? lvl?.ID ?? NaN);
+    const name = lvl?.name;
+    return {
+      id: Number.isFinite(id) && id > 0 ? id : null,
+      name: typeof name === 'string' && name.trim() !== '' ? name : null,
+    };
+  });
+
+  if (levels.length === 0 && (me?.membership_level_id || me?.membership_level_name)) {
+    const id = Number(me?.membership_level_id ?? NaN);
+    const name = me?.membership_level_name;
+    levels.push({
+      id: Number.isFinite(id) && id > 0 ? id : null,
+      name: typeof name === 'string' && name.trim() !== '' ? name : null,
+    });
+  }
+
+  return levels;
 }
 
 /**
