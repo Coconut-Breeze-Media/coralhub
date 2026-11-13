@@ -1,117 +1,300 @@
 import { useCallback, useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Linking,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { router, useFocusEffect } from 'expo-router';
-import { useAuth } from '../../lib/auth';
+import { useFocusEffect, useNavigation } from 'expo-router';
+import { WebView, type WebViewNavigation } from 'react-native-webview';
+import BackButton from '../../components/BackButton';
 import { ROUTES } from '../../constants/navigation';
-import { PREMIUM_RESOURCE_CATALOG } from '../../constants/premiumResources';
-import AccessRestrictedModal from '../../components/AccessRestrictedModal';
+import { ApiError, getWebSessionUrl, wpLogin } from '../../lib/api';
+import { useAuth } from '../../lib/auth';
+import { SITE_URL } from '../../lib/config';
+import {
+  hostOf,
+  IN_APP_BROWSER_BOOTSTRAP,
+  isWebSessionHandoffUrl,
+  needsWebSession,
+  premiumResourcesUrl,
+  shouldLeaveAppForNavigation,
+} from '../../lib/resourceNavigation';
+
+const PRIMARY = '#0077b6';
+const NAVY = '#002f6c';
+const TEXT = '#111827';
+const MUTED = '#6b7280';
+const BORDER = '#e5e7eb';
+const ERROR = '#dc2626';
+
+const RESOURCES_URL = premiumResourcesUrl(SITE_URL);
+const SITE_HOST = hostOf(SITE_URL);
+
+const LEAVE_APP_MESSAGE = 'You are now being redirected outside of the CoRR Hub app.';
+
+type Phase = 'verify' | 'opening' | 'browse';
 
 /**
- * Bespoke Resources menu. Order, labels and icons are the client's spec.
- * Dashboard, CoRR Grants, Institutional Area and Contact Us are web-only and
- * intentionally never listed here.
+ * Resources tab.
+ *
+ * Membership and the resource list live on the website, so the app does not
+ * sell or list them. The member confirms the login they already use, then
+ * the premium resources page opens in this tab (bottom menu stays). The
+ * public site header is hidden. A link that leaves the website opens in the
+ * phone's browser after a warning. Back returns to the previous app screen.
  */
-const MENU: ReadonlyArray<{ key: string; label: string; icon: string }> = [
-  { key: 'opportunities',          label: 'Opportunities',              icon: 'briefcase-outline' },
-  { key: 'courses',                label: 'Training Courses',           icon: 'school-outline' },
-  { key: 'mentorships',            label: 'Mentorships',                icon: 'people-outline' },
-  { key: 'document_library',       label: 'Document Library',           icon: 'folder-open-outline' },
-  { key: 'coral_matters',          label: 'Coral Matters',              icon: 'newspaper-outline' },
-  { key: 'essays_articles',        label: 'Essays and Articles',        icon: 'document-text-outline' },
-  { key: 'masterclasses',          label: 'Masterclasses',              icon: 'videocam-outline' },
-  { key: 'internships',            label: 'Internships',                icon: 'rocket-outline' },
-  { key: 'partnerships_discounts', label: 'Partnerships and Discounts', icon: 'pricetag-outline' },
-  { key: 'historical_archive',     label: 'Historical Archive',         icon: 'archive-outline' },
-];
-
-const TIER_LABEL: Record<string, string> = {
-  none: 'Basic',
-  monthly: 'Monthly',
-  annual: 'Annual',
-  institutional: 'Institutional',
-};
-
 export default function ResourcesScreen() {
-  const { membership, canAccess, refreshMembership } = useAuth();
-  const [restricted, setRestricted] = useState(false);
+  const navigation = useNavigation();
+  const { profile, setAuth } = useAuth();
+  const [phase, setPhase] = useState<Phase>('verify');
+  const [username, setUsername] = useState(profile?.user_email ?? '');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [entryUrl, setEntryUrl] = useState<string | null>(null);
 
-  // Re-check the tier when this screen regains focus (e.g. returning from
-  // checkout) so newly purchased resources unlock immediately.
   useFocusEffect(
     useCallback(() => {
-      refreshMembership();
-    }, [refreshMembership])
+      navigation.setOptions({
+        headerLeft: () => <BackButton fallbackRoute={ROUTES.COMMUNITY} />,
+      });
+      return () => {
+        // Next visit starts at the login check again.
+        setPhase('verify');
+        setPassword('');
+        setError(null);
+        setEntryUrl(null);
+      };
+    }, [navigation])
   );
 
-  const tierText =
-    membership?.level_name || (membership ? `${TIER_LABEL[membership.tier] ?? 'Basic'} membership` : '');
+  const openResources = useCallback(async (sessionToken: string) => {
+    setPhase('opening');
+    try {
+      if (needsWebSession(RESOURCES_URL, SITE_URL)) {
+        const session = await getWebSessionUrl(sessionToken, RESOURCES_URL);
+        if (session?.url && isWebSessionHandoffUrl(session.url, SITE_URL)) {
+          setEntryUrl(session.url);
+          setPhase('browse');
+          return;
+        }
+      }
+    } catch {
+      // The page itself still loads. The website can ask them to sign in there.
+    }
+    setEntryUrl(RESOURCES_URL);
+    setPhase('browse');
+  }, []);
 
-  const onPressItem = (key: string, label: string) => {
-    if (!canAccess(key)) {
-      setRestricted(true);
+  const handleLogin = useCallback(async () => {
+    const trimmed = username.trim();
+    if (!trimmed || !password) {
+      setError('Enter the email and password for your CoRR Hub membership.');
       return;
     }
-    const resource = PREMIUM_RESOURCE_CATALOG.find((r) => r.key === key);
-    if (!resource) return;
-    router.push({
-      pathname: ROUTES.RESOURCE_VIEWER,
-      params: { url: resource.url, title: label },
-    });
-  };
+    setError(null);
+    setPhase('opening');
+    try {
+      const payload = await wpLogin(trimmed, password);
+      await setAuth(payload);
+      setPassword('');
+      await openResources(payload.token);
+    } catch (e) {
+      setPhase('verify');
+      setError(e instanceof ApiError ? e.message : 'Those login details were not recognised.');
+    }
+  }, [username, password, setAuth, openResources]);
+
+  const onShouldStartLoadWithRequest = useCallback((req: WebViewNavigation) => {
+    const request = req as WebViewNavigation & { isTopFrame?: boolean };
+    if (
+      !shouldLeaveAppForNavigation(
+        request.url,
+        SITE_HOST,
+        request.isTopFrame,
+        request.navigationType
+      )
+    ) {
+      return true;
+    }
+    Alert.alert('Leaving CoRR Hub', LEAVE_APP_MESSAGE, [
+      { text: 'Stay here', style: 'cancel' },
+      { text: 'Continue', onPress: () => Linking.openURL(request.url).catch(() => {}) },
+    ]);
+    return false;
+  }, []);
+
+  if (phase === 'browse' && entryUrl) {
+    return (
+      <View style={styles.screen}>
+        <WebView
+          source={{ uri: entryUrl }}
+          sharedCookiesEnabled
+          thirdPartyCookiesEnabled
+          domStorageEnabled
+          javaScriptEnabled
+          originWhitelist={['https://*', 'http://*']}
+          injectedJavaScriptBeforeContentLoaded={IN_APP_BROWSER_BOOTSTRAP}
+          injectedJavaScript={IN_APP_BROWSER_BOOTSTRAP}
+          onShouldStartLoadWithRequest={onShouldStartLoadWithRequest}
+          startInLoadingState
+          renderLoading={() => (
+            <View style={styles.centered}>
+              <ActivityIndicator color={PRIMARY} />
+            </View>
+          )}
+          setSupportMultipleWindows={false}
+          allowsBackForwardNavigationGestures={false}
+        />
+      </View>
+    );
+  }
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#fff' }}>
-      <ScrollView>
-        <View style={{ paddingHorizontal: 16, paddingTop: 20, paddingBottom: 14 }}>
-          <Text style={{ fontSize: 22, fontWeight: '800', color: '#0f172a' }}>Premium Resources</Text>
-          {!!tierText && (
-            <Text style={{ fontSize: 14, color: '#6b7280', marginTop: 4 }}>
-              Your plan: {tierText}
-            </Text>
-          )}
+    <KeyboardAvoidingView
+      style={styles.screen}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
+      <View style={styles.form}>
+        <Text style={styles.kicker}>Resources</Text>
+        <Text style={styles.title}>Verify your login details to view our resources list</Text>
+        <Text style={styles.body}>
+          Logging in opens the CoRR Hub resources inside the app, on the premium resources
+          page. Your membership on the website decides which resources you can open, and you
+          can upgrade it there. A link that leaves the CoRR Hub website opens in your browser,
+          outside the app.
+        </Text>
+
+        <Text style={styles.label}>Email or username</Text>
+        <TextInput
+          value={username}
+          onChangeText={setUsername}
+          autoCapitalize="none"
+          autoCorrect={false}
+          keyboardType="email-address"
+          textContentType="username"
+          placeholder="name@email.com"
+          placeholderTextColor="#9ca3af"
+          style={styles.input}
+          editable={phase !== 'opening'}
+        />
+
+        <Text style={styles.label}>Password</Text>
+        <View style={styles.passwordRow}>
+          <TextInput
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry={!showPassword}
+            textContentType="password"
+            placeholder="Password"
+            placeholderTextColor="#9ca3af"
+            style={[styles.input, styles.passwordInput]}
+            editable={phase !== 'opening'}
+            onSubmitEditing={handleLogin}
+          />
+          <Pressable
+            onPress={() => setShowPassword((value) => !value)}
+            hitSlop={8}
+            accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+            style={styles.eye}
+          >
+            <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color={MUTED} />
+          </Pressable>
         </View>
 
-        {MENU.map((item) => {
-          const locked = !canAccess(item.key);
-          return (
-            <Pressable
-              key={item.key}
-              onPress={() => onPressItem(item.key, item.label)}
-              accessibilityRole="button"
-              accessibilityLabel={locked ? `${item.label}, locked` : item.label}
-              style={{
-                paddingHorizontal: 16,
-                paddingVertical: 14,
-                borderTopWidth: 1,
-                borderColor: '#e5e7eb',
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 12,
-              }}
-            >
-              <Ionicons name={item.icon as any} size={22} color="#2563eb" />
-              <Text style={{ fontSize: 16, color: locked ? '#9ca3af' : '#1f2937', flex: 1 }}>
-                {item.label}
-              </Text>
-              <Ionicons
-                name={locked ? 'lock-closed' : 'chevron-forward'}
-                size={18}
-                color="#9ca3af"
-              />
-            </Pressable>
-          );
-        })}
-      </ScrollView>
+        {error ? <Text style={styles.error}>{error}</Text> : null}
 
-      <AccessRestrictedModal
-        visible={restricted}
-        onClose={() => setRestricted(false)}
-        onUpgrade={() => {
-          setRestricted(false);
-          router.push(ROUTES.MEMBERSHIP_LEVELS);
-        }}
-      />
-    </View>
+        <Pressable
+          onPress={handleLogin}
+          disabled={phase === 'opening'}
+          style={({ pressed }) => [styles.button, pressed && styles.pressed, phase === 'opening' && styles.disabled]}
+          accessibilityRole="button"
+          accessibilityLabel="Log in and open resources"
+        >
+          {phase === 'opening' ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.buttonText}>Log in</Text>
+          )}
+        </Pressable>
+
+        <Text style={styles.note}>
+          Logging in takes you to the premium resources page. The app menu stays at the bottom,
+          and Back returns you to the last page you were viewing in the app.
+        </Text>
+      </View>
+    </KeyboardAvoidingView>
   );
 }
+
+const styles = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: '#fff' },
+  form: { flex: 1, paddingHorizontal: 20, paddingTop: 20 },
+  kicker: {
+    color: PRIMARY,
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+  },
+  title: {
+    marginTop: 8,
+    color: NAVY,
+    fontSize: 22,
+    lineHeight: 28,
+    fontWeight: '800',
+  },
+  body: {
+    marginTop: 12,
+    color: TEXT,
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  label: {
+    marginTop: 18,
+    marginBottom: 6,
+    color: MUTED,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: Platform.OS === 'ios' ? 12 : 10,
+    fontSize: 16,
+    color: TEXT,
+    backgroundColor: '#fff',
+  },
+  passwordRow: { position: 'relative' },
+  passwordInput: { paddingRight: 44 },
+  eye: { position: 'absolute', right: 12, top: 12 },
+  error: { marginTop: 12, color: ERROR, fontSize: 14, lineHeight: 20 },
+  button: {
+    marginTop: 20,
+    backgroundColor: PRIMARY,
+    borderRadius: 12,
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  buttonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  pressed: { opacity: 0.9 },
+  disabled: { opacity: 0.7 },
+  note: { marginTop: 14, color: MUTED, fontSize: 13, lineHeight: 19 },
+  centered: {
+    ...StyleSheet.absoluteFill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff',
+  },
+});

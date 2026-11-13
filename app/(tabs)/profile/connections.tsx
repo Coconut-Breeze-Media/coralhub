@@ -10,6 +10,7 @@ import {
   Text,
   FlatList,
   Image,
+  TextInput,
   TouchableOpacity,
   RefreshControl,
   Alert,
@@ -19,6 +20,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { ROUTES } from '../../../constants/navigation';
+import { matchesMemberName } from '../../../lib/memberSearch';
 import { useAuth } from '../../../lib/auth';
 import {
   useMe,
@@ -51,13 +53,15 @@ export default function ConnectionsScreen() {
     if (tab === 'requests' || tab === 'friends') setActiveTab(tab);
   }, [tab]);
   const [limit, setLimit] = useState(50);
+  const [directoryQuery, setDirectoryQuery] = useState('');
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedFriend, setSelectedFriend] = useState<FriendWithDetails | null>(null);
 
   const { data: currentUser, isLoading: isLoadingUser } = useMe();
   const userId = currentUser?.id;
 
-  const { data: friendsData, isLoading: isLoadingFriends, error: friendsError, refetch: refetchFriends } = useFriendsList(userId, 1, limit);
+  const friendsPageSize = directoryQuery.trim() ? 1000 : limit;
+  const { data: friendsData, isLoading: isLoadingFriends, error: friendsError, refetch: refetchFriends } = useFriendsList(userId, 1, friendsPageSize);
 
   const { data: pendingRequests, isLoading: isLoadingRequests, error: requestsError, refetch: refetchRequests } = usePendingFriendRequests(userId);
 
@@ -228,6 +232,11 @@ export default function ConnectionsScreen() {
   });
   const receivedRequests = requests.filter(r => r.friend_id === userId);
   const sentRequests = requests.filter(r => r.initiator_id === userId);
+  const visibleFriends = friends.filter((friend) => matchesMemberName(friend.name, directoryQuery));
+  const visibleRequests = requests.filter((request) => {
+    const otherUserId = request.initiator_id === userId ? request.friend_id : request.initiator_id;
+    return matchesMemberName(requestMembers?.[otherUserId]?.name, directoryQuery);
+  });
 
   const renderEmptyFriends = () => (
     <View style={styles.emptyContainer}>
@@ -298,11 +307,29 @@ export default function ConnectionsScreen() {
             </TouchableOpacity>
           </View>
 
+          <View style={styles.searchContainer}>
+            <TextInput
+              style={styles.searchInput}
+              placeholder={activeTab === 'friends' ? 'Search connections' : 'Search requests'}
+              placeholderTextColor="#999"
+              value={directoryQuery}
+              onChangeText={setDirectoryQuery}
+              autoCorrect={false}
+              returnKeyType="search"
+            />
+          </View>
+
           {/* Content */}
           {activeTab === 'friends' ? (
             friends.length === 0 ? renderEmptyFriends() : (
               <FlatList
-                data={friends}
+                data={visibleFriends}
+                ListEmptyComponent={() => (
+                  <View style={styles.emptyContainer}>
+                    <Text style={styles.emptyTitle}>No connections found</Text>
+                    <Text style={styles.emptyText}>No results for "{directoryQuery.trim()}".</Text>
+                  </View>
+                )}
                 renderItem={renderFriendItem}
                 keyExtractor={(item) => item.id.toString()}
                 contentContainerStyle={styles.listContent}
@@ -331,7 +358,13 @@ export default function ConnectionsScreen() {
           ) : (
             requests.length === 0 ? renderEmptyRequests() : (
               <FlatList
-                data={requests}
+                data={visibleRequests}
+                ListEmptyComponent={() => (
+                  <View style={styles.emptyContainer}>
+                    <Text style={styles.emptyTitle}>No requests found</Text>
+                    <Text style={styles.emptyText}>No results for "{directoryQuery.trim()}".</Text>
+                  </View>
+                )}
                 renderItem={({ item }) => (
                   <FriendRequestRow
                     request={item}
@@ -397,13 +430,30 @@ const styles = StyleSheet.create({
   },
   tab: {
     flex: 1,
-    flexDirection: 'row',
+    flexDirection: 'column',
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 14,
-    gap: 6,
+    paddingVertical: 10,
+    gap: 4,
     borderBottomWidth: 2,
     borderBottomColor: 'transparent',
+  },
+  searchContainer: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  searchInput: {
+    backgroundColor: '#f5f5f5',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 15,
+    color: '#333',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
   },
   activeTab: {
     borderBottomColor: '#0066cc',

@@ -24,6 +24,7 @@ import { router } from 'expo-router';
 import CommentsModal from './CommentsModal';
 import ShareButton from './ShareButton';
 import { useMember } from '../hooks/useMembers';
+import { fetchOpenGraphPreview } from '../lib/linkPreview';
 import { useActivityById } from '../hooks/useActivity';
 import {
   decodeHtmlEntities as decodeEntities,
@@ -218,6 +219,17 @@ function extractImageUrls(content: string | { rendered: string; raw?: string } |
   }
 
   return imageUrls;
+}
+
+function activityImageUrls(item: BPActivity, previewImage?: string): string[] {
+  const seen = new Set<string>();
+  const urls: string[] = [];
+  for (const url of [...extractImageUrls(item.content), ...(item.image_urls || [])]) {
+    if (!url || url === previewImage || seen.has(url)) continue;
+    seen.add(url);
+    urls.push(url);
+  }
+  return urls;
 }
 
 // Extracts all tappable links: from <a href> tags AND plain-text URLs in the content
@@ -455,16 +467,34 @@ function PostCard({
   // HTML parsing is several regex passes. Memoize it so parent state
   // (composer text, scroll position) does not re-parse every card.
   const linkPreview = useMemo(() => getLinkPreview(item), [item]);
+  const [clientPreview, setClientPreview] = useState<ActivityLinkPreview | null>(null);
+  const previewTarget = !linkPreview?.image ? extractAllLinks(item.content)[0]?.url : null;
+  useEffect(() => {
+    if (!previewTarget) {
+      setClientPreview(null);
+      return;
+    }
+    let cancelled = false;
+    fetchOpenGraphPreview(previewTarget).then((preview) => {
+      if (!cancelled) setClientPreview(preview);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [previewTarget]);
+  const shownLinkPreview = linkPreview?.image
+    ? linkPreview
+    : clientPreview?.image || clientPreview?.title
+      ? { ...linkPreview, ...clientPreview, url: clientPreview.url || linkPreview?.url || previewTarget || '' }
+      : linkPreview;
   const parsedContent = useMemo(() => {
     return {
       displayText: isSharedPost ? getShareIntroText(item.content) : getContentText(item.content),
       // A link preview's image is shown in its card, not as a post photo.
-      imageUrls: isSharedPost
-        ? []
-        : extractImageUrls(item.content).filter((url) => url !== linkPreview?.image),
+      imageUrls: isSharedPost ? [] : activityImageUrls(item, shownLinkPreview?.image),
       links: isSharedPost ? [] : extractAllLinks(item.content),
     };
-  }, [isSharedPost, item.content, linkPreview]);
+  }, [isSharedPost, item, shownLinkPreview?.image]);
   const { displayText, imageUrls, links } = parsedContent;
 
   const parsedShared = useMemo(() => {
@@ -478,7 +508,7 @@ function PostCard({
     }
     const sharedPreview = getLinkPreview(sharedActivity);
     return {
-      imageUrls: extractImageUrls(sharedActivity.content).filter((url) => url !== sharedPreview?.image),
+      imageUrls: activityImageUrls(sharedActivity, sharedPreview?.image),
       links: extractAllLinks(sharedActivity.content),
       text: getContentText(sharedActivity.content),
       linkPreview: sharedPreview,
@@ -633,9 +663,9 @@ function PostCard({
         </View>
       )}
 
-      {linkPreview ? (
+      {shownLinkPreview ? (
         <View style={styles.linkPreviewWrapper}>
-          <LinkPreviewCard preview={linkPreview} onPress={handleLinkPress} />
+          <LinkPreviewCard preview={shownLinkPreview} onPress={handleLinkPress} />
         </View>
       ) : null}
 
@@ -741,7 +771,7 @@ function PostCard({
             minute: '2-digit',
           })}
           previewText={displayText}
-          previewImageUrl={imageUrls[0] || sharedImageUrls[0] || linkPreview?.image || sharedLinkPreview?.image}
+          previewImageUrl={imageUrls[0] || sharedImageUrls[0] || shownLinkPreview?.image || sharedLinkPreview?.image}
           previewLinkUrl={links[0]?.url || sharedLinks[0]?.url || item.link}
         />
       </View>

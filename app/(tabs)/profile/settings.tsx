@@ -6,10 +6,9 @@
  * - Profile picture (avatar)
  * - Cover image
  * - Extended profile fields (via "Edit My Profile")
- * - Membership level (via "Change membership level")
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -38,29 +37,13 @@ import {
 import { optimizeCoverImage } from '../../../lib/imageHelpers';
 import { useAuth } from '../../../lib/auth';
 import { ROUTES } from '../../../constants/navigation';
-import type { MembershipResponse } from '../../../types';
 
 const COVER_ASPECT: [number, number] = [27, 7];
 const COVER_UPLOAD_WIDTH = 1400;
 
-/** "1 Year" → "year", "3 Month" → "3 months" for the billing line. */
-function billingLabel(billing: NonNullable<MembershipResponse['billing']>) {
-  const period = billing.cycle_period.toLowerCase();
-  const every = billing.cycle_number > 1 ? `${billing.cycle_number} ${period}s` : period;
-  return `$${billing.amount.toFixed(2)} per ${every}`;
-}
-
-/** Display name of the member's plan without inventing one we don't know. */
-function planLabel(membership: MembershipResponse) {
-  if (membership.level_name) return membership.level_name;
-  if (membership.tier_inferred) return 'Premium member';
-  if (membership.tier === 'none') return 'Basic';
-  return `${membership.tier.charAt(0).toUpperCase()}${membership.tier.slice(1)}`;
-}
-
 export default function ProfileSettingsScreen() {
   const router = useRouter();
-  const { profile, membership, checkingMembership, refreshMembership } = useAuth();
+  const { profile } = useAuth();
   const { data: member, isLoading, error, refetch: refetchMember } = useCurrentMember();
   const updateProfile = useUpdateProfile();
   const uploadAvatar = useUploadAvatar();
@@ -80,12 +63,6 @@ export default function ProfileSettingsScreen() {
   const [uploadedCoverUrl, setUploadedCoverUrl] = useState<string>();
   const [mediaVersion, setMediaVersion] = useState(0);
   const scrollViewRef = useRef<ScrollView>(null);
-
-  // Fetch a current status whenever the member opens Settings. This calls
-  // /coral/v1/membership (with PMPro fallback) through the auth provider.
-  useEffect(() => {
-    refreshMembership();
-  }, [refreshMembership]);
 
   const refreshProfileMedia = async (type: 'avatar' | 'cover') => {
     const version = Date.now();
@@ -740,102 +717,6 @@ export default function ProfileSettingsScreen() {
               </View>
             )}
           </View>
-        </View>
-
-        {/* Membership (current user only) */}
-        <View style={{ backgroundColor: '#fff', padding: 16, marginBottom: 2 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-            <Text style={{ fontSize: 16, fontWeight: '600', color: '#1f2937' }}>
-              Membership
-            </Text>
-            {checkingMembership && <ActivityIndicator size="small" color="#2563eb" />}
-          </View>
-
-          {membership ? (
-            <View style={{ gap: 12 }}>
-              <View>
-                <Text style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Status</Text>
-                <Text style={{ fontSize: 16, fontWeight: '600', color: membership.is_member ? '#16a34a' : '#6b7280' }}>
-                  {membership.is_member ? 'Active' : 'No active membership'}
-                </Text>
-              </View>
-              <View>
-                <Text style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Plan</Text>
-                <Text style={{ fontSize: 16, color: '#1f2937' }}>{planLabel(membership)}</Text>
-                {membership.billing && membership.billing.amount > 0 && (
-                  <Text style={{ fontSize: 14, color: '#6b7280', marginTop: 2 }}>
-                    {billingLabel(membership.billing)}
-                  </Text>
-                )}
-              </View>
-              {membership.subscription_status && (
-                <View>
-                  <Text style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Subscription</Text>
-                  <Text style={{ fontSize: 16, color: '#1f2937' }}>{membership.subscription_status}</Text>
-                </View>
-              )}
-              {membership.expires_at && (
-                <View>
-                  <Text style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Expires</Text>
-                  <Text style={{ fontSize: 16, color: '#1f2937' }}>
-                    {new Date(membership.expires_at).toLocaleDateString()}
-                  </Text>
-                </View>
-              )}
-              <View>
-                <Text style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Available Resources</Text>
-                {membership.allowed_resources?.length ? (
-                  <View style={{ gap: 4 }}>
-                    {membership.allowed_resources.map((resource) => (
-                      <Text key={resource} style={{ fontSize: 16, color: '#1f2937' }}>
-                        • {resource.replace(/[-_]/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())}
-                      </Text>
-                    ))}
-                  </View>
-                ) : (
-                  <Text style={{ fontSize: 16, color: '#6b7280' }}>No premium resources available</Text>
-                )}
-              </View>
-            </View>
-          ) : (
-            <Text style={{ fontSize: 16, color: '#6b7280' }}>
-              {checkingMembership ? 'Loading membership…' : 'Membership information is unavailable'}
-            </Text>
-          )}
-
-          <Pressable
-            onPress={() => router.push(ROUTES.MEMBERSHIP_LEVELS)}
-            accessibilityRole="button"
-            accessibilityLabel={membership?.tier === 'none' ? 'Upgrade membership' : 'Change membership level'}
-            style={({ pressed }) => ({
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 8,
-              marginTop: 16,
-              paddingVertical: 12,
-              borderRadius: 8,
-              borderWidth: 1,
-              borderColor: '#2563eb',
-              backgroundColor: membership?.tier === 'none' ? '#2563eb' : '#fff',
-              opacity: pressed ? 0.85 : 1,
-            })}
-          >
-            <Ionicons
-              name="swap-vertical-outline"
-              size={18}
-              color={membership?.tier === 'none' ? '#fff' : '#2563eb'}
-            />
-            <Text
-              style={{
-                color: membership?.tier === 'none' ? '#fff' : '#2563eb',
-                fontSize: 15,
-                fontWeight: '600',
-              }}
-            >
-              {membership?.tier === 'none' ? 'Upgrade membership' : 'Change membership level'}
-            </Text>
-          </Pressable>
         </View>
 
         <View style={{ height: 40 }} />

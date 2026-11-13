@@ -426,7 +426,7 @@ export default function CommentsModal({
                 placeholderTextColor="#9ca3af"
                 multiline
                 maxLength={500}
-                maxHeight={100}
+                maxHeight={140}
                 style={styles.input}
                 suggestionPosition="above"
               />
@@ -648,10 +648,12 @@ const styles = StyleSheet.create({
     borderColor: '#e5e7eb',
     borderRadius: 20,
     paddingHorizontal: 14,
-    paddingVertical: 8,
-    fontSize: 14,
+    paddingVertical: 12,
+    fontSize: 16,
+    lineHeight: 22,
     color: '#111827',
-    maxHeight: 100,
+    minHeight: 52,
+    maxHeight: 140,
     backgroundColor: '#f9fafb',
   },
   sendButton: {
