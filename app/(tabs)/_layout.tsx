@@ -140,9 +140,12 @@ export default function TabsLayout() {
             return {
               title: tab.title,
               headerTitle: brandHeaderTitle(tab.title),
-              headerLeft: cameFromProfile
-                ? () => <BackButton fallbackRoute={ROUTES.PROFILE} />
-                : undefined,
+              headerLeft:
+                tab.name === 'resources'
+                  ? () => <BackButton fallbackRoute={ROUTES.COMMUNITY} />
+                  : cameFromProfile
+                    ? () => <BackButton fallbackRoute={ROUTES.PROFILE} />
+                    : undefined,
               tabBarIcon: ({ color, size, focused }) => (
                 <Ionicons
                   name={focused ? tab.icon as any : tab.iconOutline as any}
@@ -265,6 +268,11 @@ export default function TabsLayout() {
             (route.params as { returnTo?: string } | undefined)?.returnTo === 'search';
           return {
             href: null,
+            // expo-router only hides a tab from `href: null` when options are
+            // a plain object. This screen's options are a function, so hide
+            // the item directly or it shows up as an extra Resource tab.
+            tabBarButton: () => null,
+            tabBarItemStyle: { display: 'none' },
             title: 'Resource',
             headerTitle: brandHeaderTitle('Resource'),
             headerLeft: () => (

@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import {
   resourceViewerEntry,
   shouldKeepResourceNavigation,
+  shouldLeaveAppForNavigation,
+  premiumResourcesUrl,
   websiteLoginUrl,
   needsWebSession,
   isWebSessionHandoffUrl,
@@ -103,4 +105,36 @@ check('only same-site sign-in urls with a token are loaded', () => {
   assert.equal(isWebSessionHandoffUrl('http://www.thecoralreefresearchhub.com/?coral_sso=1.a', origin), false);
 });
 
-console.log('\n9 checks passed');
+check('premium resources open on this site with the in-app marker', () => {
+  const page = new URL(premiumResourcesUrl(origin));
+  assert.equal(page.origin, origin);
+  assert.equal(page.pathname, '/premium-resources/');
+  assert.equal(page.searchParams.get('corr_app'), '1');
+  const bare = new URL(premiumResourcesUrl(`${origin}/`));
+  assert.equal(bare.pathname, '/premium-resources/');
+});
+
+check('hotlinks leave the app and same-site pages stay', () => {
+  assert.equal(
+    shouldLeaveAppForNavigation('https://example.com/partners', site, true, 'click'),
+    true
+  );
+  assert.equal(
+    shouldLeaveAppForNavigation(`${origin}/opportunities/`, site, true, 'click'),
+    false
+  );
+  assert.equal(
+    shouldLeaveAppForNavigation('https://www.google.com/recaptcha/api2/anchor', site, false, 'other'),
+    false
+  );
+  assert.equal(
+    shouldLeaveAppForNavigation(`${origin}/wp-content/uploads/photo.jpg`, site, true, 'other'),
+    false
+  );
+  assert.equal(
+    shouldLeaveAppForNavigation('https://example.com/article', site, true, 'other'),
+    true
+  );
+});
+
+console.log('\n11 checks passed');

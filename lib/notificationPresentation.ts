@@ -19,6 +19,8 @@ export interface PresentedNotification {
 const FRIEND_REQUEST_ACTIONS = new Set([
   'friendship_request',
   'friends_friendship_request',
+  'friendship_requested',
+  'friends_friendship_requested',
 ]);
 
 const GROUP_INVITE_ACTIONS = new Set(['group_invite', 'groups_invite']);
@@ -130,12 +132,17 @@ export function presentBuddyPressNotification(
     };
   }
 
-  if (component === 'friends') {
+  if (component === 'friends' || action.includes('friend')) {
+    const accepted = action.includes('accepted');
     return {
-      title: 'Connection update',
-      description: 'There is an update to one of your connections.',
-      icon: 'person-add-outline',
-      route: '/profile/connections',
+      title: accepted ? 'Connection accepted' : 'Connection request',
+      description: accepted
+        ? 'Your connection request was accepted.'
+        : 'There is a new connection request.',
+      icon: accepted ? 'checkmark-circle-outline' : 'person-add-outline',
+      // A removed connection that is requested again is a request, not a
+      // visit to the existing connections list.
+      route: accepted ? '/profile/connections' : '/profile/connections?tab=requests',
     };
   }
 

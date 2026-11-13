@@ -17,6 +17,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useAuth } from '../../lib/auth';
+import { matchesMemberName } from '../../lib/memberSearch';
 import { ROUTES } from '../../constants/navigation';
 import {
   useMe,
@@ -387,14 +388,16 @@ export default function NetworkingScreen() {
   const [activeMembersTab, setActiveMembersTab] = useState<MembersTab>('connect');
   const [activeGroupsTab, setActiveGroupsTab] = useState<GroupsTab>('explore');
   const [limit, setLimit] = useState(50);
+  const [directoryQuery, setDirectoryQuery] = useState('');
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedFriend, setSelectedFriend] = useState<FriendWithDetails | null>(null);
 
   const { data: currentUser, isLoading: isLoadingUser } = useMe();
   const userId = currentUser?.id;
 
+  const friendsPageSize = directoryQuery.trim() ? 1000 : limit;
   const { data: friendsData, isLoading: isLoadingFriends, error: friendsError, refetch: refetchFriends } =
-    useFriendsList(userId, 1, limit);
+    useFriendsList(userId, 1, friendsPageSize);
   const { data: pendingRequests, isLoading: isLoadingRequests, error: requestsError, refetch: refetchRequests } =
     usePendingFriendRequests(userId);
 
@@ -547,6 +550,11 @@ export default function NetworkingScreen() {
   });
   const receivedRequests = requests.filter(r => r.friend_id === userId);
   const sentRequests = requests.filter(r => r.initiator_id === userId);
+  const visibleFriends = friends.filter((friend) => matchesMemberName(friend.name, directoryQuery));
+  const visibleRequests = requests.filter((request) => {
+    const otherUserId = request.initiator_id === userId ? request.friend_id : request.initiator_id;
+    return matchesMemberName(requestMembers?.[otherUserId]?.name, directoryQuery);
+  });
 
   return (
     <View style={styles.container}>
@@ -583,16 +591,20 @@ export default function NetworkingScreen() {
               style={[styles.tab, activeMembersTab === 'connect' && styles.activeTab]}
               onPress={() => setActiveMembersTab('connect')}
             >
-              <Ionicons name="person-add-outline" size={15} color={activeMembersTab === 'connect' ? '#0066cc' : '#666'} />
-              <Text style={[styles.tabText, activeMembersTab === 'connect' && styles.activeTabText]}>Connect</Text>
+              <View style={styles.tabLabel}>
+                <Ionicons name="person-add-outline" size={15} color={activeMembersTab === 'connect' ? '#0066cc' : '#666'} />
+                <Text style={[styles.tabText, activeMembersTab === 'connect' && styles.activeTabText]}>Connect</Text>
+              </View>
             </TouchableOpacity>
 
             <TouchableOpacity
               style={[styles.tab, activeMembersTab === 'friends' && styles.activeTab]}
               onPress={() => setActiveMembersTab('friends')}
             >
-              <Ionicons name="heart-outline" size={15} color={activeMembersTab === 'friends' ? '#0066cc' : '#666'} />
-              <Text style={[styles.tabText, activeMembersTab === 'friends' && styles.activeTabText]}>Connections</Text>
+              <View style={styles.tabLabel}>
+                <Ionicons name="heart-outline" size={15} color={activeMembersTab === 'friends' ? '#0066cc' : '#666'} />
+                <Text style={[styles.tabText, activeMembersTab === 'friends' && styles.activeTabText]}>Connections</Text>
+              </View>
               {totalConnections > 0 && (
                 <View style={styles.badge}>
                   <Text style={styles.badgeText}>{formatCappedCount(totalConnections, 999)}</Text>
@@ -604,8 +616,10 @@ export default function NetworkingScreen() {
               style={[styles.tab, activeMembersTab === 'requests' && styles.activeTab]}
               onPress={() => setActiveMembersTab('requests')}
             >
-              <Ionicons name="mail-outline" size={15} color={activeMembersTab === 'requests' ? '#0066cc' : '#666'} />
-              <Text style={[styles.tabText, activeMembersTab === 'requests' && styles.activeTabText]}>Requests</Text>
+              <View style={styles.tabLabel}>
+                <Ionicons name="mail-outline" size={15} color={activeMembersTab === 'requests' ? '#0066cc' : '#666'} />
+                <Text style={[styles.tabText, activeMembersTab === 'requests' && styles.activeTabText]}>Requests</Text>
+              </View>
               {requests.length > 0 && (
                 <View style={[styles.badge, styles.badgeAlert]}>
                   <Text style={styles.badgeText}>{formatCappedCount(requests.length, 99)}</Text>
@@ -613,6 +627,20 @@ export default function NetworkingScreen() {
               )}
             </TouchableOpacity>
           </View>
+
+          {activeMembersTab !== 'connect' && (
+            <View style={styles.searchContainer}>
+              <TextInput
+                style={styles.searchInput}
+                placeholder={activeMembersTab === 'friends' ? 'Search connections' : 'Search requests'}
+                placeholderTextColor="#999"
+                value={directoryQuery}
+                onChangeText={setDirectoryQuery}
+                autoCorrect={false}
+                returnKeyType="search"
+              />
+            </View>
+          )}
 
           {activeMembersTab === 'connect' ? (
             <ConnectTab />
@@ -639,7 +667,13 @@ export default function NetworkingScreen() {
               </View>
             ) : (
               <FlatList
-                data={friends}
+                data={visibleFriends}
+                ListEmptyComponent={() => (
+                  <View style={styles.emptyContainer}>
+                    <Text style={styles.emptyTitle}>No connections found</Text>
+                    <Text style={styles.emptyText}>No results for "{directoryQuery.trim()}".</Text>
+                  </View>
+                )}
                 renderItem={renderFriendItem}
                 keyExtractor={(item) => item.id.toString()}
                 contentContainerStyle={styles.listContent}
@@ -674,7 +708,13 @@ export default function NetworkingScreen() {
               </View>
             ) : (
               <FlatList
-                data={requests}
+                data={visibleRequests}
+                ListEmptyComponent={() => (
+                  <View style={styles.emptyContainer}>
+                    <Text style={styles.emptyTitle}>No requests found</Text>
+                    <Text style={styles.emptyText}>No results for "{directoryQuery.trim()}".</Text>
+                  </View>
+                )}
                 renderItem={({ item }) => (
                   <FriendRequestRow
                     request={item}
@@ -799,16 +839,23 @@ const styles = StyleSheet.create({
   },
   tab: {
     flex: 1,
-    flexDirection: 'row',
+    flexDirection: 'column',
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 13,
-    gap: 5,
+    paddingVertical: 8,
+    paddingHorizontal: 2,
+    gap: 4,
     borderBottomWidth: 2,
     borderBottomColor: 'transparent',
   },
+  tabLabel: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+  },
   activeTab: { borderBottomColor: '#0066cc' },
-  tabText: { fontSize: 13, fontWeight: '600', color: '#666' },
+  tabText: { fontSize: 12, fontWeight: '600', color: '#666' },
   activeTabText: { color: '#0066cc' },
 
   badge: {

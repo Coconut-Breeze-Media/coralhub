@@ -125,6 +125,88 @@ export function resourceViewerEntry(
   return websiteLoginUrl(resourceUrl, siteUrl) ?? resourceUrl;
 }
 
+/** Premium resources index the website now uses for every membership level. */
+export function premiumResourcesUrl(siteUrl: string): string {
+  const page = new URL('/premium-resources/', siteUrl.endsWith('/') ? siteUrl : `${siteUrl}/`);
+  page.searchParams.set('corr_app', '1');
+  return page.toString();
+}
+
+const SUBRESOURCE_EXTENSION = /\.(png|jpe?g|gif|webp|svg|css|js|mjs|woff2?|ttf|otf|ico|mp4|mp3|pdf)(\?|#|$)/i;
+
+/**
+ * A top-level tap that should leave the in-app browser.
+ * Same-site pages, reCAPTCHA frames, and images/scripts stay inside.
+ * `navigationType` comes from the WebView (`click` on iOS). Android often
+ * reports `other` or nothing, so a document URL is treated as a tap and a
+ * file URL is not.
+ */
+export function shouldLeaveAppForNavigation(
+  target: string,
+  siteHost: string,
+  isTopFrame?: boolean,
+  navigationType?: string
+): boolean {
+  if (!shouldKeepResourceNavigation(target, siteHost, isTopFrame)) {
+    const type = (navigationType || '').toLowerCase();
+    if (type === 'click') return true;
+    if (type && type !== 'other') return false;
+    return /^https?:\/\//i.test(target) && !SUBRESOURCE_EXTENSION.test(target);
+  }
+  return false;
+}
+
+/** Hide the public site header, logo and footer while a page is inside the app. */
+export const IN_APP_BROWSER_BOOTSTRAP = `
+(function () {
+  var css = ${JSON.stringify(`
+    #wpadminbar,
+    header,
+    .site-header,
+    #masthead,
+    #site-header,
+    .elementor-location-header,
+    .main-navigation,
+    #site-navigation,
+    #top-bar,
+    .top-bar,
+    .navbar,
+    .youzify-header,
+    footer,
+    .site-footer,
+    #colophon,
+    .elementor-location-footer {
+      display: none !important;
+    }
+    html, body { margin-top: 0 !important; padding-top: 0 !important; }
+  `)};
+  function install() {
+    if (document.getElementById('corr-app-chrome')) return;
+    var style = document.createElement('style');
+    style.id = 'corr-app-chrome';
+    style.textContent = css;
+    (document.head || document.documentElement).appendChild(style);
+  }
+  install();
+  document.addEventListener('DOMContentLoaded', install);
+  document.addEventListener('click', function (event) {
+    var node = event.target;
+    while (node && node.tagName !== 'A') node = node.parentNode;
+    if (!node || !node.href) return;
+    try {
+      var url = new URL(node.href, location.href);
+      var here = location.hostname.replace(/^www\\./, '');
+      var there = url.hostname.replace(/^www\\./, '');
+      if (here && there === here && !url.searchParams.has('corr_app')) {
+        url.searchParams.set('corr_app', '1');
+        node.href = url.toString();
+      }
+    } catch (e) {}
+  }, true);
+})();
+true;
+`;
+
 export function shouldKeepResourceNavigation(
   target: string,
   siteHost: string,

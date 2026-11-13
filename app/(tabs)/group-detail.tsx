@@ -250,7 +250,8 @@ export default function GroupDetailScreen() {
             const result = await uploadImage(token!, imageUri, fileName);
             uploadedUrls.push(result.source_url);
           } catch (error) {
-            throw new Error(`Failed to upload image ${i + 1}`);
+            const detail = error instanceof Error && error.message ? `: ${error.message}` : '';
+            throw new Error(`Failed to upload image ${i + 1}${detail}`);
           }
         }
         

@@ -3,7 +3,7 @@
  * Plugin Name: Coral Social API
  * Plugin URI: https://coralhub.com
  * Description: Custom REST API for CoralHub social features with BuddyPress and bbPress
- * Version: 1.0.0
+ * Version: 1.1.0
  * Author: CoralHub Team
  * Author URI: https://coralhub.com
  * License: GPL v2 or later
@@ -19,7 +19,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('CORAL_SOCIAL_API_VERSION', '1.0.0');
+define('CORAL_SOCIAL_API_VERSION', '1.1.0');
 define('CORAL_SOCIAL_API_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('CORAL_SOCIAL_API_PLUGIN_URL', plugin_dir_url(__FILE__));
 
@@ -216,6 +216,8 @@ class Coral_Social_API {
         require_once CORAL_SOCIAL_API_PLUGIN_DIR . 'includes/class-activity-enhancements.php';
         require_once CORAL_SOCIAL_API_PLUGIN_DIR . 'includes/class-search-endpoint.php';
         require_once CORAL_SOCIAL_API_PLUGIN_DIR . 'includes/class-messages-endpoint.php';
+        require_once CORAL_SOCIAL_API_PLUGIN_DIR . 'includes/class-media-endpoint.php';
+        require_once CORAL_SOCIAL_API_PLUGIN_DIR . 'includes/app-view.php';
 
         // Emoji storage, link previews and share normalization for the
         // BuddyPress activity REST API the app uses.
@@ -279,6 +281,9 @@ class Coral_Social_API {
         // Register direct messages (Better Messages bridge)
         $messages_endpoint = new Coral_Messages_Endpoint();
         $messages_endpoint->register_routes();
+
+        $media_endpoint = new Coral_Media_Endpoint();
+        $media_endpoint->register_routes();
     }
 }
 

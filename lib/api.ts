@@ -23,7 +23,7 @@ import type {
   BPMessageDeleteResponse,
 } from '../types';
 import { encodeMessageForTransport } from './messagePresentation';
-import { convertToJPEG } from './imageHelpers';
+import { convertToJPEG, preparePostImage } from './imageHelpers';
 import { API_BASE_URL, SITE_URL } from './config';
 import { createTokenRefreshCoordinator, isRefreshExemptPath, replacementBearer } from './tokenRefresh';
 
@@ -1423,49 +1423,51 @@ export async function uploadImage(
 ): Promise<{ source_url: string; id: number }> {
   try {
 
-    // Create FormData for multipart upload
-    const formData = new FormData();
-
-    // WordPress rejects HEIC/HEIF and other formats outside its allowed mime
-    // list, so normalise anything that is not JPEG/PNG/GIF to JPEG first.
+    // Phone photos are often HEIC and several megabytes. Resize to JPEG under
+    // the website's upload limit before either endpoint sees the file.
+    imageUri = await preparePostImage(imageUri);
     imageUri = await ensureUploadableImageUri(imageUri);
 
     // Detect file extension and MIME type
     const fileExtension = imageUri.split(/[?#]/)[0].split('.').pop()?.toLowerCase() || 'jpg';
-    const mimeType = fileExtension === 'png' ? 'image/png' : 
-                     fileExtension === 'gif' ? 'image/gif' : 
+    const mimeType = fileExtension === 'png' ? 'image/png' :
+                     fileExtension === 'gif' ? 'image/gif' :
                      'image/jpeg';
+    const extension = mimeType === 'image/png' ? 'png' : mimeType === 'image/gif' ? 'gif' : 'jpg';
+    const nativeFileName = fileName.replace(/\.[a-z0-9]+$/i, '') + `.${extension}`;
+    const webBlob = imageUri.startsWith('blob:') ? await (await fetch(imageUri)).blob() : null;
 
-    // Check if it's a blob URI (for web/Expo Web)
-    if (imageUri.startsWith('blob:')) {
-      
-      // Convert blob URI to actual Blob
-      const blobResponse = await fetch(imageUri);
-      const blob = await blobResponse.blob();
-      
-      // Append blob to FormData
-      formData.append('file', blob, fileName);
-    } else {
-      // For React Native native (file:// URIs). Keep the file name's
-      // extension consistent with the MIME type so WordPress accepts it.
-      const extension = mimeType === 'image/png' ? 'png' : mimeType === 'image/gif' ? 'gif' : 'jpg';
-      const nativeFileName = fileName.replace(/\.[a-z0-9]+$/i, '') + `.${extension}`;
-      // @ts-ignore - React Native FormData accepts this format
-      formData.append('file', {
-        uri: imageUri,
-        type: mimeType,
-        name: nativeFileName,
-      });
-    }
+    const buildBody = () => {
+      const formData = new FormData();
+      if (webBlob) {
+        formData.append('file', webBlob, nativeFileName);
+      } else {
+        // @ts-ignore - React Native FormData accepts this format
+        formData.append('file', {
+          uri: imageUri,
+          type: mimeType,
+          name: nativeFileName,
+        });
+      }
+      return formData;
+    };
 
-    const res = await fetchWithTimeout(`${API}/wp/v2/media`, {
-      method: 'POST',
+    const uploadInit = () => ({
+      method: 'POST' as const,
       headers: {
-        'Authorization': `Bearer ${token}`,
+        Authorization: `Bearer ${token}`,
         // Don't set Content-Type - let the browser/RN set it with boundary
       },
-      body: formData,
+      body: buildBody(),
     });
+    // Members often cannot POST /wp/v2/media. The Coral endpoint grants that
+    // for this request only. Fall back to core media when the plugin route
+    // is not on the site yet. Each attempt gets its own FormData — a body
+    // cannot be sent twice.
+    let res = await fetchWithTimeout(`${API}/coral/v1/media`, uploadInit(), 60000);
+    if (res.status === 404) {
+      res = await fetchWithTimeout(`${API}/wp/v2/media`, uploadInit(), 60000);
+    }
 
     await assertOk(res);
     const data = await res.json();
@@ -2242,7 +2244,32 @@ export async function getPostComments(
       ? rawComments
       : Object.values(rawComments)
     : [];
-  return comments;
+  if (comments.length > 0) return comments;
+
+  // Some group comments are stored as child activities but are omitted from
+  // the parent payload. A website comment on a group post often keeps the
+  // group id as primary_id and the post id as secondary_id, so try both.
+  const listed = async (key: 'primary_id' | 'secondary_id') => {
+    const params = new URLSearchParams({
+      type: 'activity_comment',
+      [key]: String(activityId),
+      per_page: '50',
+      order: 'asc',
+    });
+    const result = await authedFetch<import('../types').BPActivity[] | { activities?: import('../types').BPActivity[] }>(
+      `/buddypress/v1/activity?${params}`,
+      token
+    );
+    const extra = Array.isArray(result) ? result : result?.activities;
+    return Array.isArray(extra) ? extra : [];
+  };
+  try {
+    const byPrimary = await listed('primary_id');
+    if (byPrimary.length > 0) return byPrimary;
+    return await listed('secondary_id');
+  } catch {
+    return comments;
+  }
 }
 
 /**
@@ -2349,8 +2376,11 @@ export async function searchUsers(query: string, token: string): Promise<UserSea
 // Messages written through BuddyPress (/buddypress/v1/messages) never appear
 // there. When the coral-social-api bridge (/coral/v1/messages/threads) is
 // deployed and Better Messages is active, every call below goes through it;
-// otherwise (route 404 / 501) the app keeps using BuddyPress as before. The
-// bridge answers in BuddyPress' response shape, so callers don't change.
+// otherwise (route 404 / 501) the app keeps using BuddyPress as before. That
+// fallback is what sends app messages into BuddyPress (email and a
+// notification) while the website inbox stays empty, so coral-social-api
+// 1.1.0 has to be deployed for the two inboxes to match. The bridge answers
+// in BuddyPress' response shape, so callers don't change.
 
 type MessagingBackend = 'better-messages' | 'buddypress';
 

@@ -281,6 +281,8 @@ export interface BPActivity {
   comment_count?: number;
   /** Open Graph preview of the first link in the post (coral-social-api REST field). */
   link_preview?: ActivityLinkPreview | null;
+  /** Photos attached by the website (Youzify and similar) that are not in the HTML. */
+  image_urls?: string[];
   /** Original activity of a share, whichever field the share was stored in (coral-social-api REST field). */
   shared_activity_id?: number | null;
 }

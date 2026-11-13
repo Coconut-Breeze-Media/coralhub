@@ -111,11 +111,6 @@ export const PROFILE_MENU_ITEMS: ReadonlyArray<ProfileMenuItem> = [
     icon: 'link-outline',
   },
   {
-    label: 'Search CoRR Hub',
-    href: '/search',
-    icon: 'search-outline',
-  },
-  {
     label: 'Contact Us',
     href: '/profile/contact',
     icon: 'mail-outline',

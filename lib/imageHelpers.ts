@@ -99,6 +99,49 @@ export async function optimizeCoverImage(
   }
 }
 
+const POST_IMAGE_MAX_BYTES = 900_000;
+
+async function byteSize(uri: string): Promise<number | null> {
+  try {
+    const response = await fetch(uri);
+    const blob = await response.blob();
+    return typeof blob.size === 'number' ? blob.size : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resize a photo before it is attached to a post.
+ * Phone pictures are often many megabytes, and the website rejects oversized
+ * uploads. Step the dimensions and quality down until the file is under the
+ * limit the site will accept.
+ */
+export async function preparePostImage(imageUri: string): Promise<string> {
+  let width = 1600;
+  let quality = 0.72;
+  let current = imageUri;
+
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      const result = await ImageManipulator.manipulateAsync(
+        imageUri,
+        [{ resize: { width } }],
+        { compress: quality, format: ImageManipulator.SaveFormat.JPEG }
+      );
+      current = result.uri;
+      const size = await byteSize(current);
+      if (size == null || size <= POST_IMAGE_MAX_BYTES) return current;
+    } catch {
+      return current;
+    }
+    quality = Math.max(0.45, quality - 0.1);
+    width = Math.round(width * 0.75);
+  }
+
+  return current;
+}
+
 /**
  * Get file info from URI (web only)
  */
