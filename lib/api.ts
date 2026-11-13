@@ -23,6 +23,14 @@ import type {
   BPMessageDeleteResponse,
 } from '../types';
 import { encodeMessageForTransport } from './messagePresentation';
+import {
+  BETTER_MESSAGES_API,
+  betterMessagesError,
+  mapBetterMessagesInbox,
+  mapBetterMessagesSend,
+  mapBetterMessagesThread,
+  type BmPayload,
+} from './betterMessages';
 import { convertToJPEG, preparePostImage } from './imageHelpers';
 import { API_BASE_URL, SITE_URL } from './config';
 import { createTokenRefreshCoordinator, isRefreshExemptPath, replacementBearer } from './tokenRefresh';
@@ -1460,14 +1468,9 @@ export async function uploadImage(
       },
       body: buildBody(),
     });
-    // Members often cannot POST /wp/v2/media. The Coral endpoint grants that
-    // for this request only. Fall back to core media when the plugin route
-    // is not on the site yet. Each attempt gets its own FormData — a body
-    // cannot be sent twice.
-    let res = await fetchWithTimeout(`${API}/coral/v1/media`, uploadInit(), 60000);
-    if (res.status === 404) {
-      res = await fetchWithTimeout(`${API}/wp/v2/media`, uploadInit(), 60000);
-    }
+    // WordPress core media library. Subscribers who lack upload_files are
+    // refused by WordPress itself; the error text is the site's own message.
+    const res = await fetchWithTimeout(`${API}/wp/v2/media`, uploadInit(), 60000);
 
     await assertOk(res);
     const data = await res.json();
@@ -1571,27 +1574,14 @@ export async function sharePost(
     return existingRequest;
   }
 
-  // The website's share feature stores the original activity in
-  // `secondary_item_id`; earlier app builds only set `primary_item_id`, so
-  // the website could not resolve app shares. Send both.
-  const data: {
-    component: 'activity';
-    type: 'activity_share';
-    primary_item_id: number;
-    secondary_item_id: number;
-    link: string;
-    content?: string;
-  } = {
+  // A normal activity update is what the website feed already shows.
+  // `activity_share` is not a BuddyPress type on this site, so those posts
+  // never appeared. The note and the original link are the post.
+  const data = {
     component: 'activity',
-    type: 'activity_share',
-    primary_item_id: originalActivityId,
-    secondary_item_id: originalActivityId,
-    link: postUrl,
+    type: 'activity_update',
+    content: [trimmedContent, postUrl].filter(Boolean).join('\n\n') || 'Shared a post',
   };
-
-  if (trimmedContent) {
-    data.content = trimmedContent;
-  }
 
   const request = (async () => {
     const res = await fetchWithTimeout(`${API}/buddypress/v1/activity`, {
@@ -2372,22 +2362,34 @@ export async function searchUsers(query: string, token: string): Promise<UserSea
 
 // ---------- Messages API ----------
 //
-// The website inbox is the Better Messages plugin, which keeps its own tables.
-// Messages written through BuddyPress (/buddypress/v1/messages) never appear
-// there. When the coral-social-api bridge (/coral/v1/messages/threads) is
-// deployed and Better Messages is active, every call below goes through it;
-// otherwise (route 404 / 501) the app keeps using BuddyPress as before. That
-// fallback is what sends app messages into BuddyPress (email and a
-// notification) while the website inbox stays empty, so coral-social-api
-// 1.1.0 has to be deployed for the two inboxes to match. The bridge answers
-// in BuddyPress' response shape, so callers don't change.
+// The website inbox is Better Messages, which is already installed and exposes
+// /wp-json/better-messages/v1. BuddyPress messages never show up there, so the
+// app uses Better Messages directly. BuddyPress is only the fallback when that
+// API is absent (404).
 
 type MessagingBackend = 'better-messages' | 'buddypress';
 
 let messagingBackend: MessagingBackend | null = null;
 let messagingBackendProbe: Promise<MessagingBackend> | null = null;
 
-const BM_THREADS_PATH = '/coral/v1/messages/threads';
+const bmMessagesByThread = new Map<number, import('../types').BPMessageItem[]>();
+
+function jwtUserId(token: string): number | null {
+  try {
+    const part = token.split('.')[1];
+    if (!part) return null;
+    const padded = part.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (part.length % 4)) % 4);
+    const payload = JSON.parse(globalThis.atob(padded)) as {
+      data?: { user?: { id?: number | string } };
+      user_id?: number | string;
+      sub?: number | string;
+    };
+    const id = Number(payload.data?.user?.id ?? payload.user_id ?? payload.sub);
+    return Number.isFinite(id) ? id : null;
+  } catch {
+    return null;
+  }
+}
 
 async function resolveMessagingBackend(token: string): Promise<MessagingBackend> {
   if (messagingBackend) return messagingBackend;
@@ -2395,12 +2397,11 @@ async function resolveMessagingBackend(token: string): Promise<MessagingBackend>
 
   messagingBackendProbe = (async () => {
     try {
-      const res = await fetchWithTimeout(`${API}${BM_THREADS_PATH}?per_page=1`, {
+      const res = await fetchWithTimeout(`${API}${BETTER_MESSAGES_API}/threads`, {
         method: 'GET',
         headers: { Authorization: `Bearer ${token}` },
       });
-      // 404 = route not deployed, 501 = Better Messages not active.
-      if (res.status === 404 || res.status === 501) {
+      if (res.status === 404) {
         messagingBackend = 'buddypress';
         return messagingBackend;
       }
@@ -2419,21 +2420,20 @@ async function usesBetterMessages(token: string): Promise<boolean> {
   return (await resolveMessagingBackend(token)) === 'better-messages';
 }
 
-async function bmFetch<T>(
-  token: string,
-  path: string,
-  init: RequestInit = {}
-): Promise<{ data: T; res: Response }> {
-  const res = await fetchWithTimeout(`${API}${BM_THREADS_PATH}${path}`, {
-    ...init,
+async function bmRequest(token: string, path: string, body?: unknown): Promise<BmPayload> {
+  const res = await fetchWithTimeout(`${API}${BETTER_MESSAGES_API}${path}`, {
+    method: body === undefined && path === '/threads' ? 'GET' : 'POST',
     headers: {
-      ...(init.body ? { 'Content-Type': 'application/json' } : {}),
-      ...(init.headers || {}),
       Authorization: `Bearer ${token}`,
+      ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
     },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   await assertOk(res);
-  return { data: (await res.json()) as T, res };
+  const data = (await res.json()) as BmPayload;
+  const failure = betterMessagesError(data);
+  if (failure) throw new ApiError(failure, 400);
+  return data;
 }
 
 async function replyWithBetterMessages(
@@ -2441,31 +2441,14 @@ async function replyWithBetterMessages(
   threadId: number,
   message: string
 ): Promise<BPMessageMutationResponse> {
-  const { data } = await bmFetch<BPMessageMutationResponse>(token, `/${threadId}`, {
-    method: 'POST',
-    body: JSON.stringify({ message: encodeMessageForTransport(message) }),
-  });
-  return data;
+  const plain = encodeMessageForTransport(message);
+  const data = await bmRequest(token, `/thread/${threadId}/send`, { message: plain });
+  bmMessagesByThread.delete(threadId);
+  return mapBetterMessagesSend(data, { threadId, message: plain, senderId: jwtUserId(token) });
 }
 
 async function getBetterMessagesConversations(token: string): Promise<BPConversationSummary[]> {
-  const all: BPConversationSummary[] = [];
-  let totalPages = 1;
-  for (let page = 1; page <= totalPages && page <= 20; page++) {
-    const { data, res } = await bmFetch<BPConversationSummary[]>(
-      token,
-      `?${new URLSearchParams({ page: String(page), per_page: String(CONVERSATIONS_PER_PAGE) })}`
-    );
-    const batch = Array.isArray(data) ? data : [];
-    all.push(...batch);
-    const headerPages = parseInt(res.headers.get('X-WP-TotalPages') || '', 10);
-    if (Number.isFinite(headerPages) && headerPages > 0) {
-      totalPages = headerPages;
-    } else {
-      break;
-    }
-  }
-  return all;
+  return mapBetterMessagesInbox(await bmRequest(token, '/threads'));
 }
 
 /** BuddyPress caps `per_page` at 100; request close to the max so the inbox is not truncated. */
@@ -2587,15 +2570,38 @@ export async function getMessages(
   userId?: number | null
 ): Promise<BPMessageThreadResult> {
   if (await usesBetterMessages(token)) {
-    const { data } = await bmFetch<BPMessageThreadResult>(
-      token,
-      `/${threadId}?${new URLSearchParams({
-        page: String(page),
-        per_page: String(pageSize),
-        order: 'desc',
-      })}`
-    );
-    return data;
+    let header = mapBetterMessagesThread({}, threadId);
+    if (page <= 1 || !bmMessagesByThread.has(threadId)) {
+      const data = await bmRequest(token, `/thread/${threadId}`, {});
+      header = mapBetterMessagesThread(data, threadId);
+      const messages = Array.isArray(header.messages) ? header.messages : Object.values(header.messages || {});
+      bmMessagesByThread.set(threadId, messages);
+    }
+
+    let all = bmMessagesByThread.get(threadId) || [];
+    // Page 1 is the newest page. Older pages walk backward through the cache,
+    // then ask Better Messages for messages before the oldest one we have.
+    let end = all.length - Math.max(0, page - 1) * pageSize;
+    if (end <= 0 && all.length > 0) {
+      const oldestId = Number(all[0]?.message_id ?? all[0]?.id);
+      if (Number.isFinite(oldestId)) {
+        const more = await bmRequest(token, `/thread/${threadId}/loadMore`, {
+          loaded: [oldestId],
+          to: oldestId,
+          mode: 'more',
+        });
+        const older = mapBetterMessagesThread(more, threadId);
+        const olderItems = Array.isArray(older.messages) ? older.messages : [];
+        const seen = new Set(all.map((item) => String(item.message_id ?? item.id)));
+        const added = olderItems.filter((item) => !seen.has(String(item.message_id ?? item.id)));
+        all = [...added, ...all].sort((a, b) => String(a.date_sent).localeCompare(String(b.date_sent)));
+        bmMessagesByThread.set(threadId, all);
+        end = all.length - Math.max(0, page - 1) * pageSize;
+      }
+    }
+
+    const start = Math.max(0, end - pageSize);
+    return { ...header, messages: end > 0 ? all.slice(start, end) : [] };
   }
 
   const params = new URLSearchParams({
@@ -2631,15 +2637,13 @@ export async function sendMessage(
   message: string
 ): Promise<BPMessageMutationResponse> {
   if (await usesBetterMessages(token)) {
-    const { data } = await bmFetch<BPMessageMutationResponse>(token, '', {
-      method: 'POST',
-      body: JSON.stringify({
-        recipients,
-        subject,
-        message: encodeMessageForTransport(message),
-      }),
+    const plain = encodeMessageForTransport(message);
+    const data = await bmRequest(token, '/thread/new', {
+      recipients,
+      subject: subject || null,
+      message: plain,
     });
-    return data;
+    return mapBetterMessagesSend(data, { message: plain, senderId: jwtUserId(token) });
   }
 
   const url = `${API}/buddypress/v1/messages`;
@@ -2726,10 +2730,9 @@ export async function markConversationAsRead(
   token: string
 ): Promise<BPMessageMutationResponse> {
   if (await usesBetterMessages(token)) {
-    const { data } = await bmFetch<BPMessageMutationResponse>(token, `/${threadId}/read`, {
-      method: 'POST',
-    });
-    return data;
+    // Opening a thread marks it read. There is no separate read route.
+    await bmRequest(token, `/thread/${threadId}`, {});
+    return { id: threadId, thread_id: threadId };
   }
 
   const url = `${API}/buddypress/v1/messages/${threadId}`;
@@ -2761,10 +2764,9 @@ export async function deleteConversation(
   userId?: number | null
 ): Promise<BPMessageDeleteResponse> {
   if (await usesBetterMessages(token)) {
-    const { data } = await bmFetch<BPMessageDeleteResponse>(token, `/${threadId}`, {
-      method: 'DELETE',
-    });
-    return data;
+    await bmRequest(token, `/thread/${threadId}/delete`, {});
+    bmMessagesByThread.delete(threadId);
+    return { deleted: true };
   }
 
   // `user_id` ("the user ID to remove from the thread") is declared required with a

@@ -30,14 +30,13 @@ class Coral_Activity_Enhancements {
     const PREVIEW_META_KEY = '_coral_link_preview';
 
     /** Max remote Open Graph fetches while serving a single REST request. */
-    const LAZY_FETCH_BUDGET = 4;
+    const LAZY_FETCH_BUDGET = 1;
 
     private $lazy_fetches = 0;
 
     public function __construct() {
         add_filter('bp_activity_content_before_save', array($this, 'encode_emoji_for_storage'), 5, 2);
         add_action('bp_activity_before_save', array($this, 'normalize_share_before_save'), 5);
-        add_action('bp_register_activity_actions', array($this, 'register_share_action'));
         add_action('bp_activity_after_save', array($this, 'maybe_store_link_preview'), 20);
         add_filter('bp_rest_activity_prepare_value', array($this, 'replace_emoji_images_in_response'), 10, 3);
         add_action('rest_api_init', array($this, 'register_rest_fields'));
@@ -139,15 +138,6 @@ class Coral_Activity_Enhancements {
             ),
         ));
 
-        register_rest_field('activity', 'image_urls', array(
-            'get_callback' => array($this, 'rest_get_image_urls'),
-            'schema'       => array(
-                'description' => __('Photo URLs stored on the activity outside its HTML.', 'coral-social-api'),
-                'type'        => 'array',
-                'context'     => array('view', 'edit'),
-            ),
-        ));
-
         register_rest_field('activity', 'shared_activity_id', array(
             'get_callback' => array($this, 'rest_get_shared_activity_id'),
             'schema'       => array(
@@ -168,76 +158,6 @@ class Coral_Activity_Enhancements {
     // ------------------------------------------------------------------
     // Shares
     // ------------------------------------------------------------------
-
-    /**
-     * Youzify and similar plugins keep photos in activity meta. The HTML the
-     * app reads often has no <img>, so the feed showed a post with no picture.
-     */
-    public function rest_get_image_urls($object) {
-        $id = (int) $this->field_value($object, 'id');
-        if (!$id || !function_exists('bp_activity_get_meta')) {
-            return array();
-        }
-
-        $keys = array(
-            'youzify_attachments',
-            'youzify_activity_attachments',
-            'bp_activity_media',
-            'activity_media',
-            'media',
-        );
-        $found = array();
-        foreach ($keys as $key) {
-            $this->collect_image_urls(bp_activity_get_meta($id, $key, true), $found);
-        }
-
-        $urls = array();
-        foreach ($found as $url) {
-            if (false !== strpos($url, 'wp-smiley') || false !== stripos($url, 'emoji')) {
-                continue;
-            }
-            $urls[] = $url;
-        }
-        return array_values(array_unique($urls));
-    }
-
-    private function collect_image_urls($value, &$found) {
-        if (is_string($value)) {
-            if (preg_match('#^https?://#i', $value) && preg_match('/\.(jpe?g|png|gif|webp)(\?|$)/i', $value)) {
-                $found[] = $value;
-            }
-            return;
-        }
-        if (is_array($value)) {
-            foreach ($value as $child) {
-                $this->collect_image_urls($child, $found);
-            }
-        }
-    }
-
-    /** So the website activity stream lists shares the app creates. */
-    public function register_share_action() {
-        if (!function_exists('bp_activity_set_action')) {
-            return;
-        }
-        bp_activity_set_action(
-            'activity',
-            'activity_share',
-            __('Shared an update', 'coral-social-api'),
-            array($this, 'format_share_action'),
-            __('Shares', 'coral-social-api'),
-            array('activity', 'member')
-        );
-    }
-
-    public function format_share_action($action, $activity) {
-        $user_id = is_object($activity) && !empty($activity->user_id) ? (int) $activity->user_id : 0;
-        $link = function_exists('bp_core_get_userlink') && $user_id ? bp_core_get_userlink($user_id) : '';
-        if (!$link) {
-            return __('Shared an update', 'coral-social-api');
-        }
-        return sprintf('%s shared an update', $link);
-    }
 
     private function is_share_type($type) {
         return is_string($type) && false !== stripos($type, 'share') && 'post_share' !== $type;
@@ -294,9 +214,6 @@ class Coral_Activity_Enhancements {
         if (empty($activity->secondary_item_id) && !empty($activity->item_id) && 'activity' === $activity->component) {
             $activity->secondary_item_id = (int) $activity->item_id;
         }
-        if ($this->is_share_type($activity->type) && empty($activity->action) && function_exists('bp_core_get_userlink')) {
-            $activity->action = $this->format_share_action('', $activity);
-        }
     }
 
     /** One-time fix for shares the app created before secondary_item_id was sent. */
@@ -340,13 +257,7 @@ class Coral_Activity_Enhancements {
 
         $stored = bp_activity_get_meta($id, self::PREVIEW_META_KEY, true);
         if (is_array($stored)) {
-            $age = isset($stored['fetched_at']) ? time() - (int) $stored['fetched_at'] : DAY_IN_SECONDS;
-            $incomplete = !empty($stored['none']) || empty($stored['image']);
-            // A failed or imageless fetch used to stick forever, so app posts
-            // never grew a preview image. Retry after a short wait.
-            if (!$incomplete || $age < 15 * MINUTE_IN_SECONDS) {
-                return !empty($stored['none']) ? null : $this->public_preview($stored);
-            }
+            return !empty($stored['none']) ? null : $this->public_preview($stored);
         }
 
         // Older posts (including website posts whose preview meta format we
@@ -359,7 +270,7 @@ class Coral_Activity_Enhancements {
         $html = is_array($content) ? (isset($content['raw']) ? $content['raw'] : (isset($content['rendered']) ? $content['rendered'] : '')) : (string) $content;
         $url = $this->first_url($html);
         if (!$url) {
-            bp_activity_update_meta($id, self::PREVIEW_META_KEY, array('none' => true, 'url' => '', 'fetched_at' => time()));
+            bp_activity_update_meta($id, self::PREVIEW_META_KEY, array('none' => true, 'url' => ''));
             return null;
         }
 
@@ -460,7 +371,7 @@ class Coral_Activity_Enhancements {
             if (is_array($stored) && !empty($stored['mirrored'])) {
                 bp_activity_delete_meta($activity->id, apply_filters('coral_link_preview_mirror_meta_key', '_link_preview_data'));
             }
-            bp_activity_update_meta($activity->id, self::PREVIEW_META_KEY, array('none' => true, 'url' => '', 'fetched_at' => time()));
+            bp_activity_update_meta($activity->id, self::PREVIEW_META_KEY, array('none' => true, 'url' => ''));
             return;
         }
 
@@ -483,7 +394,7 @@ class Coral_Activity_Enhancements {
             if ($owns_mirror && $mirror_key) {
                 bp_activity_delete_meta($activity_id, $mirror_key);
             }
-            bp_activity_update_meta($activity_id, self::PREVIEW_META_KEY, array('none' => true, 'url' => $url, 'fetched_at' => time()));
+            bp_activity_update_meta($activity_id, self::PREVIEW_META_KEY, array('none' => true, 'url' => $url));
             return null;
         }
 
@@ -502,15 +413,6 @@ class Coral_Activity_Enhancements {
             $preview['mirrored'] = true;
         }
 
-        // Youzify's wall reads its own attachment array for the preview card.
-        bp_activity_update_meta($activity_id, 'youzify_link_attachment', array(
-            'link'        => $preview['url'],
-            'title'       => $preview['title'],
-            'description' => $preview['description'],
-            'image'       => $preview['image'],
-        ));
-
-        $preview['fetched_at'] = time();
         bp_activity_update_meta($activity_id, self::PREVIEW_META_KEY, $preview);
 
         return $preview;

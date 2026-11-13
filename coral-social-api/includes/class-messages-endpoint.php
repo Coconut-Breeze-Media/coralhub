@@ -340,9 +340,7 @@ class Coral_Messages_Endpoint {
 
         $args = array(
             'sender_id'  => (int) $user_id,
-            // Better Messages accepts `content`. Some builds also read `message`.
             'content'    => $content,
-            'message'    => $content,
             'error_type' => 'wp_error',
         );
         if ($thread_id) {
@@ -390,7 +388,7 @@ class Coral_Messages_Endpoint {
                JOIN {$t['recipients']} r2 ON r2.thread_id = r1.thread_id AND r2.user_id = %d
                JOIN {$t['threads']} th ON th.id = r1.thread_id
               WHERE r1.user_id = %d
-                AND (th.type IS NULL OR th.type = '' OR th.type NOT IN ('group', 'chat-room'))
+                AND (th.type = 'thread' OR th.type = '' OR th.type IS NULL)
                 AND (SELECT COUNT(*) FROM {$t['recipients']} r3 WHERE r3.thread_id = r1.thread_id) = 2
               ORDER BY r1.thread_id DESC
               LIMIT 1",
@@ -415,11 +413,7 @@ class Coral_Messages_Endpoint {
         $offset   = ($page - 1) * $per_page;
 
         // Private conversations only (no group chats / chat rooms), newest first.
-        // Private threads are usually type "thread", but some Better Messages
-        // builds leave the column empty or use another private type. Exclude
-        // group rooms instead of allow-listing one value, or website messages
-        // never appear in the app.
-        $where = "r.user_id = %d AND r.is_deleted = 0 AND (th.type IS NULL OR th.type = '' OR th.type NOT IN ('group', 'chat-room'))";
+        $where = "r.user_id = %d AND r.is_deleted = 0 AND (th.type = 'thread' OR th.type = '' OR th.type IS NULL)";
 
         $total = (int) $wpdb->get_var($wpdb->prepare(
             "SELECT COUNT(DISTINCT r.thread_id)
